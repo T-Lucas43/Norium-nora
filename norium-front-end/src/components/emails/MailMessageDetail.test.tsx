@@ -60,7 +60,7 @@ describe("MailMessageDetail", () => {
 
   it("alterna nao lido quando ja esta lido", () => {
     const h = setup();
-    fireEvent.click(screen.getByRole("button", { name: /marcar como nao lido/i }));
+    fireEvent.click(screen.getByRole("button", { name: /marcar como não lido/i }));
     expect(h.onAction).toHaveBeenCalledWith("unread");
   });
 
@@ -94,7 +94,7 @@ describe("MailMessageDetail", () => {
 
   it("isola scripts e recursos remotos no HTML do remetente", () => {
     setup({ message: { ...base, bodyHtml: "<p>oi</p>" } as GmailMessage });
-    const frame = screen.getByTitle("Conteudo do e-mail");
+    const frame = screen.getByTitle("Conteúdo do e-mail");
     expect(frame).toHaveAttribute("sandbox", "allow-same-origin");
     expect(frame).toHaveAttribute("scrolling", "no");
     expect(frame.getAttribute("srcdoc")).toContain("Content-Security-Policy");
@@ -108,7 +108,7 @@ describe("MailMessageDetail", () => {
 
   it("avisa quando nao ha conteudo algum", () => {
     setup({ message: { ...base, snippet: "" } as GmailMessage });
-    expect(screen.getByText(/sem conteudo disponivel/i)).toBeInTheDocument();
+    expect(screen.getByText(/sem conteúdo disponível/i)).toBeInTheDocument();
   });
 
   it("lista anexos e dispara o download", () => {

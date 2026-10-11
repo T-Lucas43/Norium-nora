@@ -1,3 +1,4 @@
+import "../../styles/screens/trabalho-comum.css";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Eye, Pencil, ShieldCheck, UsersRound, X } from "lucide-react";
@@ -61,7 +62,7 @@ export default function DocumentAccessDialog({ document, onClose, onSaved }: {
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[180] grid place-items-center bg-black/70 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="nxw-remap fixed inset-0 z-[180] grid place-items-center bg-[rgba(12,13,16,.55)] p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby="document-access-title" className="flex max-h-[min(760px,92dvh)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-[var(--border)] p-5">
           <div className="flex min-w-0 gap-3">

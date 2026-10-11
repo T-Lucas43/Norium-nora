@@ -101,7 +101,7 @@ describe("MailSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /nova mensagem/i }));
     fireEvent.click(screen.getByRole("button", { name: /criar marcador/i }));
     fireEvent.click(screen.getByRole("button", { name: /^atualizar$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /configuracoes rapidas/i }));
+    fireEvent.click(screen.getByRole("button", { name: /configurações rápidas/i }));
 
     expect(h.onCompose).toHaveBeenCalled();
     expect(h.onCreateLabel).toHaveBeenCalled();

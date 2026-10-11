@@ -46,21 +46,21 @@ export default function EmailPreferences() {
     } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível concluir."); }
     finally { setBusy(false); }
   }
-  return <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-    <h2 className="flex items-center gap-2 text-base font-bold"><Mail size={19} className="text-cyan-400" /> Notificações por e-mail</h2>
-    {data ? <><p className="mt-3 break-all text-sm text-[var(--text-secondary)]">{data.email} · {data.verified ? "Confirmado" : "Confirmação pendente"}</p>
-      {!data.deliveryConfigured && <p className="mt-3 text-sm text-amber-300">O administrador ainda precisa ativar o envio pelo e-mail de suporte.</p>}
-      {!data.verified && <button type="button" disabled={busy || !data.deliveryConfigured} onClick={() => void update(true)} className="mt-3 text-sm font-bold text-[var(--primary)] disabled:opacity-50">Enviar confirmação de e-mail</button>}
-      <label className="my-5 flex items-center gap-3 text-sm font-semibold"><input type="checkbox" checked={data.enabled} onChange={(event) => setData({ ...data, enabled: event.target.checked })} /> Receber notificações da minha conta</label>
-      <fieldset disabled={!data.enabled || busy} className="disabled:opacity-50">
-        <legend className="mb-3 text-sm font-bold">Alertas automáticos</legend>
-        <div className="grid gap-3 text-sm sm:grid-cols-2">{Object.entries(events).map(([key, label]) => <label key={key} className="flex items-center gap-3"><input type="checkbox" checked={data.events[key] ?? true} onChange={(event) => setData({ ...data, events: { ...data.events, [key]: event.target.checked } })} />{label}</label>)}</div>
-        <p className="mb-3 mt-6 text-sm font-bold">Outras atualizações</p>
-        <div className="grid gap-3 text-sm sm:grid-cols-2">{Object.entries(sources).map(([key, label]) => <label key={key} className="flex items-center gap-3"><input type="checkbox" checked={data.sources[key] ?? true} onChange={(event) => setData({ ...data, sources: { ...data.sources, [key]: event.target.checked } })} />{label}</label>)}</div>
+  return <section className="nx-card" style={{ padding: "18px 22px" }}>
+    <h2 className="nxi-card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}><Mail size={16} style={{ color: "var(--nx-primary)" }} /> Notificações por e-mail</h2>
+    {data ? <><p className="nx-muted nx-small mt-1 break-all">{data.email} · <span className={`nx-badge ${data.verified ? "is-green" : "is-amber"}`}>{data.verified ? "Confirmado" : "Confirmação pendente"}</span></p>
+      {!data.deliveryConfigured && <p className="nxi-alert is-warning mt-3">O administrador ainda precisa ativar o envio pelo e-mail de suporte.</p>}
+      {!data.verified && <button type="button" disabled={busy || !data.deliveryConfigured} onClick={() => void update(true)} className="nxi-link mt-3">Enviar confirmação de e-mail</button>}
+      <label className="nxi-swrow" style={{ marginTop: 12, borderTop: "1px solid var(--nx-border)" }}><span className="nxi-swrow-t nx-grow">Receber notificações da minha conta</span><input type="checkbox" className="nxi-switch" checked={data.enabled} onChange={(event) => setData({ ...data, enabled: event.target.checked })} /></label>
+      <fieldset disabled={!data.enabled || busy} className="disabled:opacity-50" style={{ border: 0, margin: 0, padding: 0 }}>
+        <legend className="mb-3 mt-2 text-[13.5px] font-semibold">Alertas automáticos</legend>
+        <div className="grid gap-3 text-[13px] sm:grid-cols-2">{Object.entries(events).map(([key, label]) => <label key={key} className="flex items-center gap-3"><input type="checkbox" checked={data.events[key] ?? true} onChange={(event) => setData({ ...data, events: { ...data.events, [key]: event.target.checked } })} />{label}</label>)}</div>
+        <p className="mb-3 mt-5 text-[13.5px] font-semibold">Outras atualizações</p>
+        <div className="grid gap-3 text-[13px] sm:grid-cols-2">{Object.entries(sources).map(([key, label]) => <label key={key} className="flex items-center gap-3"><input type="checkbox" checked={data.sources[key] ?? true} onChange={(event) => setData({ ...data, sources: { ...data.sources, [key]: event.target.checked } })} />{label}</label>)}</div>
       </fieldset>
-      <p className="mt-5 text-xs leading-5 text-[var(--text-secondary)]">Mensagens do WhatsApp e e-mails recebidos ficam fora destes envios. Confirmação de conta e recuperação de senha continuam disponíveis independentemente destas preferências.</p>
-      <button type="button" disabled={busy} onClick={() => void update()} className="mt-5 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{busy ? "Aguarde..." : "Salvar notificações"}</button>
-    </> : !error && <p className="mt-3 text-sm">Carregando preferências...</p>}
-    {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}{message && <p role="status" className="mt-3 text-sm text-emerald-300">{message}</p>}
+      <p className="nx-faint nx-small mt-5" style={{ lineHeight: 1.5 }}>Mensagens do WhatsApp e e-mails recebidos ficam fora destes envios. Confirmação de conta e recuperação de senha continuam disponíveis independentemente destas preferências.</p>
+      <div className="nxi-actions is-end mt-4"><button type="button" disabled={busy} onClick={() => void update()} className="nx-btn is-primary">{busy ? "Aguarde..." : "Salvar notificações"}</button></div>
+    </> : !error && <p className="nx-muted nx-small mt-3">Carregando preferências...</p>}
+    {error && <p role="alert" className="nxi-alert is-error mt-3">{error}</p>}{message && <p role="status" className="nxi-alert is-success mt-3">{message}</p>}
   </section>;
 }

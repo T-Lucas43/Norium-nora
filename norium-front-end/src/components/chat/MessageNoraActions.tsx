@@ -136,45 +136,45 @@ export default function MessageNoraActions({ conversationId, request, onClose, o
   };
 
   return (
-    <div className="fixed inset-0 z-[230] flex items-center justify-center bg-black/75 p-4" role="presentation">
-      <section role="dialog" aria-modal="true" aria-labelledby="message-nora-title" className="w-full max-w-xl overflow-hidden rounded-2xl border border-cyan-400/25 bg-[#080b0f] text-[var(--text)] shadow-2xl">
-        <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+    <div className="fixed inset-0 z-[230] flex items-center justify-center bg-black/50 p-4" role="presentation">
+      <section role="dialog" aria-modal="true" aria-labelledby="message-nora-title" className="nx-conv-panel w-full max-w-xl overflow-hidden shadow-2xl">
+        <header className="flex items-center justify-between border-b border-[var(--nx-border)] px-5 py-4">
           <div className="flex items-center gap-3">
-            <span className="grid h-9 w-9 place-items-center rounded-xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300"><Sparkles size={18} /></span>
-            <div><h3 id="message-nora-title" className="text-sm font-extrabold">{request.mode === "reply" ? "Resposta da Nora" : request.mode === "summary" ? "Resumo da Nora" : "Transformar em tarefa"}</h3><p className="text-[11px] text-[var(--text-secondary)]">Revise tudo antes de confirmar.</p></div>
+            <span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)]"><Sparkles size={18} /></span>
+            <div><h3 id="message-nora-title" className="text-[15px] font-semibold">{request.mode === "reply" ? "Resposta da Nora" : request.mode === "summary" ? "Resumo da Nora" : "Transformar em tarefa"}</h3><p className="text-[12.5px] text-[var(--nx-text-2)]">Revise tudo antes de confirmar.</p></div>
           </div>
-          <button type="button" onClick={onClose} disabled={loading} aria-label="Fechar ação da Nora" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/10 disabled:opacity-40"><X size={16} /></button>
+          <button type="button" onClick={onClose} disabled={loading} aria-label="Fechar ação da Nora" className="nx-conv-iconbtn h-8 w-8"><X size={16} /></button>
         </header>
 
         <div className="space-y-4 p-5">
-          <div className="rounded-xl border border-[var(--border)] bg-black px-3 py-2 text-xs text-[var(--text-secondary)]"><span className="font-bold text-[var(--text)]">Mensagem selecionada:</span> {messageText(request.message)}</div>
-          {loading && !draft && request.mode !== "task" && <div className="flex items-center justify-center gap-2 py-12 text-sm font-semibold text-cyan-300"><Loader2 size={18} className="animate-spin" /> Nora está preparando uma versão para revisão...</div>}
-          {error && <p role="alert" className="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300">{error}</p>}
+          <div className="rounded-lg bg-[var(--nx-surface-2)] px-3 py-2 text-[12.5px] text-[var(--nx-text-2)]"><span className="font-medium text-[var(--nx-text)]">Mensagem selecionada:</span> {messageText(request.message)}</div>
+          {loading && !draft && request.mode !== "task" && <div className="flex items-center justify-center gap-2 py-12 text-sm text-[var(--nx-primary-text)]"><Loader2 size={18} className="animate-spin" /> Nora está preparando uma versão para revisão...</div>}
+          {error && <p role="alert" className="rounded-lg bg-[var(--nx-danger-soft)] px-3 py-2 text-xs text-[var(--nx-danger)]">{error}</p>}
 
           {request.mode === "task" ? (
             <>
-              <label className="block text-xs font-bold">Projeto
-                <select value={projectId} onChange={(event) => setProjectId(event.target.value)} disabled={loading && projects.length === 0} className="mt-1.5 h-11 w-full rounded-xl border border-[var(--border)] bg-black px-3 text-sm outline-none focus:border-[var(--primary)]" aria-label="Projeto da tarefa">
+              <label className="nx-conv-label block">Projeto
+                <select value={projectId} onChange={(event) => setProjectId(event.target.value)} disabled={loading && projects.length === 0} className="nx-conv-field mt-1.5 h-9 w-full px-3 text-sm" aria-label="Projeto da tarefa">
                   <option value="">Selecione o projeto</option>
                   {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
                 </select>
               </label>
-              {!loading && projects.length === 0 && <p className="text-xs font-semibold text-amber-300">Crie um projeto na Lista de tarefas antes de transformar esta mensagem.</p>}
-              <label className="block text-xs font-bold">Título
-                <input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} maxLength={160} className="mt-1.5 h-11 w-full rounded-xl border border-[var(--border)] bg-black px-3 text-sm outline-none focus:border-[var(--primary)]" />
+              {!loading && projects.length === 0 && <p className="text-xs text-[var(--nx-warning)]">Crie um projeto na Lista de tarefas antes de transformar esta mensagem.</p>}
+              <label className="nx-conv-label block">Título
+                <input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} maxLength={160} className="nx-conv-field mt-1.5 h-9 w-full px-3 text-sm" />
               </label>
-              <label className="block text-xs font-bold">Descrição revisada pela Nora
-                <textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} rows={6} className="mt-1.5 w-full resize-y rounded-xl border border-[var(--border)] bg-black p-3 text-sm leading-6 outline-none focus:border-[var(--primary)]" />
+              <label className="nx-conv-label block">Descrição revisada pela Nora
+                <textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} rows={6} className="nx-conv-field mt-1.5 w-full resize-y p-3 text-sm leading-6" />
               </label>
-              <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose} disabled={loading}>Cancelar</Button><Button onClick={() => void createTask()} disabled={!selectedProject || !taskTitle.trim() || !taskDescription.trim()} loading={loading}><ListChecks size={15} /> Criar tarefa</Button></div>
+              <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose} disabled={loading}>Cancelar</Button><Button variant="primary" onClick={() => void createTask()} disabled={!selectedProject || !taskTitle.trim() || !taskDescription.trim()} loading={loading}><ListChecks size={15} /> Criar tarefa</Button></div>
             </>
           ) : !loading ? (
             <>
-              <label className="block text-xs font-bold">Texto para validação
-                <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={7} className="mt-1.5 w-full resize-y rounded-xl border border-[var(--border)] bg-black p-3 text-sm leading-6 outline-none focus:border-cyan-400" />
+              <label className="nx-conv-label block">Texto para validação
+                <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={7} className="nx-conv-field mt-1.5 w-full resize-y p-3 text-sm leading-6" />
               </label>
-              <div className="flex gap-2"><input value={improvement} onChange={(event) => setImprovement(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void improve(); }} placeholder="Peça uma melhoria antes de usar" className="h-10 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-black px-3 text-xs outline-none focus:border-cyan-400" /><Button onClick={() => void improve()} disabled={!improvement.trim()} loading={loading}><WandSparkles size={14} /> Melhorar</Button></div>
-              <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose} disabled={loading}>Descartar</Button><Button onClick={() => void confirmReview()} disabled={!draft.trim() || loading}>{request.mode === "reply" ? <><Check size={15} /> Usar como resposta</> : <><Clipboard size={15} /> Copiar resumo</>}</Button></div>
+              <div className="flex gap-2"><input value={improvement} onChange={(event) => setImprovement(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void improve(); }} placeholder="Peça uma melhoria antes de usar" className="nx-conv-field h-9 min-w-0 flex-1 px-3 text-[13px]" /><Button onClick={() => void improve()} disabled={!improvement.trim()} loading={loading}><WandSparkles size={14} /> Melhorar</Button></div>
+              <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose} disabled={loading}>Descartar</Button><Button variant="primary" onClick={() => void confirmReview()} disabled={!draft.trim() || loading}>{request.mode === "reply" ? <><Check size={15} /> Usar como resposta</> : <><Clipboard size={15} /> Copiar resumo</>}</Button></div>
             </>
           ) : null}
         </div>

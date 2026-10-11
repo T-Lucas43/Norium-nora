@@ -265,7 +265,7 @@ describe("CommercialDashboard leve", () => {
     await screen.findByText("Proposta sob demanda");
     await userEvent.setup().click(screen.getByRole("button", { name: /Ferramentas PDF/i }));
 
-    expect(await screen.findByRole("heading", { name: "Norium PDF Studio" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "PDF Studio" })).toBeInTheDocument();
     expect(await screen.findByText("Combinar PDF")).toBeInTheDocument();
     expect(await screen.findByText("Editar PDF")).toBeInTheDocument();
   });
@@ -274,7 +274,7 @@ describe("CommercialDashboard leve", () => {
     const onOpenDocuments = vi.fn();
     render(<CommercialDashboard session={session} onOpenNora={vi.fn()} initialPdfToolsOpen onOpenDocuments={onOpenDocuments} />);
 
-    expect(await screen.findByRole("heading", { name: "Norium PDF Studio" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "PDF Studio" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir editor" })).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "Voltar para Documentos" }));
     expect(onOpenDocuments).toHaveBeenCalledOnce();

@@ -275,7 +275,7 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
 
   const renderItems = (sectionItems: StatusContactGroup[], label: string) => sectionItems.length ? (
     <section className="pb-2">
-      <h3 className="px-4 pb-2 pt-4 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{label}</h3>
+      <h3 className="px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--nx-text-3)]">{label}</h3>
       {sectionItems.map((group) => {
         const item = group.latest;
         const count = group.items.length;
@@ -283,7 +283,7 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
         const hasUnviewed = !item.mine && group.items.some((status) => !status.viewed);
         const active = group.items.some((status) => status.id === selectedId);
         return (
-          <button key={group.key} type="button" disabled={navigationLocked} onClick={() => onSelect(item)} aria-label={`${item.name}, ${countLabel}, ${formatTime(item.timestamp)}`} aria-current={active ? "true" : undefined} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 ${active ? "bg-[color-mix(in_srgb,var(--primary)_14%,transparent)]" : ""}`}>
+          <button key={group.key} type="button" disabled={navigationLocked} onClick={() => onSelect(item)} aria-label={`${item.name}, ${countLabel}, ${formatTime(item.timestamp)}`} aria-current={active ? "true" : undefined} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 ${active ? "bg-[var(--nx-primary-soft)]" : ""}`}>
             <StatusAvatar identifier={item.contactId} name={item.name} photoUrl={group.photoUrl} viewed={!hasUnviewed} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-bold text-[var(--text)]">{item.name}</span>
@@ -299,13 +299,13 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
 
   return (
     <>
-      <aside className="norium-chat-sidebar flex h-full min-h-0 w-[380px] min-w-[320px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)] text-[var(--text)]">
-        <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
+      <aside className="norium-chat-sidebar flex h-full min-h-0 w-[300px] min-w-[280px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)] text-[var(--text)]">
+        <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-semibold"><CircleDot size={20} className="text-[var(--primary)]" /> Status</h2>
+            <h2 className="flex items-center gap-2 text-[15px] font-semibold"><CircleDot size={16} className="text-[var(--nx-primary-text)]" /> Status</h2>
             <p className="mt-0.5 text-[11px] text-[var(--text-secondary)]">Atualizações recebidas pelo WhatsApp</p>
           </div>
-          <button type="button" onClick={onRefresh} disabled={loading} className="grid h-9 w-9 place-items-center rounded-xl border border-[var(--border)] hover:border-[var(--primary)] disabled:opacity-50" aria-label="Atualizar status"><RefreshCw size={16} className={loading ? "animate-spin" : ""} /></button>
+          <button type="button" onClick={onRefresh} disabled={loading} className="nx-conv-iconbtn h-8 w-8" aria-label="Atualizar status"><RefreshCw size={16} className={loading ? "animate-spin" : ""} /></button>
         </header>
 
         <div className="border-b border-[var(--border)] px-4 py-4">
@@ -319,21 +319,21 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
           {sync?.status === "syncing" && (
             <div className="mt-3 rounded-xl border border-[var(--primary)]/25 bg-[color-mix(in_srgb,var(--primary)_9%,transparent)] px-3 py-2" role="status" aria-live="polite">
               <div className="flex items-center justify-between gap-3 text-[10px] font-bold"><span className="truncate">{sync.message || "Recebendo contatos e Status"}</span><span className="text-[var(--primary)]">{Math.round(sync.progress || 0)}%</span></div>
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-black/60"><div className="h-full rounded-full bg-[var(--primary)] transition-[width]" style={{ width: `${Math.max(0, Math.min(100, sync.progress || 0))}%` }} /></div>
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[var(--nx-hover)]"><div className="h-full rounded-full bg-[var(--primary)] transition-[width]" style={{ width: `${Math.max(0, Math.min(100, sync.progress || 0))}%` }} /></div>
             </div>
           )}
         </div>
 
         <div className="norium-chat-list min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {loading && <p className="p-8 text-center text-sm font-semibold text-[var(--text-secondary)]">Atualizando status...</p>}
-          {!loading && error && <div className="p-8 text-center"><p className="text-sm font-semibold text-red-400">{error}</p><button type="button" onClick={onRefresh} className="mt-3 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold">Tentar novamente</button></div>}
+          {!loading && error && <div className="p-8 text-center"><p className="text-sm font-semibold text-red-400">{error}</p><button type="button" onClick={onRefresh} className="mt-3 nx-btn is-sm mt-3">Tentar novamente</button></div>}
           {!loading && !error && items.length === 0 && (
             <div className="grid place-items-center gap-2 p-10 text-center text-[var(--text-secondary)]">
               <CircleDot size={28} />
               <p className="text-sm font-semibold">Nenhum Status recebido ainda.</p>
               <p className="text-xs leading-5">A W-API não disponibilizou Status recentes para esta sessão. Novos eventos aparecerão aqui se forem entregues pela integração.</p>
-              {sync?.status === "error" && <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">A sincronização da agenda falhou, mas o Norium continuará aguardando novos Status.</p>}
-              <button type="button" onClick={onRefresh} className="mt-1 rounded-xl border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)] hover:border-[var(--primary)]">Atualizar Status</button>
+              {sync?.status === "error" && <p className="rounded-lg bg-[var(--nx-warning-soft)] px-3 py-2 text-xs text-[var(--nx-warning)]">A sincronização da agenda falhou, mas o Norium continuará aguardando novos Status.</p>}
+              <button type="button" onClick={onRefresh} className="nx-btn is-sm mt-1">Atualizar Status</button>
             </div>
           )}
           {!loading && !error && renderItems(mine, "Meus status")}
@@ -342,10 +342,10 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
         </div>
       </aside>
 
-      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#090b0d] text-[var(--text)]">
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--nx-bg)] text-[var(--nx-text)]">
         {selected ? (
           <>
-            <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-5">
+            <header className="flex h-[60px] shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-5">
               <StatusAvatar identifier={selected.contactId} name={selected.name} photoUrl={selected.photoUrl} viewed={selected.viewed} />
               <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold">{selected.name}</h3><p className="text-xs text-[var(--text-secondary)]">{formatTime(selected.timestamp)}</p></div>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"><Eye size={13} /> Visualizado</span>
@@ -371,24 +371,24 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
             {!selected.mine && (onReplyText || onReplyAudio) && (
               <div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3">
                 {replyError && <p className="mb-2 text-xs font-semibold text-red-400" role="alert">{replyError}</p>}
-                {preparingRecording && <p className="mb-2 text-xs font-semibold text-amber-300" role="status">Solicitando acesso ao microfone. Aguarde antes de mudar de Status.</p>}
-                {recording && <p className="mb-2 text-xs font-semibold text-amber-300" role="status">Gravação em andamento. Finalize o áudio antes de mudar de Status.</p>}
+                {preparingRecording && <p className="mb-2 text-xs text-[var(--nx-warning)]" role="status">Solicitando acesso ao microfone. Aguarde antes de mudar de Status.</p>}
+                {recording && <p className="mb-2 text-xs text-[var(--nx-warning)]" role="status">Gravação em andamento. Finalize o áudio antes de mudar de Status.</p>}
                 <div className="flex items-center gap-2">
-                  <input value={reply} onChange={(event) => setReply(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void sendTextReply(); }} disabled={sending || navigationLocked} placeholder={`Responder ao Status de ${selected.name}`} className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-black px-4 text-sm text-[var(--text)] outline-none focus:border-[var(--primary)] disabled:opacity-60" />
-                  {onReplyAudio && <button type="button" onClick={() => void toggleRecording()} disabled={sending || preparingRecording} aria-label={preparingRecording ? "Preparando gravação de áudio" : recording ? "Parar e enviar áudio" : "Responder com áudio"} className={`grid h-11 w-11 place-items-center rounded-xl border transition ${recording ? "animate-pulse border-red-500 bg-red-500 text-white" : "border-[var(--border)] bg-black text-[var(--text)] hover:border-[var(--primary)]"} disabled:opacity-50`}>{recording ? <Square size={16} fill="currentColor" /> : <Mic size={19} />}</button>}
-                  {onReplyText && <button type="button" onClick={() => void sendTextReply()} disabled={sending || navigationLocked || !reply.trim()} aria-label="Enviar resposta ao Status" className="grid h-11 w-11 place-items-center rounded-xl bg-[var(--primary)] text-white disabled:opacity-40"><SendHorizontal size={18} /></button>}
+                  <input value={reply} onChange={(event) => setReply(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void sendTextReply(); }} disabled={sending || navigationLocked} placeholder={`Responder ao Status de ${selected.name}`} className="nx-conv-field h-10 min-w-0 flex-1 px-4 text-sm text-[var(--text)] outline-none focus:border-[var(--primary)] disabled:opacity-60" />
+                  {onReplyAudio && <button type="button" onClick={() => void toggleRecording()} disabled={sending || preparingRecording} aria-label={preparingRecording ? "Preparando gravação de áudio" : recording ? "Parar e enviar áudio" : "Responder com áudio"} className={`grid h-10 w-10 place-items-center rounded-lg border transition ${recording ? "animate-pulse border-red-500 bg-red-500 text-white" : "border-[var(--nx-border-strong)] bg-[var(--nx-surface)] text-[var(--nx-text-2)] hover:bg-[var(--nx-hover)]"} disabled:opacity-50`}>{recording ? <Square size={16} fill="currentColor" /> : <Mic size={19} />}</button>}
+                  {onReplyText && <button type="button" onClick={() => void sendTextReply()} disabled={sending || navigationLocked || !reply.trim()} aria-label="Enviar resposta ao Status" className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--nx-primary)] text-white disabled:opacity-40"><SendHorizontal size={18} /></button>}
                 </div>
               </div>
             )}
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-            <div className="grid h-28 w-28 place-items-center rounded-full border border-[var(--primary)]/25 bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] text-[var(--primary)]"><CircleDot size={48} strokeWidth={1.25} /></div>
-            <h3 className="mt-6 text-xl font-semibold">Status do WhatsApp</h3>
+            <div className="grid h-14 w-14 place-items-center rounded-xl bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)]"><CircleDot size={24} /></div>
+            <h3 className="mt-4 text-lg font-semibold">Status do WhatsApp</h3>
             <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-secondary)]">{loading ? "Buscando as atualizações mais recentes do WhatsApp..." : items.length === 0 ? "A W-API não disponibilizou Status recentes para esta sessão. Novos eventos aparecerão aqui se forem entregues pela integração." : "Visualize aqui as atualizações recebidas. Elas ficam separadas das mensagens e não poluem sua caixa de conversas."}</p>
             <div className="mt-6 flex gap-3">
-              <button type="button" onClick={onCreateUnavailable} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2.5 text-sm font-semibold hover:border-[var(--primary)]"><Pencil size={16} /> Status de texto</button>
-              <button type="button" onClick={onCreateUnavailable} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2.5 text-sm font-semibold hover:border-[var(--primary)]"><Camera size={16} /> Foto e vídeo</button>
+              <button type="button" onClick={onCreateUnavailable} className="nx-btn"><Pencil size={16} /> Status de texto</button>
+              <button type="button" onClick={onCreateUnavailable} className="nx-btn"><Camera size={16} /> Foto e vídeo</button>
             </div>
           </div>
         )}

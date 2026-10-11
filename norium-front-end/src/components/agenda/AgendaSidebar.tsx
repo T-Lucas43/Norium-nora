@@ -1,6 +1,6 @@
-import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Cloud, Globe2, RefreshCw, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Globe2, Plus, RefreshCw, X } from "lucide-react";
 import type { AgendaStatus } from "./AgendaDashboard";
-import Button from "../shared/Button";
+import googleLogo from "../../assets/integrations/google.svg";
 
 interface SidebarProps {
   dataSelecionada: Date;
@@ -73,125 +73,116 @@ export default function AgendaSidebar({
   };
 
   return (
-    <aside className="agenda-sidebar flex h-full w-72 shrink-0 flex-col gap-5 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] p-4">
-      <div className="module-sidebar-mobile-header">
+    <aside className="nx-ag-side" aria-label="Menu da agenda">
+      <div className="nx-ag-side-head">
         <span><CalendarDays size={18} /> Agenda</span>
-        <button type="button" onClick={onClose} aria-label="Fechar menu da agenda">
-          <X size={19} />
+        <button type="button" className="nx-btn is-ghost nx-ag-icon is-sm" onClick={onClose} aria-label="Fechar menu da agenda">
+          <X size={18} />
         </button>
       </div>
-      <button
-        onClick={() => onNovoEvento(dataSelecionada)}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] text-sm font-bold text-white shadow-sm hover:opacity-95"
-      >
-        <CalendarPlus size={18} />
-        Novo evento
-      </button>
 
-      <div className="space-y-3">
-        <div className="agenda-month-picker flex items-center justify-between gap-2 px-1">
-          <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_82px] gap-2">
-            <select
-              aria-label="Escolher mês"
-              value={mesAtualIdx}
-              onChange={(event) => setDataSelecionada(new Date(anoAtual, Number(event.target.value), 1))}
-              className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none"
-            >
-              {meses.map((mes, index) => <option key={mes} value={index}>{mes}</option>)}
-            </select>
-            <select
-              aria-label="Escolher ano"
-              value={anoAtual}
-              onChange={(event) => setDataSelecionada(new Date(Number(event.target.value), mesAtualIdx, 1))}
-              className="h-9 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none"
-            >
-              {anos.map((ano) => <option key={ano} value={ano}>{ano}</option>)}
-            </select>
-          </div>
-          <div className="flex gap-1 text-[var(--text-secondary)]">
-            <Button variant="ghost" size="sm" iconOnly onClick={() => mudarMes(-1)}>
+      <div className="nx-card nx-ag-box">
+        <div className="nx-ag-picker">
+          <select
+            aria-label="Escolher mês"
+            value={mesAtualIdx}
+            onChange={(event) => setDataSelecionada(new Date(anoAtual, Number(event.target.value), 1))}
+            className="nx-ag-select"
+          >
+            {meses.map((mes, index) => <option key={mes} value={index}>{mes}</option>)}
+          </select>
+          <select
+            aria-label="Escolher ano"
+            value={anoAtual}
+            onChange={(event) => setDataSelecionada(new Date(Number(event.target.value), mesAtualIdx, 1))}
+            className="nx-ag-select"
+          >
+            {anos.map((ano) => <option key={ano} value={ano}>{ano}</option>)}
+          </select>
+          <span className="nx-ag-nav">
+            <button type="button" className="nx-btn is-ghost nx-ag-icon is-sm" aria-label="Mês anterior" onClick={() => mudarMes(-1)}>
               <ChevronLeft size={16} />
-            </Button>
-            <Button variant="ghost" size="sm" iconOnly onClick={() => mudarMes(1)}>
+            </button>
+            <button type="button" className="nx-btn is-ghost nx-ag-icon is-sm" aria-label="Próximo mês" onClick={() => mudarMes(1)}>
               <ChevronRight size={16} />
-            </Button>
-          </div>
+            </button>
+          </span>
         </div>
 
-        <div className="grid grid-cols-7 text-center text-xs font-bold text-[var(--text-secondary)]">
+        <div className="nx-ag-mini">
           {weekDays.map((day, index) => (
             <span key={`${day}-${index}`}>{day}</span>
           ))}
-        </div>
-
-        <div className="grid grid-cols-7 gap-y-1 text-center text-xs font-semibold">
           {monthCells(dataSelecionada).map((dia, index) => {
-            if (!dia) return <span key={`blank-${index}`} className="h-8" />;
+            if (!dia) return <span key={`blank-${index}`} />;
             const date = new Date(anoAtual, mesAtualIdx, dia);
             const isSelected = sameDay(date, dataSelecionada);
             const isToday = sameDay(date, hoje);
             return (
               <button
                 key={dia}
+                type="button"
                 onClick={() => selecionarDia(dia)}
-                className={`mx-auto grid h-8 w-8 place-items-center rounded-full transition ${
-                  isSelected
-                    ? "bg-[var(--primary)] text-white"
-                    : isToday
-                      ? "border border-[var(--primary)] text-[var(--primary)]"
-                      : "hover:bg-[var(--surface-hover)]"
-                }`}
+                aria-pressed={isSelected}
+                className={isSelected ? "is-selected" : isToday ? "is-today" : ""}
               >
                 {dia}
               </button>
             );
           })}
         </div>
+
+        <button
+          type="button"
+          onClick={() => onNovoEvento(dataSelecionada)}
+          className="nx-btn is-sm"
+          style={{ width: "100%", marginTop: 12 }}
+        >
+          <Plus size={14} />
+          Novo evento
+        </button>
       </div>
 
-      <div className="space-y-2">
-        <h3 className="text-xs font-bold uppercase text-[var(--text-secondary)]">Meus calendários</h3>
-        <label className="flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold">
-          <input type="checkbox" defaultChecked className="h-4 w-4 accent-[var(--primary)]" />
+      <div className="nx-card nx-ag-box">
+        <div className="nx-ag-box-t">Meus calendários</div>
+        <label className="nx-ag-cal">
+          <input type="checkbox" defaultChecked />
+          <span className="nx-ag-sq" style={{ background: "var(--nx-primary)" }} />
           Google Agenda
+          <span className="nx-faint nx-small">{status.connected ? "Conectado" : "Local"}</span>
         </label>
-        <label className="flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold">
-          <input type="checkbox" defaultChecked className="h-4 w-4 accent-amber-500" />
+        <label className="nx-ag-cal">
+          <input type="checkbox" defaultChecked />
+          <span className="nx-ag-sq" style={{ background: "var(--nx-warning)" }} />
           Norium local
+          <span className="nx-faint nx-small">Local</span>
         </label>
       </div>
 
-      <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-2 text-sm font-bold">
-            <Cloud size={16} />
-            Google Agenda
-          </span>
-          <span className={`rounded-full px-2 py-1 text-xs font-bold ${status.connected ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-300"}`}>
+      <div className="nx-card nx-ag-box">
+        <div className="nx-ag-box-t">
+          <img src={googleLogo} alt="" className="nx-ag-google" />
+          Google Agenda
+          <span className={`nx-badge ${status.connected ? "is-green" : "is-amber"}`} style={{ marginLeft: "auto" }}>
             {status.connected ? "Conectado" : "Local"}
           </span>
         </div>
-
-        <div className="flex gap-2">
+        <div className="nx-ag-sync">
           {!status.connected && (
-            <Button variant="primary" size="sm" onClick={onConnectGoogle} className="flex-1">
+            <button type="button" className="nx-btn is-primary is-sm" onClick={onConnectGoogle}>
               Conectar
-            </Button>
+            </button>
           )}
-          <Button size="sm" iconOnly onClick={onSync}>
-            <RefreshCw size={15} />
-          </Button>
+          <button type="button" className="nx-btn is-sm nx-ag-icon" aria-label="Sincronizar agenda" title="Sincronizar agenda" onClick={onSync}>
+            <RefreshCw size={14} />
+          </button>
         </div>
-
-        <p className="text-xs font-semibold text-[var(--text-secondary)]">Sincronizado: {formatLastSync(status.lastSync)}</p>
+        <p className="nx-faint nx-small" style={{ margin: "10px 0 0" }}>Sincronizado: {formatLastSync(status.lastSync)}</p>
       </div>
 
-      <div className="mt-auto flex items-center gap-2 border-t border-[var(--border)] pt-4 text-xs font-medium text-[var(--text-secondary)]">
-        <Globe2 size={16} />
-        <div>
-          <p className="font-bold text-[var(--text)]">Fuso horário</p>
-          <p>Brasília, GMT-03:00</p>
-        </div>
+      <div className="nx-card nx-ag-box">
+        <div className="nx-ag-box-t"><Globe2 size={16} className="nx-faint" />Fuso horário</div>
+        <div className="nx-muted nx-small" style={{ marginTop: 6 }}>Brasília (GMT−3)</div>
       </div>
     </aside>
   );

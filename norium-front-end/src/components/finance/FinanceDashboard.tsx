@@ -1,8 +1,5 @@
-import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  LayoutDashboard,
-  ArrowDownUp,
   CalendarClock,
   AlertTriangle,
   BellRing,
@@ -15,7 +12,6 @@ import {
   FileUp,
   Paperclip,
   Plus,
-  Receipt,
   RefreshCw,
   Save,
   Sparkles,
@@ -25,13 +21,12 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { apiBaseUrl } from "../../utils/api";
 import { downloadWithAuth, openWithAuth } from "../../utils/download";
 import LoadingState from "../shared/LoadingState";
 import { showConfirm } from "../shared/AppDialogProvider";
-import Button from "../shared/Button";
+import "./finance.css";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -177,7 +172,7 @@ function money(value: number) {
 
 function dateLabel(value?: string | null) {
   if (!value) return "Sem data";
-  return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+  return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function dateKey(date: Date) {
@@ -319,7 +314,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
       setError("");
       const response = await fetch(`${BACKEND_URL}/api/financeiro?user_id=${userId}`);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.detail || "Nao consegui carregar os dados financeiros.");
+      if (!response.ok) throw new Error(payload?.detail || "Não consegui carregar os dados financeiros.");
       setData(payload);
       setSelectedId((current) => {
         if (current && payload.lancamentos?.some((item: Lancamento) => item.id === current)) return current;
@@ -371,18 +366,18 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
         }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.detail || "Nao consegui criar o lancamento.");
+      if (!response.ok) throw new Error(payload?.detail || "Não consegui criar o lançamento.");
       setLancamentoForm(emptyLancamento);
       setSelectedId(payload.lancamento.id);
       setActiveView("entries");
       setCreatePanel(null);
-      setNotice(`Lancamento "${payload.lancamento.title}" salvo com sucesso.`);
+      setNotice(`Lançamento "${payload.lancamento.title}" salvo com sucesso.`);
       await loadFinance();
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Falha ao salvar o lancamento. Verifique se o backend esta rodando na porta 8000.",
+          : "Falha ao salvar o lançamento. Verifique se o backend esta rodando na porta 8000.",
       );
     } finally {
       setCreatingLancamento(false);
@@ -416,14 +411,14 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
         }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.detail || "Nao consegui criar a programacao.");
+      if (!response.ok) throw new Error(payload?.detail || "Não consegui criar a programação.");
       setProgramadoForm(emptyProgramado);
       setActiveView("scheduled");
       setCreatePanel(null);
       setNotice(`Gasto programado "${payload.programado.title}" salvo com sucesso.`);
       await loadFinance();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar a programacao.");
+      setError(err instanceof Error ? err.message : "Falha ao salvar a programação.");
     } finally {
       setCreatingProgramado(false);
     }
@@ -439,12 +434,12 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
         body: JSON.stringify({ user_id: userId, ...updates }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.detail || "Nao consegui atualizar o lancamento.");
-      setNotice(`Lancamento "${payload.lancamento.title}" atualizado.`);
+      if (!response.ok) throw new Error(payload?.detail || "Não consegui atualizar o lançamento.");
+      setNotice(`Lançamento "${payload.lancamento.title}" atualizado.`);
       await loadFinance();
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui atualizar o lancamento.");
+      setError(err instanceof Error ? err.message : "Não consegui atualizar o lançamento.");
       return false;
     }
   }
@@ -456,15 +451,15 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
       const response = await fetch(`${BACKEND_URL}/api/financeiro/lancamentos/${id}?user_id=${userId}`, { method: "DELETE" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail || "Nao consegui excluir o lancamento.");
+        throw new Error(payload?.detail || "Não consegui excluir o lançamento.");
       }
       setSelectedId(null);
       setEditingId(null);
       setDeleteConfirmId(null);
-      setNotice("Lancamento excluido com sucesso.");
+      setNotice("Lançamento excluído com sucesso.");
       await loadFinance();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui excluir o lancamento.");
+      setError(err instanceof Error ? err.message : "Não consegui excluir o lançamento.");
     }
   }
 
@@ -524,10 +519,10 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
     const response = await fetch(`${BACKEND_URL}/api/financeiro/programados/${id}?user_id=${userId}`, { method: "DELETE" });
     if (!response.ok) {
       const payload = await response.json();
-      setError(payload?.detail || "Nao consegui excluir a programacao.");
+      setError(payload?.detail || "Não consegui excluir a programação.");
       return;
     }
-    setNotice("Programacao excluida.");
+    setNotice("Programação excluída.");
     await loadFinance();
   }
 
@@ -548,16 +543,16 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
         headers: { Accept: "application/json" },
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.detail || "Nao consegui registrar o pagamento.");
+      if (!response.ok) throw new Error(payload?.detail || "Não consegui registrar o pagamento.");
       setSelectedId(payload?.lancamento?.id || null);
       setNotice(
         payload?.programado?.nextDueDate
-          ? `Pagamento registrado. Proximo vencimento em ${dateLabel(payload.programado.nextDueDate)}.`
-          : "Pagamento registrado e programacao concluida.",
+          ? `Pagamento registrado. Próximo vencimento em ${dateLabel(payload.programado.nextDueDate)}.`
+          : "Pagamento registrado e programação concluída.",
       );
       await loadFinance();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui registrar o pagamento.");
+      setError(err instanceof Error ? err.message : "Não consegui registrar o pagamento.");
     } finally {
       setPayingProgramadoId(null);
     }
@@ -604,16 +599,16 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
           }),
         });
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.detail || `Nao consegui anexar ${file.name}.`);
+        if (!response.ok) throw new Error(payload?.detail || `Não consegui anexar ${file.name}.`);
       }
       setNotice(
         selectedFiles.length === 1
-          ? "Arquivo anexado ao lancamento."
-          : `${selectedFiles.length} arquivos anexados ao lancamento.`,
+          ? "Arquivo anexado ao lançamento."
+          : `${selectedFiles.length} arquivos anexados ao lançamento.`,
       );
       await loadFinance();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui anexar os arquivos.");
+      setError(err instanceof Error ? err.message : "Não consegui anexar os arquivos.");
     } finally {
       setUploadingAttachments(false);
     }
@@ -638,11 +633,11 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
         { method: "DELETE" },
       );
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.detail || "Nao consegui remover o anexo.");
+      if (!response.ok) throw new Error(payload?.detail || "Não consegui remover o anexo.");
       setNotice(`Anexo "${attachment.name}" removido.`);
       await loadFinance();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui remover o anexo.");
+      setError(err instanceof Error ? err.message : "Não consegui remover o anexo.");
     } finally {
       setRemovingAttachmentId(null);
     }
@@ -650,762 +645,615 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
 
   const showEntries = activeView === "overview" || activeView === "entries";
   const showBoletos = activeView === "boletos";
-  const showScheduled = activeView === "overview" || activeView === "scheduled";
-  const showAside = createPanel !== null || activeView === "overview" || activeView === "scheduled";
   const totalMovimentado = filteredSummary.entradas + filteredSummary.saidas;
   const percentualSaidas = totalMovimentado > 0 ? Math.round((filteredSummary.saidas / totalMovimentado) * 100) : 0;
   const financeStatus = filteredSummary.vencidos > 0 ? `${filteredSummary.vencidos} vencimento(s) pedem atenção` : filteredSummary.saldo >= 0 ? "Fluxo financeiro saudável" : "Saldo abaixo do esperado";
+  const paidEntries = filteredLancamentos.filter((item) => item.status === "pago");
+  const paidIn = paidEntries.filter((item) => item.type === "entrada").length;
+  const paidOut = paidEntries.filter((item) => item.type === "saida").length;
+  const pendingCount = filteredLancamentos.filter((item) => item.status === "pendente").length;
+  const margin = filteredSummary.entradas > 0 ? (filteredSummary.saldo / filteredSummary.entradas) * 100 : null;
+  const monthly = useMemo(() => monthlyRevenue(data.lancamentos), [data.lancamentos]);
+  const monthlyMax = Math.max(0, ...monthly.map((item) => item.total));
+  const feedback = (error || notice) ? (
+    <div role={error ? "alert" : "status"} className={`fin-alert ${error ? "is-error" : "is-ok"}`}>{error || notice}</div>
+  ) : null;
+
+  function closeSelected() {
+    setSelectedId(null);
+    setEditingId(null);
+    setDeleteConfirmId(null);
+  }
+
+  const entriesCard = (
+    <section className="nx-card" aria-label="Lançamentos">
+      <div className="nx-card-h">
+        <h2>Lançamentos</h2>
+        <span className="nx-faint nx-small" style={{ marginLeft: "auto" }}>Entradas, saídas, comprovantes e status</span>
+      </div>
+      {loading ? (
+        <LoadingState label="Carregando financeiro..." />
+      ) : filteredLancamentos.length === 0 ? (
+        <EmptyLine text="Nenhum lançamento no período selecionado." />
+      ) : (
+        <div className="fin-table-wrap">
+          <table className="nx-table">
+            <thead>
+              <tr>
+                <th>Vencimento</th>
+                <th>Descrição</th>
+                <th>Categoria</th>
+                <th>Método</th>
+                <th>Status</th>
+                <th className="fin-num">Valor</th>
+                <th className="fin-num">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredLancamentos.map((item) => (
+                <tr key={item.id} className={selectedId === item.id ? "is-selected" : ""} onClick={() => selectLancamento(item)}>
+                  <td className="nx-muted">{dateLabel(item.dueDate)}</td>
+                  <td>
+                    <button type="button" className="fin-title-btn" title={item.title} onClick={(event) => { event.stopPropagation(); selectLancamento(item); }}>{item.title}</button>
+                    <span className="nx-faint nx-small">{item.attachments.length} anexo(s)</span>
+                  </td>
+                  <td className="nx-muted">{item.category || "—"}</td>
+                  <td className="nx-muted">{item.method || "—"}</td>
+                  <td><StatusBadge status={item.status} /></td>
+                  <td className={`fin-num ${item.type === "entrada" ? "nx-up" : "nx-down"}`}>{item.type === "entrada" ? "+" : "−"} {money(item.amount)}</td>
+                  <td onClick={(event) => event.stopPropagation()}>
+                    <div className="fin-row-actions">
+                      {item.status === "pendente" && (
+                        <button type="button" className="nx-btn is-sm fin-btn-success" onClick={() => void payLancamento(item)} disabled={payingLancamentoId === item.id}>
+                          <CheckCircle2 size={14} />
+                          {payingLancamentoId === item.id ? "Registrando..." : "Marcar como pago"}
+                        </button>
+                      )}
+                      <button type="button" className="fin-icon-btn" onClick={() => selectLancamento(item)} title="Visualizar" aria-label={`Visualizar ${item.title}`}><Eye size={16} /></button>
+                      <button type="button" className="fin-icon-btn" onClick={() => startEditLancamento(item)} title="Editar" aria-label={`Editar ${item.title}`}><Edit3 size={16} /></button>
+                      <button type="button" className="fin-icon-btn" onClick={() => openAttachmentPicker(item)} disabled={uploadingAttachments} title="Anexar" aria-label={`Anexar arquivo em ${item.title}`}><Paperclip size={16} /></button>
+                      <button type="button" className="fin-icon-btn is-danger" onClick={() => { selectLancamento(item); setDeleteConfirmId(item.id); }} title="Excluir" aria-label={`Excluir ${item.title}`}><Trash2 size={16} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+
+  const programadoActions = (item: Programado) => (
+    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+      <button type="button" className="nx-btn is-sm fin-btn-success" style={{ flex: 1 }} onClick={() => void payProgramado(item)} disabled={!item.active || payingProgramadoId === item.id}>
+        <CheckCircle2 size={14} />
+        {payingProgramadoId === item.id ? "Registrando..." : "Marcar como pago"}
+      </button>
+      <button type="button" className="fin-icon-btn is-danger" onClick={() => void deleteProgramado(item.id)} title="Excluir gasto programado" aria-label="Excluir gasto programado">
+        <Trash2 size={16} />
+      </button>
+    </div>
+  );
 
   return (
-    <div className="clean-workspace finance-workspace norium-finance flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-      <WorkspaceHeader title="Financeiro" description="Acompanhe o caixa, os lançamentos e os próximos vencimentos." icon={Wallet}>
-<Button iconOnly onClick={() => void loadFinance()} title="Atualizar financeiro" aria-label="Atualizar financeiro"><RefreshCw size={16} /></Button>
-<Button onClick={() => onOpenNora?.("Analise meu financeiro atual, destaque riscos e próximos vencimentos.")}><Sparkles size={16} />Analisar com Nora</Button>
-<Button onClick={() => { setCreatePanel("scheduled"); setActiveView("scheduled"); }}><CalendarClock size={16} />Programar gasto</Button>
-<Button variant="primary" className="workspace-primary" onClick={() => { setCreatePanel("entry"); setActiveView("entries"); }}><Plus size={16} />Novo lançamento</Button>
-</WorkspaceHeader>
-
-      <main className="finance-content min-h-0 flex-1 overflow-y-auto">
-        <section className="finance-period-filter" aria-label="Filtro do período financeiro">
-          <div>
-            <strong>Período analisado</strong>
-            <span>{period.start && period.end ? `${dateLabel(period.start)} — ${dateLabel(period.end)}` : "Defina as datas"}</span>
+    <div className="nx-page fin-page norium-finance">
+      <div className="nx-ph">
+        <div>
+          <h1>Financeiro</h1>
+          <p>{periodTitle(periodPreset, period.start, period.end)}</p>
+        </div>
+        <div className="nx-ph-actions">
+          <div className="fin-head-period">
+            <select aria-label="Período financeiro" className="fin-field is-auto" value={periodPreset} onChange={(event) => setPeriodPreset(event.target.value as PeriodPreset)}>
+              <option value="this-month">Este mês</option>
+              <option value="last-month">Mês anterior</option>
+              <option value="last-3-months">Últimos 3 meses</option>
+              <option value="this-year">Este ano</option>
+              <option value="custom">Período personalizado</option>
+            </select>
+            <button type="button" className="nx-btn" style={{ width: 36, padding: 0 }} onClick={() => void loadFinance()} title="Atualizar financeiro" aria-label="Atualizar financeiro"><RefreshCw size={16} /></button>
           </div>
-          <select aria-label="Período financeiro" value={periodPreset} onChange={(event) => setPeriodPreset(event.target.value as PeriodPreset)}>
-            <option value="this-month">Este mês</option>
-            <option value="last-month">Mês anterior</option>
-            <option value="last-3-months">Últimos 3 meses</option>
-            <option value="this-year">Este ano</option>
-            <option value="custom">Período personalizado</option>
-          </select>
-          {periodPreset === "custom" && (
-            <div className="finance-custom-period">
-              <input type="date" aria-label="Início do período" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
-              <span>até</span>
-              <input type="date" aria-label="Fim do período" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
-            </div>
-          )}
+          <button type="button" className="nx-btn" onClick={() => onOpenNora?.("Analise meu financeiro atual, destaque riscos e próximos vencimentos.")}><Sparkles size={16} />Analisar com a Nora</button>
+          <button type="button" className="nx-btn" onClick={() => { setCreatePanel("scheduled"); setActiveView("scheduled"); }}><CalendarClock size={16} />Programar gasto</button>
+          <button type="button" className="nx-btn is-primary" aria-label="Novo lançamento" onClick={() => { setCreatePanel("entry"); setActiveView("entries"); }}><Plus size={16} />Lançamento</button>
+        </div>
+      </div>
+
+      {periodPreset === "custom" && (
+        <section className="fin-custom-period" aria-label="Filtro do período financeiro">
+          <span>Período analisado</span>
+          <input type="date" className="fin-field is-auto" aria-label="Início do período" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
+          <span>até</span>
+          <input type="date" className="fin-field is-auto" aria-label="Fim do período" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
         </section>
-            <div className="workspace-metrics grid grid-cols-2 gap-3 xl:grid-cols-4">
-              <Metric icon={TrendingUp} label="Entradas pagas" value={money(filteredSummary.entradas)} tone="emerald" />
-              <Metric icon={TrendingDown} label="Saídas pagas" value={money(filteredSummary.saidas)} tone="rose" />
-              <Metric icon={Wallet} label="Saldo" value={money(filteredSummary.saldo)} tone="blue" />
-              <Metric icon={AlertTriangle} label="Pendente" value={money(filteredSummary.pendente)} tone="amber" />
-            </div>
-        <nav className="workspace-tabs finance-tabs" aria-label="Áreas do financeiro">
-          {([
-            ["overview", "Visão geral", filteredLancamentos.length + filteredProgramados.length],
-            ["entries", "Lançamentos", filteredLancamentos.length],
-            ["scheduled", "Programados", filteredProgramados.length],
-            ["boletos", "Boletos", filteredBoletos.length],
-          ] as Array<[FinanceView, string, number]>).map(([view, label, count]) => (
-            <button
-              key={view}
-              aria-pressed={activeView === view}
-              onClick={() => {
-                setActiveView(view);
-                setCreatePanel(null);
-              }}
-              className={`flex h-10 shrink-0 items-center gap-2 rounded-md px-4 text-xs font-bold transition ${
-                activeView === view
-                  ? "bg-[var(--primary)] text-white shadow-lg shadow-blue-950/20"
-                  : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-              }`}
-            >
-              {view === "overview" ? <LayoutDashboard size={16} /> : view === "entries" ? <ArrowDownUp size={16} /> : view === "scheduled" ? <CalendarClock size={16} /> : <Receipt size={16} />}
-              {label}
-              <span className={`rounded-full px-2 py-0.5 text-xs ${activeView === view ? "bg-white/15" : "bg-[var(--background)]"}`}>
-                {count}
-              </span>
-            </button>
-          ))}
-        </nav>
+      )}
 
-        <div className={`grid gap-4 ${showAside ? "xl:grid-cols-[minmax(0,1fr)_380px]" : ""}`}>
-          <section className="space-y-4">
+      <div className="nx-kpis">
+        <div className="nx-card nx-kpi">
+          <div className="nx-kpi-l"><TrendingUp size={16} />Entradas pagas</div>
+          <div className="nx-kpi-v">{money(filteredSummary.entradas)}</div>
+          <div className="nx-kpi-s">{paidIn} recebimento(s) no período</div>
+        </div>
+        <div className="nx-card nx-kpi">
+          <div className="nx-kpi-l"><TrendingDown size={16} />Saídas pagas</div>
+          <div className="nx-kpi-v">{money(filteredSummary.saidas)}</div>
+          <div className="nx-kpi-s">{paidOut} pagamento(s) no período</div>
+        </div>
+        <div className="nx-card nx-kpi">
+          <div className="nx-kpi-l"><Wallet size={16} />Saldo</div>
+          <div className={`nx-kpi-v ${filteredSummary.saldo < 0 ? "fin-kpi-v-down" : ""}`}>{money(filteredSummary.saldo)}</div>
+          <div className="nx-kpi-s">{margin === null ? "sem entradas pagas no período" : `margem de ${margin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`}</div>
+        </div>
+        <div className="nx-card nx-kpi">
+          <div className="nx-kpi-l"><AlertTriangle size={16} />Pendente</div>
+          <div className="nx-kpi-v">{money(filteredSummary.pendente)}</div>
+          <div className="nx-kpi-s">{pendingCount} em aberto{filteredSummary.vencidos > 0 ? <> · <span className="nx-down">{filteredSummary.vencidos} vencido(s)</span></> : ""}</div>
+        </div>
+      </div>
 
+      <nav className="nx-tabs" aria-label="Áreas do financeiro">
+        {([
+          ["overview", "Visão geral", filteredLancamentos.length + filteredProgramados.length],
+          ["entries", "Lançamentos", filteredLancamentos.length],
+          ["scheduled", "Programados", filteredProgramados.length],
+          ["boletos", "Boletos", filteredBoletos.length],
+        ] as Array<[FinanceView, string, number]>).map(([view, label, count]) => (
+          <button
+            key={view}
+            type="button"
+            aria-pressed={activeView === view}
+            onClick={() => {
+              setActiveView(view);
+              setCreatePanel(null);
+            }}
+            className={`nx-tab ${activeView === view ? "is-active" : ""}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+          >
+            {label}
+            <span className="nx-badge" style={{ height: 20, padding: "0 7px", fontSize: 11.5 }}>{count}</span>
+          </button>
+        ))}
+      </nav>
 
-            {activeView === "overview" && (
-              <section className="grid gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm lg:grid-cols-[minmax(0,1fr)_minmax(280px,.55fr)]">
-                <div>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-blue-300">Leitura do período</p><h2 className="mt-1 text-lg font-black">{financeStatus}</h2></div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-black ${filteredSummary.vencidos > 0 || filteredSummary.saldo < 0 ? "bg-amber-500/12 text-amber-200" : "bg-emerald-500/12 text-emerald-200"}`}>{filteredSummary.vencidos > 0 ? "Requer ação" : "Em dia"}</span>
-                  </div>
-                  <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--background)]"><span className="block h-full rounded-full bg-slate-400" style={{ width: `${Math.min(100, percentualSaidas)}%` }} /></div>
-                  <div className="mt-2 flex justify-between text-xs font-bold text-[var(--text-secondary)]"><span>Saídas no fluxo movimentado</span><strong className="text-[var(--text)]">{percentualSaidas}%</strong></div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-[var(--background)] p-4"><span className="text-xs font-bold text-[var(--text-secondary)]">Vencidos</span><strong className="mt-2 block text-2xl font-black text-amber-200">{filteredSummary.vencidos}</strong></div>
-                  <div className="rounded-xl bg-[var(--background)] p-4"><span className="text-xs font-bold text-[var(--text-secondary)]">Recorrências</span><strong className="mt-2 block text-2xl font-black text-cyan-200">{filteredSummary.programadosAtivos}</strong></div>
-                </div>
-              </section>
-            )}
+      {createPanel === null && !selected && feedback}
 
-            {(error || notice) && (
-              <div role={error ? "alert" : "status"} className={`rounded-lg border px-4 py-3 text-sm font-bold ${error ? "border-amber-400/25 bg-amber-500/10 text-amber-200" : "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"}`}>
-                {error || notice}
+      {activeView === "overview" && (
+        <>
+          <div className="fin-grid-main">
+            <section className="nx-card" aria-label="Receita mensal">
+              <div className="nx-card-h">
+                <h2>Receita mensal</h2>
+                <span className="nx-faint nx-small" style={{ marginLeft: "auto" }}>entradas pagas, em milhares de R$</span>
               </div>
-            )}
-
-            {showBoletos && (
-            <section className="workspace-panel">
-              <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-                <div>
-                  <h2 className="text-base font-black">Boletos</h2>
-                  <p className="text-xs font-semibold text-[var(--text-secondary)]">Acompanhe os documentos importados dentro do período selecionado.</p>
-                </div>
-                <div className="finance-boleto-filter" aria-label="Situação dos boletos">
-                  {([['open', 'Em aberto'], ['paid', 'Pagos'], ['all', 'Todos']] as Array<[BoletoFilter, string]>).map(([value, label]) => (
-                    <button key={value} type="button" aria-pressed={boletoFilter === value} onClick={() => setBoletoFilter(value)}>
-                      {label}
-                    </button>
+              <div className="nx-card-b">
+                <div className="fin-chart">
+                  {monthly.map((item, index) => (
+                    <div key={item.key} className="fin-chart-col" title={`${item.label}: ${money(item.total)}`}>
+                      <span>{(item.total / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</span>
+                      <div className="fin-chart-track">
+                        <div className={`fin-chart-bar ${index === monthly.length - 1 ? "is-current" : ""}`} style={{ height: monthlyMax > 0 ? `${Math.max(1, (item.total / monthlyMax) * 100)}%` : "2px" }} />
+                      </div>
+                      <span>{item.short}</span>
+                    </div>
                   ))}
                 </div>
-              </header>
-              <div className="divide-y divide-[var(--border)]">
-                {filteredBoletos.length === 0 ? (
-                  <EmptyLine text={boletoFilter === "paid" ? "Nenhum boleto pago neste período." : boletoFilter === "open" ? "Nenhum boleto em aberto neste período." : "Nenhum boleto neste período."} />
-                ) : (
-                  filteredBoletos.map((boleto) => (
-                    <div key={boleto.id} className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_auto]">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold">{boleto.title}</p>
-                        <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
-                          {boleto.beneficiary || "Beneficiario nao informado"} · {dateLabel(boleto.dueDate)}
-                        </p>
-                        {(boleto.linhaDigitavel || boleto.barcode) && (
-                          <p className="mt-1 truncate text-xs font-semibold text-[var(--text-secondary)]">
-                            Linha: {boleto.linhaDigitavel || boleto.barcode}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${boletoIsPaid(boleto.status) ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300"}`}>{boletoIsPaid(boleto.status) ? "Pago" : "Em aberto"}</span>
-                        <span className="text-sm font-bold text-blue-200">{money(boleto.amount)}</span>
-                        {boleto.url && (
-                          <a
-                            href={boleto.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex h-8 items-center gap-2 rounded-lg border border-blue-400/30 px-3 text-xs font-bold text-blue-200 transition hover:bg-blue-500/10"
-                          >
+                {monthlyMax === 0 && !loading && <p className="fin-chart-empty">Nenhuma entrada paga nos últimos meses.</p>}
+              </div>
+            </section>
+
+            <section className="nx-card" aria-label="Próximos vencimentos">
+              <div className="nx-card-h">
+                <h2>Próximos vencimentos</h2>
+                <button type="button" className="nx-more" onClick={() => setActiveView("entries")}>Ver todos</button>
+              </div>
+              <div className="nx-card-b">
+                {data.lembretes.length === 0 ? (
+                  <EmptyLine text="Nenhum pagamento próximo." />
+                ) : data.lembretes.map((item) => (
+                  <div key={item.id} className="nx-row">
+                    <div className="nx-grow">
+                      <div className="nx-row-t nx-ell">{item.title}</div>
+                      <div className="nx-row-sub">{dateLabel(item.dueDate)} · {item.daysUntil < 0 ? <span className="nx-down">vencido</span> : `${item.daysUntil} dia(s)`}</div>
+                    </div>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: "nowrap" }}>{money(item.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <div className="nx-grid-2">
+            <section className="nx-card" aria-label="Leitura do período">
+              <div className="nx-card-h">
+                <div>
+                  <div className="nx-faint nx-small">Leitura do período</div>
+                  <h2 style={{ marginTop: 2 }}>{financeStatus}</h2>
+                </div>
+                <span className={`nx-badge ${filteredSummary.vencidos > 0 || filteredSummary.saldo < 0 ? "is-amber" : "is-green"}`} style={{ marginLeft: "auto" }}>{filteredSummary.vencidos > 0 ? "Requer ação" : "Em dia"}</span>
+              </div>
+              <div className="nx-card-b">
+                <div className="nx-bar"><i style={{ width: `${Math.min(100, percentualSaidas)}%` }} /></div>
+                <div className="nx-small nx-muted" style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}><span>Saídas no fluxo movimentado</span><b style={{ color: "var(--nx-text)" }}>{percentualSaidas}%</b></div>
+                <div className="fin-read-boxes">
+                  <div><span className="nx-small nx-muted">Vencidos</span><strong className={filteredSummary.vencidos > 0 ? "nx-down" : ""}>{filteredSummary.vencidos}</strong></div>
+                  <div><span className="nx-small nx-muted">Recorrências</span><strong>{filteredSummary.programadosAtivos}</strong></div>
+                </div>
+              </div>
+            </section>
+
+            <section className="nx-card" aria-label="Gastos programados">
+              <div className="nx-card-h">
+                <h2>Gastos programados</h2>
+                <button type="button" className="nx-more" onClick={() => setActiveView("scheduled")}>Ver programados</button>
+              </div>
+              <div className="nx-card-b">
+                {data.programados.length === 0 ? (
+                  <EmptyLine text="Nenhum gasto programado." />
+                ) : data.programados.map((item) => (
+                  <div key={item.id} className="nx-row" style={{ display: "block" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div className="nx-row-t nx-ell nx-grow">{item.title}</div>
+                      <span style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: "nowrap" }}>{money(item.amount)}</span>
+                    </div>
+                    <div className="nx-row-sub">{frequencyLabel(item.frequency)} · {dateLabel(item.nextDueDate)} · avisar {item.remindDaysBefore} dia(s) antes</div>
+                    {programadoActions(item)}
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        </>
+      )}
+
+      {showBoletos && (
+        <section className="nx-card" aria-label="Boletos">
+          <div className="nx-card-h" style={{ flexWrap: "wrap" }}>
+            <div>
+              <h2>Boletos</h2>
+              <div className="nx-faint nx-small" style={{ marginTop: 2 }}>Documentos importados dentro do período selecionado.</div>
+            </div>
+            <div className="nx-seg" aria-label="Situação dos boletos" style={{ marginLeft: "auto" }}>
+              {([['open', 'Em aberto'], ['paid', 'Pagos'], ['all', 'Todos']] as Array<[BoletoFilter, string]>).map(([value, label]) => (
+                <button key={value} type="button" aria-pressed={boletoFilter === value} className={boletoFilter === value ? "is-active" : ""} onClick={() => setBoletoFilter(value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {filteredBoletos.length === 0 ? (
+            <EmptyLine text={boletoFilter === "paid" ? "Nenhum boleto pago neste período." : boletoFilter === "open" ? "Nenhum boleto em aberto neste período." : "Nenhum boleto neste período."} />
+          ) : (
+            <div className="fin-table-wrap">
+              <table className="nx-table">
+                <thead>
+                  <tr><th>Vencimento</th><th>Boleto</th><th>Beneficiário</th><th>Status</th><th className="fin-num">Valor</th><th className="fin-num">Documento</th></tr>
+                </thead>
+                <tbody>
+                  {filteredBoletos.map((boleto) => (
+                    <tr key={boleto.id} style={{ cursor: "default" }}>
+                      <td className="nx-muted">{dateLabel(boleto.dueDate)}</td>
+                      <td>
+                        <div style={{ fontWeight: 500 }}>{boleto.title}</div>
+                        {(boleto.linhaDigitavel || boleto.barcode) && <div className="nx-faint nx-small nx-ell" style={{ maxWidth: 280 }}>Linha: {boleto.linhaDigitavel || boleto.barcode}</div>}
+                      </td>
+                      <td className="nx-muted">{boleto.beneficiary || "Beneficiário não informado"}</td>
+                      <td><span className={`nx-badge ${boletoIsPaid(boleto.status) ? "is-green" : "is-amber"}`}>{boletoIsPaid(boleto.status) ? "Pago" : "Em aberto"}</span></td>
+                      <td className="fin-num">{money(boleto.amount)}</td>
+                      <td className="fin-num">
+                        {boleto.url ? (
+                          <a href={boleto.url} target="_blank" rel="noreferrer" className="nx-btn is-sm" style={{ textDecoration: "none" }}>
                             <ExternalLink size={14} />
                             Abrir boleto
                           </a>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-            )}
-
-            {showEntries && (
-            <section className="workspace-panel">
-              <header className="border-b border-[var(--border)] px-5 py-4">
-                <h2 className="text-base font-black">Lancamentos</h2>
-                <p className="text-xs font-semibold text-[var(--text-secondary)]">Entradas, saidas, comprovantes e status.</p>
-              </header>
-              <div className="divide-y divide-[var(--border)]">
-                {loading ? (
-                  <LoadingState label="Carregando financeiro..." />
-                ) : filteredLancamentos.length === 0 ? (
-                  <EmptyLine text="Nenhum lançamento no período selecionado." />
-                ) : (
-                  filteredLancamentos.map((item) => (
-                    <div key={item.id}>
-                    <button
-                      onClick={() => {
-                        setSelectedId(item.id);
-                        setDeleteConfirmId(null);
-                        if (editingId && editingId !== item.id) setEditingId(null);
-                      }}
-                      className={`grid w-full gap-3 px-5 py-4 text-left transition hover:bg-[var(--surface-hover)] md:grid-cols-[1fr_auto] ${
-                        selectedId === item.id ? "bg-blue-500/10" : ""
-                      }`}
-                    >
-                      <span className="min-w-0">
-                        <span className="flex min-w-0 items-center gap-2">
-                          {item.type === "entrada" ? <TrendingUp size={15} className="text-emerald-300" /> : <TrendingDown size={15} className="text-rose-300" />}
-                          <strong className="truncate text-sm font-bold">{item.title}</strong>
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${item.status === "pago" ? "bg-emerald-500/10 text-emerald-200" : "bg-amber-500/10 text-amber-200"}`}>
-                            {item.status}
-                          </span>
-                        </span>
-                        <span className="mt-1 block truncate text-xs font-semibold text-[var(--text-secondary)]">
-                          {item.category} · {dateLabel(item.dueDate)} · {item.attachments.length} anexo(s)
-                        </span>
-                      </span>
-                      <span className={`text-sm font-bold ${item.type === "entrada" ? "text-emerald-200" : "text-rose-200"}`}>
-                        {item.type === "entrada" ? "+" : "-"} {money(item.amount)}
-                      </span>
-                    </button>
-                    <div className="flex flex-wrap items-center gap-2 bg-[var(--surface)] px-5 pb-4">
-                      {item.status === "pendente" && (
-                        <Button variant="primary" size="sm"
-                          onClick={() => void payLancamento(item)}
-                          disabled={payingLancamentoId === item.id}
-                          className="bg-emerald-600 hover:bg-emerald-500"
-                        >
-                          <CheckCircle2 size={13} />
-                          {payingLancamentoId === item.id ? "Registrando..." : "Marcar como pago"}
-                        </Button>
-                      )}
-                      <button
-                        onClick={() => selectLancamento(item)}
-                        className="flex h-8 items-center gap-1 rounded-lg border border-blue-400/25 px-2 text-xs font-bold text-blue-100 hover:bg-blue-500/10"
-                      >
-                        <Eye size={13} />
-                        Visualizar
-                      </button>
-                      <Button size="sm"
-                        onClick={() => startEditLancamento(item)}
-                        className="border-cyan-400/25 text-cyan-100 hover:bg-cyan-500/10"
-                      >
-                        <Edit3 size={13} />
-                        Editar
-                      </Button>
-                      <button
-                        onClick={() => openAttachmentPicker(item)}
-                        disabled={uploadingAttachments}
-                        className="flex h-8 items-center gap-1 rounded-lg border border-blue-400/25 px-2 text-xs font-bold text-blue-100 hover:bg-blue-500/10 disabled:opacity-50"
-                      >
-                        <Paperclip size={13} />
-                        Anexar
-                      </button>
-                      <Button variant="danger" size="sm"
-                        onClick={() => {
-                          selectLancamento(item);
-                          setDeleteConfirmId(item.id);
-                        }}
-                        className="border-rose-400/25 text-rose-100 hover:bg-rose-500/10"
-                      >
-                        <Trash2 size={13} />
-                        Excluir
-                      </Button>
-                    </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-            )}
-
-            {activeView === "scheduled" && filteredProgramados.length > 0 && (
-              <section className="workspace-panel">
-                <header className="border-b border-[var(--border)] px-5 py-4">
-                  <h2 className="text-base font-black">Agenda de pagamentos</h2>
-                  <p className="text-xs font-semibold text-[var(--text-secondary)]">
-                    Controle recorrencias, proximos vencimentos e pagamentos realizados.
-                  </p>
-                </header>
-                <div className="grid gap-3 p-4 md:grid-cols-2">
-                  {filteredProgramados.map((item) => (
-                    <article key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="truncate text-sm font-bold">{item.title}</h3>
-                          <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
-                            {item.category} · {item.frequency}
-                          </p>
-                        </div>
-                        <strong className="shrink-0 text-sm text-blue-200">{money(item.amount)}</strong>
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-md bg-[var(--surface)] p-3">
-                          <span className="block text-[var(--text-secondary)]">Proximo vencimento</span>
-                          <strong className="mt-1 block">{dateLabel(item.nextDueDate)}</strong>
-                        </div>
-                        <div className="rounded-md bg-[var(--surface)] p-3">
-                          <span className="block text-[var(--text-secondary)]">Lembrete</span>
-                          <strong className="mt-1 block">{item.remindDaysBefore} dia(s) antes</strong>
-                        </div>
-                      </div>
-                      <div className="mt-4 flex gap-2">
-                        <Button variant="primary" size="sm"
-                          onClick={() => void payProgramado(item)}
-                          disabled={!item.active || payingProgramadoId === item.id}
-                          className="flex-1 bg-emerald-600 hover:bg-emerald-500"
-                        >
-                          <CheckCircle2 size={14} />
-                          {payingProgramadoId === item.id ? "Registrando..." : "Marcar como pago"}
-                        </Button>
-                        <Button variant="danger" size="sm" iconOnly
-                          onClick={() => void deleteProgramado(item.id)}
-                          className="border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
-                          title="Excluir gasto programado"
-                         aria-label="Excluir gasto programado">
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    </article>
+                        ) : <span className="nx-faint">—</span>}
+                      </td>
+                    </tr>
                   ))}
-                </div>
-              </section>
-            )}
-          </section>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
-          {showAside && (
-          <aside className="space-y-4">
-            {createPanel === "entry" && (
-            <section className="rounded-lg border border-blue-400/30 bg-[var(--surface)] p-5 shadow-xl shadow-black/10">
-              <h2 className="flex items-center gap-2 text-base font-black">
-                <Plus size={18} className="text-blue-300" />
-                Novo lancamento
-                <Button variant="ghost" size="sm" iconOnly onClick={() => setCreatePanel(null)} className="ml-auto" title="Fechar formulario" aria-label="Fechar formulario">
-                  <X size={15} />
-                </Button>
-              </h2>
-              <div className="mt-4 space-y-3">
-                <input value={lancamentoForm.title} onChange={(event) => setLancamentoForm({ ...lancamentoForm, title: event.target.value })} placeholder="Titulo" className="field" />
-                <div className="grid grid-cols-2 gap-2">
-                  <Select value={lancamentoForm.type} onChange={(value) => setLancamentoForm({ ...lancamentoForm, type: value as EntryType })}>
-                    <option value="saida">Saida</option>
-                    <option value="entrada">Entrada</option>
-                  </Select>
-                  <input value={lancamentoForm.amount} onChange={(event) => setLancamentoForm({ ...lancamentoForm, amount: event.target.value })} placeholder="Valor" className="field" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={lancamentoForm.category} onChange={(event) => setLancamentoForm({ ...lancamentoForm, category: event.target.value })} placeholder="Categoria" className="field" />
-                  <input type="date" value={lancamentoForm.dueDate} onChange={(event) => setLancamentoForm({ ...lancamentoForm, dueDate: event.target.value })} className="field" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={lancamentoForm.method} onChange={(event) => setLancamentoForm({ ...lancamentoForm, method: event.target.value })} placeholder="Metodo" className="field" />
+      {showEntries && entriesCard}
+
+      {activeView === "scheduled" && (
+        <section className="nx-card" aria-label="Agenda de pagamentos">
+          <div className="nx-card-h">
+            <div>
+              <h2>Agenda de pagamentos</h2>
+              <div className="nx-faint nx-small" style={{ marginTop: 2 }}>Controle recorrências, próximos vencimentos e pagamentos realizados.</div>
+            </div>
+          </div>
+          {filteredProgramados.length === 0 ? (
+            <EmptyLine text="Nenhum gasto programado no período selecionado." />
+          ) : (
+            <div className="fin-sched-grid">
+              {filteredProgramados.map((item) => (
+                <article key={item.id} className="fin-sched-card">
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                    <div className="nx-grow">
+                      <h3 className="nx-ell" style={{ margin: 0, fontSize: 14 }}>{item.title}</h3>
+                      <div className="nx-faint nx-small" style={{ marginTop: 2 }}>{item.category} · {frequencyLabel(item.frequency)}</div>
+                    </div>
+                    <strong style={{ fontSize: 14, whiteSpace: "nowrap" }}>{money(item.amount)}</strong>
+                  </div>
+                  <div className="fin-sched-meta">
+                    <div><span>Próximo vencimento</span><b>{dateLabel(item.nextDueDate)}</b></div>
+                    <div><span>Lembrete</span><b>{item.remindDaysBefore} dia(s) antes</b></div>
+                  </div>
+                  {programadoActions(item)}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {createPanel === "entry" && (
+        <div className="fin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreatePanel(null); }}>
+          <section className="fin-modal" role="dialog" aria-modal="true" aria-labelledby="fin-new-entry-title">
+            <div className="fin-modal-h">
+              <div className="nx-grow">
+                <h2 id="fin-new-entry-title">Novo lançamento</h2>
+                <p>Registre uma entrada ou saída do caixa.</p>
+              </div>
+              <button type="button" className="fin-icon-btn" onClick={() => setCreatePanel(null)} title="Fechar formulário" aria-label="Fechar formulário"><X size={16} /></button>
+            </div>
+            <div className="fin-modal-b">
+              <TypeSeg value={lancamentoForm.type} onChange={(type) => setLancamentoForm({ ...lancamentoForm, type })} />
+              <div className="fin-form-grid">
+                <label className="fin-label">Título *<input value={lancamentoForm.title} onChange={(event) => setLancamentoForm({ ...lancamentoForm, title: event.target.value })} placeholder="Título" className="fin-field" /></label>
+                <label className="fin-label">Valor (R$) *<input value={lancamentoForm.amount} inputMode="decimal" onChange={(event) => setLancamentoForm({ ...lancamentoForm, amount: event.target.value })} placeholder="Valor" className="fin-field" /></label>
+                <label className="fin-label">Categoria<input value={lancamentoForm.category} onChange={(event) => setLancamentoForm({ ...lancamentoForm, category: event.target.value })} placeholder="Categoria" className="fin-field" /></label>
+                <label className="fin-label">Método<input value={lancamentoForm.method} onChange={(event) => setLancamentoForm({ ...lancamentoForm, method: event.target.value })} placeholder="Método" className="fin-field" /></label>
+                <label className="fin-label">Vencimento<input type="date" value={lancamentoForm.dueDate} onChange={(event) => setLancamentoForm({ ...lancamentoForm, dueDate: event.target.value })} className="fin-field" /></label>
+                <label className="fin-label">Status
                   <Select value={lancamentoForm.status} onChange={(value) => setLancamentoForm({ ...lancamentoForm, status: value as EntryStatus })}>
                     <option value="pendente">Pendente</option>
                     <option value="pago">Pago</option>
                     <option value="cancelado">Cancelado</option>
                   </Select>
-                </div>
-                <textarea value={lancamentoForm.description} onChange={(event) => setLancamentoForm({ ...lancamentoForm, description: event.target.value })} placeholder="Descricao" rows={3} className="field resize-none py-3" />
-                <button
-                  onClick={() => void createLancamento()}
-                  disabled={creatingLancamento || !lancamentoForm.title.trim() || !lancamentoForm.amount}
-                  className="h-11 w-full rounded-lg bg-[var(--primary)] text-sm font-bold text-white transition hover:brightness-110disabled:opacity-45"
-                >
-                  {creatingLancamento ? "Salvando..." : "Criar lancamento"}
-                </button>
+                </label>
+                <label className="fin-label is-full">Descrição<textarea value={lancamentoForm.description} onChange={(event) => setLancamentoForm({ ...lancamentoForm, description: event.target.value })} placeholder="Descrição" rows={3} className="fin-field" /></label>
               </div>
-            </section>
-            )}
+              {feedback}
+            </div>
+            <div className="fin-modal-f">
+              <button type="button" className="nx-btn" onClick={() => setCreatePanel(null)}>Cancelar</button>
+              <button type="button" className="nx-btn is-primary" onClick={() => void createLancamento()} disabled={creatingLancamento || !lancamentoForm.title.trim() || !lancamentoForm.amount}>
+                {creatingLancamento ? "Salvando..." : "Salvar lançamento"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
-            {createPanel === "scheduled" && (
-            <section className="rounded-lg border border-cyan-400/30 bg-[var(--surface)] p-5 shadow-xl shadow-black/10">
-              <h2 className="flex items-center gap-2 text-base font-black">
-                <BellRing size={18} className="text-cyan-300" />
-                Programar gasto fixo
-                <Button variant="ghost" size="sm" iconOnly onClick={() => setCreatePanel(null)} className="ml-auto" title="Fechar formulario" aria-label="Fechar formulario">
-                  <X size={15} />
-                </Button>
-              </h2>
-              <div className="mt-4 space-y-3">
-                <input value={programadoForm.title} onChange={(event) => setProgramadoForm({ ...programadoForm, title: event.target.value })} placeholder="Nome do gasto" className="field" />
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={programadoForm.amount} onChange={(event) => setProgramadoForm({ ...programadoForm, amount: event.target.value })} placeholder="Valor" className="field" />
-                  <input type="date" value={programadoForm.nextDueDate} onChange={(event) => setProgramadoForm({ ...programadoForm, nextDueDate: event.target.value })} className="field" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
+      {createPanel === "scheduled" && (
+        <div className="fin-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreatePanel(null); }}>
+          <section className="fin-modal" role="dialog" aria-modal="true" aria-labelledby="fin-new-scheduled-title">
+            <div className="fin-modal-h">
+              <BellRing size={18} style={{ marginTop: 3, color: "var(--nx-primary)" }} />
+              <div className="nx-grow">
+                <h2 id="fin-new-scheduled-title">Programar gasto fixo</h2>
+                <p>Receba um lembrete antes de cada vencimento.</p>
+              </div>
+              <button type="button" className="fin-icon-btn" onClick={() => setCreatePanel(null)} title="Fechar formulário" aria-label="Fechar formulário"><X size={16} /></button>
+            </div>
+            <div className="fin-modal-b">
+              <div className="fin-form-grid">
+                <label className="fin-label is-full">Nome do gasto *<input value={programadoForm.title} onChange={(event) => setProgramadoForm({ ...programadoForm, title: event.target.value })} placeholder="Nome do gasto" className="fin-field" /></label>
+                <label className="fin-label">Valor (R$) *<input value={programadoForm.amount} inputMode="decimal" onChange={(event) => setProgramadoForm({ ...programadoForm, amount: event.target.value })} placeholder="Valor" className="fin-field" /></label>
+                <label className="fin-label">Próximo vencimento<input type="date" value={programadoForm.nextDueDate} onChange={(event) => setProgramadoForm({ ...programadoForm, nextDueDate: event.target.value })} className="fin-field" /></label>
+                <label className="fin-label">Frequência
                   <Select value={programadoForm.frequency} onChange={(value) => setProgramadoForm({ ...programadoForm, frequency: value as Frequency })}>
-                    <option value="unico">Unico</option>
+                    <option value="unico">Único</option>
                     <option value="semanal">Semanal</option>
                     <option value="mensal">Mensal</option>
                     <option value="anual">Anual</option>
                   </Select>
-                  <input value={programadoForm.remindDaysBefore} onChange={(event) => setProgramadoForm({ ...programadoForm, remindDaysBefore: event.target.value })} placeholder="Avisar dias antes" className="field" />
-                </div>
-                <input value={programadoForm.category} onChange={(event) => setProgramadoForm({ ...programadoForm, category: event.target.value })} placeholder="Categoria" className="field" />
-                <button
-                  onClick={() => void createProgramado()}
-                  disabled={creatingProgramado || !programadoForm.title.trim() || !programadoForm.amount}
-                  className="h-11 w-full rounded-lg bg-cyan-600 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:opacity-45"
-                >
-                  {creatingProgramado ? "Salvando..." : "Programar lembrete"}
-                </button>
+                </label>
+                <label className="fin-label">Avisar dias antes<input value={programadoForm.remindDaysBefore} inputMode="numeric" onChange={(event) => setProgramadoForm({ ...programadoForm, remindDaysBefore: event.target.value })} placeholder="Avisar dias antes" className="fin-field" /></label>
+                <label className="fin-label is-full">Categoria<input value={programadoForm.category} onChange={(event) => setProgramadoForm({ ...programadoForm, category: event.target.value })} placeholder="Categoria" className="fin-field" /></label>
               </div>
-            </section>
-            )}
-
-            {activeView === "overview" && (
-            <section className="workspace-panel">
-              <header className="border-b border-[var(--border)] px-5 py-4">
-                <h2 className="text-base font-black">Lembretes</h2>
-              </header>
-              <div className="divide-y divide-[var(--border)]">
-                {data.lembretes.length === 0 ? (
-                  <EmptyLine text="Nenhum pagamento proximo." />
-                ) : data.lembretes.map((item) => (
-                  <div key={item.id} className="px-5 py-4">
-                    <p className="text-sm font-bold">{item.title}</p>
-                    <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
-                      {money(item.amount)} · {dateLabel(item.dueDate)} · {item.daysUntil < 0 ? "vencido" : `${item.daysUntil} dia(s)`}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </section>
-            )}
-
-            {showScheduled && activeView !== "scheduled" && (
-            <section className="workspace-panel">
-              <header className="border-b border-[var(--border)] px-5 py-4">
-                <h2 className="text-base font-black">Gastos programados</h2>
-              </header>
-              <div className="divide-y divide-[var(--border)]">
-                {data.programados.length === 0 ? (
-                  <EmptyLine text="Nenhum gasto programado." />
-                ) : data.programados.map((item) => (
-                  <div key={item.id} className="grid gap-3 px-5 py-4">
-                    <div className="min-w-0">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm font-bold">{item.title}</p>
-                        <span className="text-xs font-bold text-blue-200">{money(item.amount)}</span>
-                      </div>
-                      <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
-                        {item.frequency} · {dateLabel(item.nextDueDate)} · avisar {item.remindDaysBefore} dia(s) antes
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="primary" size="sm"
-                        onClick={() => void payProgramado(item)}
-                        disabled={!item.active || payingProgramadoId === item.id}
-                        className="flex-1 border-emerald-400/25 text-emerald-200 hover:bg-emerald-500/10"
-                      >
-                        <CheckCircle2 size={14} />
-                        {payingProgramadoId === item.id ? "Registrando..." : "Marcar como pago"}
-                      </Button>
-                      <Button variant="danger" size="sm" iconOnly
-                        onClick={() => void deleteProgramado(item.id)}
-                        className="border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
-                        title="Excluir gasto programado"
-                       aria-label="Excluir gasto programado">
-                        <Trash2 size={14} />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-            )}
-          </aside>
-          )}
-        </div>
-
-        {selected && (
-          <section className="fixed bottom-6 right-6 top-24 z-40 w-[620px] max-w-[calc(100vw-48px)] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl shadow-black/35">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Lancamento selecionado</p>
-                <h2 className="mt-1 text-lg font-black">{selected.title}</h2>
-                <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
-                  {selected.category} · {selected.status} · {dateLabel(selected.dueDate)}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => startEditLancamento(selected)}
-                  className="border-cyan-400/25 text-cyan-100 hover:bg-cyan-500/10"
-                >
-                  <Edit3 size={15} />
-                  Editar
-                </Button>
-                <Button variant="primary" onClick={() => void patchLancamento(selected.id, { status: "pago" })} className="border-emerald-400/25 text-emerald-200 hover:bg-emerald-500/10">
-                  <CheckCircle2 size={15} />
-                  Marcar pago
-                </Button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadingAttachments}
-                  className="flex h-10 items-center gap-2 rounded-lg border border-blue-400/25 px-3 text-xs font-bold text-blue-200 hover:bg-blue-500/10 disabled:opacity-50"
-                >
-                  <FileUp size={15} />
-                  {uploadingAttachments ? "Anexando..." : "Anexar documentos"}
-                </button>
-                <Button variant="danger" onClick={() => setDeleteConfirmId(selected.id)} className="border-rose-400/25 text-rose-200 hover:bg-rose-500/10">
-                  <Trash2 size={15} />
-                  Excluir
-                </Button>
-                <Button iconOnly
-                  onClick={() => {
-                    setSelectedId(null);
-                    setEditingId(null);
-                    setDeleteConfirmId(null);
-                  }}
-                  className="text-[var(--text-secondary)]"
-                  title="Fechar visualizacao"
-                 aria-label="Fechar visualizacao">
-                  <X size={16} />
-                </Button>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*,application/pdf,application/xml,text/xml,.xml,.ofx,.csv,.xlsx,.xls,.doc,.docx"
-                className="hidden"
-                onChange={(event) => {
-                  const files = event.target.files;
-                  if (files?.length) void uploadAttachments(files);
-                  event.currentTarget.value = "";
-                }}
-              />
+              {feedback}
             </div>
-
-            {deleteConfirmId === selected.id && (
-              <div className="mt-4 rounded-lg border border-rose-400/25 bg-rose-500/10 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-rose-100">Excluir lancamento?</h3>
-                    <p className="mt-1 text-xs font-semibold text-rose-100/70">
-                      Esta acao remove o lancamento financeiro da base persistida.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm"
-                      onClick={() => setDeleteConfirmId(null)}
-                      className="text-[var(--text-secondary)]"
-                    >
-                      Cancelar
-                    </Button>
-                    <Button variant="danger" size="sm"
-                      onClick={() => void deleteLancamento(selected.id)}
-                      className="bg-rose-600 hover:bg-rose-500"
-                    >
-                      Confirmar exclusao
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {isEditingSelected ? (
-              <div className="mt-5 rounded-lg border border-cyan-400/25 bg-cyan-500/5 p-4">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-bold">Editar lancamento</h3>
-                    <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
-                      Atualize valor, categoria, vencimento, status e descricao.
-                    </p>
-                  </div>
-                  <Button size="sm" iconOnly
-                    onClick={cancelEditLancamento}
-                    className="text-[var(--text-secondary)]"
-                    title="Cancelar edicao"
-                   aria-label="Cancelar edicao">
-                    <X size={16} />
-                  </Button>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="md:col-span-2">
-                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Titulo</span>
-                    <input value={editForm.title} onChange={(event) => setEditForm({ ...editForm, title: event.target.value })} className="field mt-1" />
-                  </label>
-                  <label>
-                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Tipo</span>
-                    <Select value={editForm.type} onChange={(value) => setEditForm({ ...editForm, type: value as EntryType })}>
-                      <option value="saida">Saida</option>
-                      <option value="entrada">Entrada</option>
-                    </Select>
-                  </label>
-                  <label>
-                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Valor</span>
-                    <input value={editForm.amount} onChange={(event) => setEditForm({ ...editForm, amount: event.target.value })} className="field mt-1" />
-                  </label>
-                  <label>
-                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Categoria</span>
-                    <input value={editForm.category} onChange={(event) => setEditForm({ ...editForm, category: event.target.value })} className="field mt-1" />
-                  </label>
-                  <label>
-                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Metodo</span>
-                    <input value={editForm.method} onChange={(event) => setEditForm({ ...editForm, method: event.target.value })} className="field mt-1" />
-                  </label>
-                  <label>
-                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Vencimento</span>
-                    <input type="date" value={editForm.dueDate} onChange={(event) => setEditForm({ ...editForm, dueDate: event.target.value })} className="field mt-1" />
-                  </label>
-                  <label>
-                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Status</span>
-                    <Select value={editForm.status} onChange={(value) => setEditForm({ ...editForm, status: value as EntryStatus })}>
-                      <option value="pendente">Pendente</option>
-                      <option value="pago">Pago</option>
-                      <option value="cancelado">Cancelado</option>
-                    </Select>
-                  </label>
-                  <label className="md:col-span-2">
-                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Descricao</span>
-                    <textarea
-                      value={editForm.description}
-                      onChange={(event) => setEditForm({ ...editForm, description: event.target.value })}
-                      rows={3}
-                      className="field mt-1 resize-none py-3"
-                    />
-                  </label>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button variant="ghost"
-                    onClick={() => void saveEditLancamento()}
-                    disabled={savingEdit}
-                    className="bg-cyan-600 hover:bg-cyan-500"
-                  >
-                    <Save size={15} />
-                    {savingEdit ? "Salvando..." : "Salvar alteracoes"}
-                  </Button>
-                  <Button
-                    onClick={cancelEditLancamento}
-                    className="text-[var(--text-secondary)]"
-                  >
-                    Cancelar
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Descricao</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{selected.description || "Sem descricao."}</p>
-                <div className="mt-4 grid gap-3 text-sm md:grid-cols-4">
-                  <div>
-                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Valor</p>
-                    <strong className={selected.type === "entrada" ? "text-emerald-200" : "text-rose-200"}>{money(selected.amount)}</strong>
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Metodo</p>
-                    <strong>{selected.method || "Nao informado"}</strong>
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Pago em</p>
-                    <strong>{dateLabel(selected.paidAt)}</strong>
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Origem</p>
-                    <strong>{selected.source || "manual"}</strong>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-5 rounded-lg border border-dashed border-blue-400/30 bg-blue-500/5 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/12 text-blue-200">
-                    <FileText size={18} />
-                  </span>
-                  <div>
-                    <h3 className="text-sm font-bold">Documentos do lancamento</h3>
-                    <p className="text-xs font-semibold text-[var(--text-secondary)]">
-                      Comprovantes, notas fiscais, boletos, recibos, XML, OFX, planilhas e imagens.
-                    </p>
-                  </div>
-                </div>
-                <Button variant="primary" size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadingAttachments}
-                  className="hover:brightness-110disabled:opacity-50"
-                >
-                  <Paperclip size={14} />
-                  Adicionar arquivos
-                </Button>
-              </div>
-            </div>
-            <div className="mt-4 grid gap-2 md:grid-cols-3">
-              {selected.attachments.length === 0 ? (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="col-span-full rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] px-4 py-6 text-center text-sm font-bold text-[var(--text-secondary)] transition hover:border-blue-400/60 hover:text-blue-200"
-                >
-                  Nenhum arquivo anexado. Clique para adicionar comprovantes ou notas fiscais.
-                </button>
-              ) : selected.attachments.map((item) => (
-                <article key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-3 text-xs font-bold hover:border-blue-400">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Paperclip size={14} className="shrink-0 text-blue-300" />
-                    <span className="min-w-0">
-                      <span className="block truncate">{item.name}</span>
-                      <span className="mt-0.5 block truncate text-xs font-semibold text-[var(--text-secondary)]">
-                        {item.mimeType || "arquivo"} · {fileSizeLabel(item.size)}
-                      </span>
-                    </span>
-                  </span>
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void openWithAuth(item.url)}
-                      className="flex h-8 items-center justify-center rounded-lg border border-blue-400/25 text-xs font-bold text-blue-100 hover:bg-blue-500/10"
-                    >
-                      Abrir
-                    </button>
-                    <Button variant="primary" size="sm"
-                     
-                      onClick={() => void downloadWithAuth(item.url, item.name)}
-                     
-                    >
-                      <Download size={13} />
-                      Baixar
-                    </Button>
-                    <Button variant="danger" size="sm"
-                      onClick={() => void removeAttachment(item)}
-                      disabled={removingAttachmentId === item.id}
-                      className="border-rose-400/25 text-rose-100 hover:bg-rose-500/10"
-                    >
-                      <Trash2 size={13} />
-                      {removingAttachmentId === item.id ? "..." : "Remover"}
-                    </Button>
-                  </div>
-                </article>
-              ))}
+            <div className="fin-modal-f">
+              <button type="button" className="nx-btn" onClick={() => setCreatePanel(null)}>Cancelar</button>
+              <button type="button" className="nx-btn is-primary" onClick={() => void createProgramado()} disabled={creatingProgramado || !programadoForm.title.trim() || !programadoForm.amount}>
+                {creatingProgramado ? "Salvando..." : "Programar lembrete"}
+              </button>
             </div>
           </section>
-        )}
-      </main>
+        </div>
+      )}
 
-      <style>{`
-        .field {
-          height: 2.75rem;
-          width: 100%;
-          border-radius: 0.5rem;
-          border: 1px solid var(--border);
-          background: var(--background);
-          padding: 0 0.75rem;
-          font-size: 0.875rem;
-          font-weight: 700;
-          outline: none;
-        }
-        .field:focus {
-          border-color: #38bdf8;
-        }
-      `}</style>
+      {selected && (
+        <section className="fin-drawer" aria-label="Lançamento selecionado">
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <div className="nx-grow">
+              <div className="nx-faint nx-small">Lançamento selecionado</div>
+              <h2>{selected.title}</h2>
+              <div className="nx-muted nx-small" style={{ marginTop: 4, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                {selected.category} · <StatusBadge status={selected.status} /> · {dateLabel(selected.dueDate)}
+              </div>
+            </div>
+            <button type="button" className="fin-icon-btn" onClick={closeSelected} title="Fechar visualização" aria-label="Fechar visualização"><X size={16} /></button>
+          </div>
+          <div className="fin-drawer-actions">
+            <button type="button" className="nx-btn is-sm" onClick={() => startEditLancamento(selected)}><Edit3 size={14} />Editar</button>
+            <button type="button" className="nx-btn is-sm fin-btn-success" onClick={() => void patchLancamento(selected.id, { status: "pago" })}><CheckCircle2 size={14} />Marcar pago</button>
+            <button type="button" className="nx-btn is-sm" onClick={() => fileInputRef.current?.click()} disabled={uploadingAttachments}><FileUp size={14} />{uploadingAttachments ? "Anexando..." : "Anexar documentos"}</button>
+            <button type="button" className="nx-btn is-sm fin-btn-danger" onClick={() => setDeleteConfirmId(selected.id)}><Trash2 size={14} />Excluir</button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,application/pdf,application/xml,text/xml,.xml,.ofx,.csv,.xlsx,.xls,.doc,.docx"
+            className="hidden"
+            style={{ display: "none" }}
+            onChange={(event) => {
+              const files = event.target.files;
+              if (files?.length) void uploadAttachments(files);
+              event.currentTarget.value = "";
+            }}
+          />
+
+          {createPanel === null && feedback}
+
+          {deleteConfirmId === selected.id && (
+            <div className="fin-box is-danger">
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+                <div className="nx-grow">
+                  <h3 style={{ margin: 0, fontSize: 14, color: "var(--nx-danger)" }}>Excluir lançamento?</h3>
+                  <p className="nx-small nx-muted" style={{ margin: "3px 0 0" }}>Esta ação remove o lançamento financeiro da base persistida.</p>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="nx-btn is-sm" onClick={() => setDeleteConfirmId(null)}>Cancelar</button>
+                  <button type="button" className="nx-btn is-sm fin-btn-danger-solid" onClick={() => void deleteLancamento(selected.id)}>Confirmar exclusão</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isEditingSelected ? (
+            <div className="fin-box">
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+                <div className="nx-grow">
+                  <h3 style={{ margin: 0, fontSize: 14 }}>Editar lançamento</h3>
+                  <p className="nx-small nx-muted" style={{ margin: "3px 0 0" }}>Atualize valor, categoria, vencimento, status e descrição.</p>
+                </div>
+                <button type="button" className="fin-icon-btn" onClick={cancelEditLancamento} title="Cancelar edição" aria-label="Cancelar edição"><X size={16} /></button>
+              </div>
+              <div className="fin-form-grid">
+                <label className="fin-label is-full">Título<input value={editForm.title} onChange={(event) => setEditForm({ ...editForm, title: event.target.value })} className="fin-field" /></label>
+                <div className="fin-label">Tipo<TypeSeg value={editForm.type} onChange={(type) => setEditForm({ ...editForm, type })} /></div>
+                <label className="fin-label">Valor (R$)<input value={editForm.amount} inputMode="decimal" onChange={(event) => setEditForm({ ...editForm, amount: event.target.value })} className="fin-field" /></label>
+                <label className="fin-label">Categoria<input value={editForm.category} onChange={(event) => setEditForm({ ...editForm, category: event.target.value })} className="fin-field" /></label>
+                <label className="fin-label">Método<input value={editForm.method} onChange={(event) => setEditForm({ ...editForm, method: event.target.value })} className="fin-field" /></label>
+                <label className="fin-label">Vencimento<input type="date" value={editForm.dueDate} onChange={(event) => setEditForm({ ...editForm, dueDate: event.target.value })} className="fin-field" /></label>
+                <label className="fin-label">Status
+                  <Select value={editForm.status} onChange={(value) => setEditForm({ ...editForm, status: value as EntryStatus })}>
+                    <option value="pendente">Pendente</option>
+                    <option value="pago">Pago</option>
+                    <option value="cancelado">Cancelado</option>
+                  </Select>
+                </label>
+                <label className="fin-label is-full">Descrição<textarea value={editForm.description} onChange={(event) => setEditForm({ ...editForm, description: event.target.value })} rows={3} className="fin-field" /></label>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+                <button type="button" className="nx-btn is-primary" onClick={() => void saveEditLancamento()} disabled={savingEdit}><Save size={15} />{savingEdit ? "Salvando..." : "Salvar alterações"}</button>
+                <button type="button" className="nx-btn" onClick={cancelEditLancamento}>Cancelar</button>
+              </div>
+            </div>
+          ) : (
+            <div className="fin-box">
+              <div className="nx-faint nx-small">Descrição</div>
+              <p className="nx-muted" style={{ margin: "4px 0 0", fontSize: 13.5 }}>{selected.description || "Sem descrição."}</p>
+              <div className="fin-facts">
+                <div><span>Valor</span><b className={selected.type === "entrada" ? "nx-up" : "nx-down"}>{money(selected.amount)}</b></div>
+                <div><span>Método</span><b>{selected.method || "Não informado"}</b></div>
+                <div><span>Pago em</span><b>{dateLabel(selected.paidAt)}</b></div>
+                <div><span>Origem</span><b>{selected.source || "manual"}</b></div>
+              </div>
+            </div>
+          )}
+
+          <div className="fin-box is-dashed">
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+              <span style={{ display: "grid", width: 36, height: 36, placeItems: "center", borderRadius: 8, background: "var(--nx-primary-soft)", color: "var(--nx-primary-text)" }}><FileText size={16} /></span>
+              <div className="nx-grow">
+                <h3 style={{ margin: 0, fontSize: 14 }}>Documentos do lançamento</h3>
+                <p className="nx-small nx-muted" style={{ margin: "2px 0 0" }}>Comprovantes, notas fiscais, boletos, recibos, XML, OFX, planilhas e imagens.</p>
+              </div>
+              <button type="button" className="nx-btn is-sm is-primary" onClick={() => fileInputRef.current?.click()} disabled={uploadingAttachments}><Paperclip size={14} />Adicionar arquivos</button>
+            </div>
+          </div>
+          <div className="fin-attach-grid">
+            {selected.attachments.length === 0 ? (
+              <button type="button" className="fin-attach-empty" style={{ gridColumn: "1 / -1" }} onClick={() => fileInputRef.current?.click()}>
+                Nenhum arquivo anexado. Clique para adicionar comprovantes ou notas fiscais.
+              </button>
+            ) : selected.attachments.map((item) => (
+              <article key={item.id} className="fin-attach">
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <Paperclip size={14} style={{ flex: "none", color: "var(--nx-primary)" }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div className="nx-ell" style={{ fontWeight: 500 }}>{item.name}</div>
+                    <div className="nx-ell nx-faint" style={{ fontSize: 12 }}>{item.mimeType || "arquivo"} · {fileSizeLabel(item.size)}</div>
+                  </div>
+                </div>
+                <div className="fin-attach-actions">
+                  <button type="button" className="nx-btn is-sm" onClick={() => void openWithAuth(item.url)}>Abrir</button>
+                  <button type="button" className="nx-btn is-sm" onClick={() => void downloadWithAuth(item.url, item.name)}><Download size={13} />Baixar</button>
+                  <button type="button" className="nx-btn is-sm fin-btn-danger" onClick={() => void removeAttachment(item)} disabled={removingAttachmentId === item.id}><Trash2 size={13} />{removingAttachmentId === item.id ? "..." : "Remover"}</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
 
-function Metric({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: string; tone: "blue" | "emerald" | "rose" | "amber" }) {
-  const tones = {
-    blue: "bg-blue-500/10 text-blue-200",
-    emerald: "bg-emerald-500/10 text-emerald-200",
-    rose: "bg-rose-500/10 text-rose-200",
-    amber: "bg-amber-500/10 text-amber-200",
-  };
+const MONTH_SHORT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+function monthlyRevenue(items: Lancamento[]) {
+  const now = new Date();
+  const months = Array.from({ length: 10 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - 9 + index, 1);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    return { key, short: MONTH_SHORT[date.getMonth()], label: `${MONTH_SHORT[date.getMonth()]}/${date.getFullYear()}`, total: 0 };
+  });
+  const byKey = new Map(months.map((item) => [item.key, item]));
+  items.forEach((item) => {
+    if (item.type !== "entrada" || item.status !== "pago") return;
+    const month = byKey.get((item.paidAt || item.dueDate || item.createdAt || "").slice(0, 7));
+    if (month) month.total += Number(item.amount || 0);
+  });
+  return months;
+}
+
+function periodTitle(preset: PeriodPreset, start: string, end: string) {
+  if (!start || !end) return "Defina as datas do período";
+  if (preset === "this-month" || preset === "last-month") {
+    const label = new Date(`${start}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+  return `${dateLabel(start)} a ${dateLabel(end)}`;
+}
+
+function frequencyLabel(value: Frequency) {
+  return { unico: "Único", semanal: "Semanal", mensal: "Mensal", anual: "Anual" }[value] || value;
+}
+
+function StatusBadge({ status }: { status: EntryStatus }) {
+  const tone = status === "pago" ? "is-green" : status === "pendente" ? "is-amber" : "";
+  const label = status === "pago" ? "Pago" : status === "pendente" ? "Pendente" : "Cancelado";
+  return <span className={`nx-badge ${tone}`}>{label}</span>;
+}
+
+function TypeSeg({ value, onChange }: { value: EntryType; onChange: (value: EntryType) => void }) {
   return (
-    <div className="workspace-metric finance-metric">
-      <span className={`mb-5 grid h-10 w-10 place-items-center rounded-xl ${tones[tone]}`}>
-        <Icon size={19} />
-      </span>
-      <p className={`text-xl font-black ${tones[tone].split(" ")[1]}`}>{value}</p>
-      <p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">{label}</p>
+    <div className="nx-seg" role="group" aria-label="Tipo do lançamento" style={{ alignSelf: "flex-start" }}>
+      <button type="button" aria-pressed={value === "saida"} className={`fin-seg-out ${value === "saida" ? "is-active" : ""}`} onClick={() => onChange("saida")}>Saída</button>
+      <button type="button" aria-pressed={value === "entrada"} className={`fin-seg-in ${value === "entrada" ? "is-active" : ""}`} onClick={() => onChange("entrada")}>Entrada</button>
     </div>
   );
 }
 
 function Select({ value, onChange, children }: { value: string; onChange: (value: string) => void; children: ReactNode }) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} className="field">
+    <select value={value} onChange={(event) => onChange(event.target.value)} className="fin-field">
       {children}
     </select>
   );
 }
 
 function EmptyLine({ text }: { text: string }) {
-  return <div className="px-5 py-6 text-sm font-semibold text-[var(--text-secondary)]">{text}</div>;
+  return <div className="fin-empty">{text}</div>;
 }

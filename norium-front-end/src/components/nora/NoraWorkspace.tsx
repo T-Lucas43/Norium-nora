@@ -19,7 +19,8 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
   const [query, setQuery] = useState("");
   const [historyView, setHistoryView] = useState<"history" | "library">("history");
   const [libraryFileCount, setLibraryFileCount] = useState(0);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // Em telas largas o histórico fica fixo ao lado da conversa, como no layout aprovado.
+  const [historyOpen, setHistoryOpen] = useState(() => typeof window !== "undefined" && window.innerWidth > 1180);
   const [brainOpen, setBrainOpen] = useState(false);
   const [brainAvailable, setBrainAvailable] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -183,7 +184,7 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
       })}</>}</div><div className="nora-history-footer"><Sparkles size={15} /><span>Ideias, respostas e ações.<br /><strong>Conectadas ao seu Norium.</strong></span></div>
     </aside>
     <section className="nora-workspace-main" aria-label="Conversa com a Nora">
-      {brainOpen && <NoraBrainJobs onClose={() => setBrainOpen(false)} />}
+      {brainOpen && <NoraBrainJobs onClose={() => setBrainOpen(false)} onOpenLibrary={() => { setBrainOpen(false); openSidebar("library"); }} />}
       <header className="nora-workspace-header">
         <Button variant="ghost" iconOnly onClick={() => setHistoryOpen(!historyOpen)} aria-label={historyOpen ? "Recolher histórico" : "Abrir histórico"} aria-expanded={historyOpen}>{historyOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}</Button>
         <span className="nora-workspace-header-avatar"><NoraAvatar className="h-10 w-10" /></span>
@@ -192,6 +193,7 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
           <h1>{activeSummary?.title || active.title}</h1>
           <p aria-live="polite">{saveStatus === "Conversa salva" && <Check size={11} />}{saveStatus}</p>
         </div>
+        <div className="nx-seg nora-workspace-seg" role="group" aria-label="Seções da Nora"><button type="button" className={!brainOpen && !(historyOpen && historyView === "library") ? "is-active" : ""} onClick={() => { setBrainOpen(false); openSidebar("history"); }}>Conversas</button>{brainAvailable && <button type="button" className={brainOpen ? "is-active" : ""} onClick={() => setBrainOpen(true)}>Trabalhos</button>}<button type="button" className={!brainOpen && historyOpen && historyView === "library" ? "is-active" : ""} onClick={() => { setBrainOpen(false); openSidebar("library"); }}>Biblioteca</button></div>
         <div className="nora-workspace-actions"><Button variant="ghost" iconOnly onClick={() => activeSummary && void toggleLibrary(activeSummary)} disabled={busy || switching || !activeSummary} aria-label={activeSummary?.inLibrary ? "Remover conversa da biblioteca" : "Adicionar conversa à biblioteca"}><Bookmark size={16} fill={activeSummary?.inLibrary ? "currentColor" : "none"} /></Button><Button variant="ghost" iconOnly onClick={() => void renameConversation()} disabled={busy || switching || !activeSummary} aria-label="Renomear conversa"><Pencil size={16} /></Button><Button variant="ghost" iconOnly onClick={exportConversation} disabled={!activeSummary} aria-label="Exportar conversa"><Download size={16} /></Button></div>
       </header>
       {error && <div className="nora-history-error" role="alert"><span>{error}</span>{conflict ? <button disabled={busy} onClick={() => void saveAsNewConversation()}>Salvar como nova conversa</button> : <button onClick={() => void (writerRef.current?.dirty ? flush() : loadHistory())}>Tentar novamente</button>}</div>}

@@ -1,0 +1,540 @@
+/* Painel no layout aprovado (PDF "Norium — Novo layout", tela Painel). Só aparência. */
+
+.nxd {
+  min-width: 0;
+}
+
+.nxd button {
+  font: inherit;
+}
+
+.nxd :focus-visible {
+  outline: 2px solid var(--nx-primary);
+  outline-offset: 2px;
+}
+
+/* Indicadores */
+.nxd-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.nxd-kpi {
+  min-width: 0;
+  padding: 16px 18px;
+  color: var(--nx-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.nxd-kpi:hover {
+  border-color: var(--nx-border-strong);
+  background: var(--nx-surface-2);
+}
+
+.nxd-kpi .nx-kpi-v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nxd-kpi-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  object-fit: contain;
+}
+
+.nxd .norium-suite-icon,
+.dark .nxd .norium-suite-icon {
+  filter: none;
+}
+
+/* Grade principal: agenda, tarefas e seu dia */
+.nxd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.nxd-col {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.nxd-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.nxd-card .nx-card-b {
+  flex: 1;
+}
+
+.nxd-list {
+  display: flex;
+  max-height: 340px;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.nxd-list.is-tall {
+  max-height: 420px;
+}
+
+button.nxd-row {
+  width: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  color: var(--nx-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nxd-row {
+  border-radius: 0;
+}
+
+.nxd-row:hover .nx-row-t {
+  color: var(--nx-primary-text);
+}
+
+.nxd-row .nx-row-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nxd-time {
+  width: 44px;
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.nxd-bar {
+  width: 3px;
+  flex: none;
+  align-self: stretch;
+  border-radius: 3px;
+  background: var(--nx-border-strong);
+}
+
+.nxd-bar.tone-0 { background: var(--nx-primary); }
+.nxd-bar.tone-1 { background: var(--nx-violet); }
+.nxd-bar.tone-2 { background: var(--nx-border-strong); }
+
+.nxd-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--nx-border-strong);
+}
+
+.nxd-dot.priority-urgente { background: var(--nx-danger); }
+.nxd-dot.priority-alta { background: var(--nx-warning); }
+.nxd-dot.priority-media { background: var(--nx-primary); }
+.nxd-dot.priority-baixa { background: var(--nx-border-strong); }
+
+.nxd-date {
+  flex: none;
+  color: var(--nx-text-3);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.nxd-empty {
+  display: flex;
+  min-height: 120px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 8px;
+  color: var(--nx-text-2);
+  font-size: 13px;
+  text-align: center;
+}
+
+.nxd-empty svg {
+  color: var(--nx-text-3);
+}
+
+.nxd-empty.is-inline {
+  min-height: 0;
+  flex-direction: row;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--nx-border);
+  padding: 10px 0 0;
+}
+
+.nxd-card-foot {
+  border-top: 1px solid var(--nx-border);
+  padding: 10px 12px;
+}
+
+.nxd-card-foot .nx-btn {
+  width: 100%;
+}
+
+/* Ícone pequeno das linhas (padrão "Pendências" do PDF) */
+.nxd-ico {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--nx-hover);
+  color: var(--nx-text-2);
+}
+
+.nxd-ico.is-blue { background: var(--nx-primary-soft); color: var(--nx-primary-text); }
+.nxd-ico.is-green { background: var(--nx-success-soft); color: var(--nx-success); }
+.nxd-ico.is-amber { background: var(--nx-warning-soft); color: var(--nx-warning); }
+.nxd-ico.is-red { background: var(--nx-danger-soft); color: var(--nx-danger); }
+.nxd-ico.is-violet { background: var(--nx-violet-soft); color: var(--nx-violet); }
+.nxd-ico.is-cyan { background: var(--nx-cyan-soft); color: var(--nx-cyan); }
+
+.nxd-ico img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+/* Próxima decisão */
+.nxd-decision {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  border: 1px solid var(--nx-border);
+  border-radius: 10px;
+  background: var(--nx-primary-soft);
+  padding: 12px 14px;
+  color: var(--nx-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nxd-decision small {
+  display: block;
+  color: var(--nx-primary-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.nxd-decision strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.nxd-decision em {
+  display: block;
+  overflow: hidden;
+  margin-top: 1px;
+  color: var(--nx-text-2);
+  font-size: 12.5px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nxd-decision svg {
+  flex: none;
+  color: var(--nx-primary-text);
+}
+
+/* Contas a pagar */
+.nxd-eyebrow {
+  margin: 0 0 2px;
+  color: var(--nx-text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.nxd-total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: var(--nx-surface-2);
+  padding: 10px 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.nxd-total > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nxd-total svg {
+  color: var(--nx-text-2);
+}
+
+.nxd-total .nx-badge {
+  margin-left: auto;
+}
+
+.nxd-amount {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Blocos complementares (atividade, integrações, automações, estatísticas) */
+.nxd-secondary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.nxd-card-sub {
+  margin: 2px 0 0;
+  color: var(--nx-text-2);
+  font-size: 12.5px;
+}
+
+.nxd-card-h-col {
+  min-width: 0;
+}
+
+.nxd-integrations {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.nxd-integration {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--nx-border);
+  border-radius: 10px;
+  background: var(--nx-surface);
+  padding: 12px;
+  color: var(--nx-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nxd-integration:hover {
+  border-color: var(--nx-border-strong);
+  background: var(--nx-surface-2);
+}
+
+.nxd-integration-logo {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--nx-hover);
+}
+
+.nxd-integration-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--nx-text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.nxd-integration-status.is-on { color: var(--nx-success); }
+.nxd-integration-status.is-install { color: var(--nx-primary-text); }
+
+.nxd-automations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.nxd-automation {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--nx-border);
+  border-radius: 10px;
+  background: var(--nx-surface);
+  padding: 14px;
+  color: var(--nx-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nxd-automation:hover {
+  border-color: var(--nx-border-strong);
+  background: var(--nx-surface-2);
+}
+
+.nxd-automation-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--nx-text-2);
+  font-size: 12.5px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.nxd-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nxd-notice {
+  border-radius: 8px;
+  background: var(--nx-warning-soft);
+  padding: 12px 14px;
+  color: var(--nx-warning);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nxd-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.nxd-stat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.nxd-stat-l {
+  margin: 0;
+  color: var(--nx-text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nxd-stat-v {
+  margin: 2px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.nxd-stat-v small {
+  margin-left: 6px;
+  color: var(--nx-text-3);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+/* Responsivo */
+@media (max-width: 1280px) {
+  .nxd-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .nxd-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nxd-grid > .nxd-col { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+
+@media (max-width: 1100px) {
+  .nxd-integrations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 860px) {
+  .nxd-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nxd-grid,
+  .nxd-grid > .nxd-col { grid-template-columns: minmax(0, 1fr); }
+  .nxd-automations,
+  .nxd-stats { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 520px) {
+  .nxd-kpis,
+  .nxd-integrations { grid-template-columns: minmax(0, 1fr); }
+  .nxd .nx-ph-actions { width: 100%; }
+  .nxd .nx-ph-actions .nx-btn { flex: 1; }
+}
+
+/* Bloco principal com altura fixa: as três colunas ficam alinhadas e as listas rolam por dentro. */
+@media (min-width: 1281px) {
+  .nxd-grid {
+    height: 470px;
+    align-items: stretch;
+  }
+
+  .nxd-grid > .nxd-card {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .nxd-grid > .nxd-card .nx-card-b {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .nxd-grid .nxd-list,
+  .nxd-grid .nxd-list.is-tall {
+    max-height: none;
+    min-height: 0;
+    flex: 1;
+  }
+
+  .nxd-grid > .nxd-rail {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .nxd-grid > .nxd-rail > .nxd-card {
+    flex: none;
+  }
+}
+
+/* Estado vazio ocupa o cartão inteiro, centralizado */
+.nxd-list > .nxd-empty:only-child {
+  flex: 1;
+}
+
+.nxd-empty-cta {
+  margin-top: 4px;
+}
+
+/* Linha de clima/localização clicável quando falta o CEP */
+button.nxd-setup {
+  width: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  color: var(--nx-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+button.nxd-setup .nx-row-sub {
+  color: var(--nx-primary-text);
+}

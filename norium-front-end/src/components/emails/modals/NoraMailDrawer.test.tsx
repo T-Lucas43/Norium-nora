@@ -28,7 +28,7 @@ function setup(over: Partial<Parameters<typeof NoraMailDrawer>[0]> = {}) {
 describe("NoraMailDrawer", () => {
   it("sem e-mail aberto mostra os atalhos da caixa", () => {
     setup();
-    expect(screen.getByRole("button", { name: /nao lidos/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /não lidos/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /resumir caixa/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sugerir resposta/i })).not.toBeInTheDocument();
     expect(screen.getByText(/caixa de entrada e novos envios/i)).toBeInTheDocument();
@@ -38,16 +38,16 @@ describe("NoraMailDrawer", () => {
     setup({ selectedMessage: aberta });
     expect(screen.getByRole("button", { name: /resumir aberto/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sugerir resposta/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /proxima acao/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /próxima ação/i })).toBeInTheDocument();
     expect(screen.getByText(/contexto: contrato 2026/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /nao lidos/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /não lidos/i })).not.toBeInTheDocument();
   });
 
   it("dispara os atalhos contextuais", () => {
     const h = setup({ selectedMessage: aberta });
     fireEvent.click(screen.getByRole("button", { name: /resumir aberto/i }));
     fireEvent.click(screen.getByRole("button", { name: /sugerir resposta/i }));
-    fireEvent.click(screen.getByRole("button", { name: /proxima acao/i }));
+    fireEvent.click(screen.getByRole("button", { name: /próxima ação/i }));
     expect(h.onSummarize).toHaveBeenCalled();
     expect(h.onSuggestReply).toHaveBeenCalled();
     expect(h.onNextAction).toHaveBeenCalled();
@@ -55,7 +55,7 @@ describe("NoraMailDrawer", () => {
 
   it("dispara os atalhos da caixa", () => {
     const h = setup();
-    fireEvent.click(screen.getByRole("button", { name: /nao lidos/i }));
+    fireEvent.click(screen.getByRole("button", { name: /não lidos/i }));
     fireEvent.click(screen.getByRole("button", { name: /resumir caixa/i }));
     fireEvent.click(screen.getByRole("button", { name: /criar e-mail/i }));
     expect(h.onListUnread).toHaveBeenCalled();

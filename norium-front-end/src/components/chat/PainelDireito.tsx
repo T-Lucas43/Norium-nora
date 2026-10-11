@@ -78,12 +78,12 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
   const phoneLabel = conversaAtiva ? formatWhatsAppPhone(conversaAtiva.metadados?.numeroCompleto || conversaAtiva.id) : "";
 
   return (
-    <aside className="norium-chat-details flex h-full min-h-0 w-[440px] shrink-0 select-none flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--text)]">
+    <aside className="norium-chat-details flex h-full min-h-0 w-[380px] shrink-0 select-none flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--text)]">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--border)]">
-        <h4 className="text-xs font-bold uppercase tracking-wide">
+        <h4 className="text-[15px] font-semibold">
           {modo === "perfil" && (conversaAtiva?.esGrupo ? "Dados do grupo" : "Dados do contato")}
           {modo === "config-propria" && "Minhas contas"}
-          {modo === "nora" && "Modulo Nora IA"}
+          {modo === "nora" && "Nora"}
         </h4>
         <Button variant="ghost" size="sm" iconOnly onClick={onFechar} aria-label="Fechar painel">
           <X size={15} />
@@ -98,7 +98,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
             <ProfileAvatar conversa={conversaAtiva} />
             <h3 className="mt-3 font-bold text-sm px-2 truncate w-full">{displayName}</h3>
             <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 px-2">
-              <span className="inline-flex h-6 items-center rounded-full bg-[color-mix(in_srgb,var(--primary)_14%,transparent)] px-2 text-xs font-extrabold text-[var(--primary)]">WhatsApp</span>
+              <span className="nx-badge is-green">WhatsApp</span>
               {conversaAtiva.metadados?.verifiedName && <span className="inline-flex h-6 items-center gap-1 rounded-full border border-[var(--primary)]/30 px-2 text-xs font-bold text-[var(--primary)]"><BadgeCheck size={12} /> Verificado</span>}
               {conversaAtiva.metadados?.isBusiness && <span className="inline-flex h-6 items-center gap-1 rounded-full border border-[var(--border)] px-2 text-xs font-bold"><Building2 size={12} /> Empresa</span>}
             </div>
@@ -112,9 +112,9 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
           </div>
 
           <div className="bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] space-y-1">
-            <p className="text-xs text-[var(--text-secondary)] uppercase font-bold">Recado / descricao</p>
+            <p className="text-xs text-[var(--text-secondary)] uppercase font-bold">Recado / descrição</p>
             <p className="text-xs font-medium opacity-90">
-              {conversaAtiva.metadados?.descricaoGrupo || conversaAtiva.metadados?.bioRecado || "Nenhuma informacao disponivel."}
+              {conversaAtiva.metadados?.descricaoGrupo || conversaAtiva.metadados?.bioRecado || "Nenhuma informação disponível."}
             </p>
           </div>
 
@@ -131,7 +131,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-[var(--text-secondary)]">Nenhuma midia compartilhada recentemente.</p>
+              <p className="text-xs text-[var(--text-secondary)]">Nenhuma mídia compartilhada recentemente.</p>
             )}
           </div>
 
@@ -165,7 +165,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
           {conversaAtiva ? (
             <>
               <p className="text-[var(--text-secondary)] text-center">
-                Analise contextual da conversa com {displayName}.
+                Análise contextual da conversa com {displayName}.
               </p>
               <div className="space-y-2">
                 <button

@@ -9,6 +9,6 @@ describe("Statistics", () => {
     expect(screen.getByText("Tarefas movimentadas")).toBeInTheDocument();
     expect(screen.getByText("Canais ativos")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Consultar insights" })).not.toBeInTheDocument();
-    expect(container.querySelector(".norium-dashboard-stat-flat")).not.toBeNull();
+    expect(container.querySelector(".nxd-stat")).not.toBeNull();
   });
 });

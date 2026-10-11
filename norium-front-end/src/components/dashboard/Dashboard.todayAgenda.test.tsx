@@ -113,7 +113,7 @@ describe("Dashboard / Agenda de hoje", () => {
       ? Promise.reject(new Error("backend fora do ar"))
       : Promise.resolve({}));
     const { container } = renderDashboard([feedEvent("f1", "Do feed")]);
-    const card = container.querySelector(".norium-today-agenda");
+    const card = container.querySelector(".nxd-agenda");
     expect(card).not.toBeNull();
     const cardQueries = within(card as HTMLElement);
 

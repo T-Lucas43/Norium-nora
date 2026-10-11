@@ -2,11 +2,10 @@ import {
   Camera,
   CloudSun,
   Languages,
+  Lock,
   LogOut,
-  Mail,
   Save,
   ShieldCheck,
-  UserCircle2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { NoriumUser } from "../../types/auth";
@@ -20,6 +19,7 @@ import {
 import Button from "../shared/Button";
 import EmailPreferences from "./EmailPreferences";
 import SessionDevices from "./SessionDevices";
+import "../../styles/screens/inteligencia-equipe-conta.css";
 
 type ProfileSettingsProps = {
   userId?: string;
@@ -102,172 +102,142 @@ export default function ProfileSettings({
     }
   }
 
-  return (
-    <section className="flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-      <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--primary)]">
-            <UserCircle2 size={23} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-bold">Meu perfil</h1>
-            <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">
-              Foto, identificação e dados pessoais do operador
-            </p>
-          </div>
-        </div>
+  const roleLine = [currentUser?.jobTitle, currentUser?.role === "owner" ? "Principal" : currentUser ? "Membro" : ""].filter(Boolean).join(" · ");
 
-        <div className="flex items-center gap-2">
+  return (
+    <section className="nx-page nxi-screen">
+      <header className="nx-ph">
+        <div>
+          <h1>Meu perfil</h1>
+          <p>Como você aparece para a equipe e para os clientes.</p>
+        </div>
+        <div className="nx-ph-actions">
           {onLogout && (
-            <Button variant="danger"
-             
-              onClick={onLogout}
-              className="border-red-400/30 bg-red-500/10 text-red-300 hover:bg-red-500/16"
-            >
+            <Button variant="danger" onClick={onLogout}>
               <LogOut size={16} />
               Sair
             </Button>
           )}
-          <Button variant="primary"
-           
-            onClick={() => void save()}
-            disabled={saving || loading}
-           
-          >
+          <Button variant="primary" onClick={() => void save()} disabled={saving || loading}>
             <Save size={16} />
             {saving ? "Salvando..." : "Salvar perfil"}
           </Button>
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="mx-auto grid max-w-5xl gap-5 lg:grid-cols-[300px_1fr]">
-          <aside className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-            <div className="flex flex-col items-center text-center">
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(event) => void selectPhoto(event)}
-              />
-              <Button iconOnly
-               
-                onClick={() => photoInputRef.current?.click()}
-                className="relative mb-4 h-28 w-28 overflow-hidden rounded-full bg-[var(--background)] text-3xl text-[var(--primary)] hover:border-[var(--primary)]"
-                title="Escolher foto da galeria"
-                aria-label="Escolher foto da galeria"
-              >
-                {profile.fotoUrl ? (
-                  <img src={profile.fotoUrl} alt="Foto do perfil" className="h-full w-full object-cover" />
-                ) : (
-                  initials(profile.nome)
-                )}
-                <span className="absolute bottom-1 right-1 grid h-9 w-9 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)]">
-                  <Camera size={16} />
-                </span>
-              </Button>
-              <h2 className="text-lg font-bold">{profile.nome}</h2>
-              <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
-                {currentUser?.email || "Operador Norium"}
-              </p>
-
-              <div className="mt-5 flex w-full gap-2">
-                <Button variant="primary"
-                 
-                  onClick={() => photoInputRef.current?.click()}
-                  className="flex-1 py-2"
-                >
-                  Alterar foto
-                </Button>
-                {profile.fotoUrl && (
-                  <Button
-                   
-                    onClick={() => setProfile((current) => ({ ...current, fotoUrl: "" }))}
-                    className="py-2"
-                  >
-                    Remover
-                  </Button>
-                )}
-              </div>
+      <div className="nxi-stack" style={{ maxWidth: 1080 }}>
+        <section className="nx-card flex flex-wrap items-center gap-5" style={{ padding: 22 }}>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => void selectPhoto(event)}
+          />
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            className="nxi-avatar-btn"
+            title="Escolher foto da galeria"
+            aria-label="Escolher foto da galeria"
+          >
+            {profile.fotoUrl ? (
+              <img src={profile.fotoUrl} alt="Foto do perfil" />
+            ) : (
+              initials(profile.nome)
+            )}
+            <span><Camera size={15} /></span>
+          </button>
+          <div className="min-w-0 flex-1">
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, overflowWrap: "anywhere" }}>{profile.nome}</h2>
+            <p className="nx-muted" style={{ margin: "2px 0 0", overflowWrap: "anywhere" }}>{currentUser?.email || "Operador Norium"}{roleLine ? ` · ${roleLine}` : ""}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="nx-badge is-green"><ShieldCheck size={12} /> Conta protegida pelo Norium</span>
             </div>
-
-            <div className="mt-6 space-y-3 border-t border-[var(--border)] pt-5 text-xs font-semibold text-[var(--text-secondary)]">
-              <div className="flex items-center gap-2"><ShieldCheck size={15} /> Conta protegida pelo Norium</div>
-              <div className="flex items-center gap-2"><Mail size={15} /> {currentUser?.email || "E-mail não informado"}</div>
-            </div>
-          </aside>
-
-          <div className="space-y-5">
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-              <h2 className="mb-5 text-sm font-bold uppercase text-[var(--text-secondary)]">
-                Dados do operador
-              </h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-2">
-                  <span className="text-xs font-bold text-[var(--text-secondary)]">Nome</span>
-                  <input
-                    value={profile.nome}
-                    onChange={(event) => setProfile((current) => ({ ...current, nome: event.target.value }))}
-                    className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-semibold outline-none focus:border-[var(--primary)]"
-                  />
-                </label>
-
-                <label className="space-y-2">
-                  <span className="text-xs font-bold text-[var(--text-secondary)]">CEP para clima</span>
-                  <div className="flex h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3">
-                    <CloudSun size={16} className="text-[var(--text-secondary)]" />
-                    <input
-                      value={profile.cep}
-                      onChange={(event) => setProfile((current) => ({ ...current, cep: event.target.value }))}
-                      placeholder="00000-000"
-                      className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"
-                    />
-                  </div>
-                </label>
-
-                <label className="space-y-2">
-                  <span className="text-xs font-bold text-[var(--text-secondary)]">Idioma</span>
-                  <div className="flex h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3">
-                    <Languages size={16} className="text-[var(--text-secondary)]" />
-                    <select
-                      value={profile.idioma}
-                      onChange={(event) => setProfile((current) => ({ ...current, idioma: event.target.value }))}
-                      className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"
-                    >
-                      <option value="pt-BR">Português (Brasil)</option>
-                      <option value="en-US">English (US)</option>
-                      <option value="es-ES">Español</option>
-                    </select>
-                  </div>
-                </label>
-
-                <label className="space-y-2 sm:col-span-2">
-                  <span className="text-xs font-bold text-[var(--text-secondary)]">URL da foto</span>
-                  <input
-                    value={profile.fotoUrl}
-                    onChange={(event) => setProfile((current) => ({ ...current, fotoUrl: event.target.value }))}
-                    placeholder="https://... ou use Alterar foto"
-                    className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-semibold outline-none focus:border-[var(--primary)]"
-                  />
-                </label>
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-              <h2 className="text-sm font-bold">Preferências e aparência agora ficam em Configurações</h2>
-              <p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">
-                O perfil mantém apenas seus dados pessoais. Tema, personalização visual e comportamento da Nora possuem uma tela própria.
-              </p>
-            </section>
-
-            <EmailPreferences key={userId} />
-            <SessionDevices key={`sessions:${userId}`} />
-            {error && <p className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm font-bold text-red-300">{error}</p>}
-            {message && <p className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm font-bold text-emerald-300">{message}</p>}
           </div>
-        </div>
-      </main>
+          <div className="nxi-actions">
+            <Button variant="primary" size="sm" onClick={() => photoInputRef.current?.click()}>
+              Alterar foto
+            </Button>
+            {profile.fotoUrl && (
+              <Button size="sm" onClick={() => setProfile((current) => ({ ...current, fotoUrl: "" }))}>
+                Remover
+              </Button>
+            )}
+          </div>
+        </section>
+
+        <section className="nx-card" style={{ padding: 22 }}>
+          <h2 className="nxi-card-title" style={{ marginBottom: 16 }}>Dados do operador</h2>
+          <div className="nxi-cols">
+            <label className="nxi-label">
+              Nome
+              <input
+                value={profile.nome}
+                onChange={(event) => setProfile((current) => ({ ...current, nome: event.target.value }))}
+                className="nxi-field"
+              />
+            </label>
+
+            <label className="nxi-label">
+              E-mail
+              <span className="nxi-search" style={{ color: "var(--nx-text-2)" }}><Lock size={14} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.email || "E-mail não informado"}</span></span>
+            </label>
+
+            <label className="nxi-label">
+              Idioma
+              <span className="nxi-search">
+                <Languages size={15} />
+                <select
+                  value={profile.idioma}
+                  onChange={(event) => setProfile((current) => ({ ...current, idioma: event.target.value }))}
+                  className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+                  style={{ color: "var(--nx-text)", border: 0 }}
+                >
+                  <option value="pt-BR">Português (Brasil)</option>
+                  <option value="en-US">English (US)</option>
+                  <option value="es-ES">Español</option>
+                </select>
+              </span>
+            </label>
+
+            <label className="nxi-label">
+              CEP (para o clima no painel)
+              <span className="nxi-search">
+                <CloudSun size={15} />
+                <input
+                  value={profile.cep}
+                  onChange={(event) => setProfile((current) => ({ ...current, cep: event.target.value }))}
+                  placeholder="00000-000"
+                />
+              </span>
+            </label>
+
+            <label className="nxi-label" style={{ gridColumn: "1 / -1" }}>
+              URL da foto
+              <input
+                value={profile.fotoUrl}
+                onChange={(event) => setProfile((current) => ({ ...current, fotoUrl: event.target.value }))}
+                placeholder="https://... ou use Alterar foto"
+                className="nxi-field"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="nx-card nxi-card-pad is-sm">
+          <h2 className="nxi-card-title">Preferências e aparência agora ficam em Configurações</h2>
+          <p className="nxi-card-sub" style={{ lineHeight: 1.5 }}>
+            O perfil mantém apenas seus dados pessoais. Tema, personalização visual e comportamento da Nora possuem uma tela própria.
+          </p>
+        </section>
+
+        {error && <p className="nxi-alert is-error">{error}</p>}
+        {message && <p className="nxi-alert is-success">{message}</p>}
+
+        <EmailPreferences key={userId} />
+        <SessionDevices key={`sessions:${userId}`} />
+      </div>
     </section>
   );
 }

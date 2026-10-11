@@ -29,7 +29,7 @@ describe("MailSettingsDrawer", () => {
   it("alterna cada preferencia da caixa e da sincronizacao", () => {
     const { onPreferenceChange } = setup();
     fireEvent.click(screen.getByLabelText(/agrupar por categorias/i));
-    fireEvent.click(screen.getByLabelText(/mostrar texto de previa/i));
+    fireEvent.click(screen.getByLabelText(/mostrar texto de prévia/i));
     fireEvent.click(screen.getByLabelText(/atualizar automaticamente/i));
 
     expect(onPreferenceChange).toHaveBeenCalledWith("groupByCategory", true);
@@ -39,7 +39,7 @@ describe("MailSettingsDrawer", () => {
 
   it("reflete o estado atual nos interruptores", () => {
     setup({ preferences: { showPreview: false, autoRefresh: true } });
-    expect(screen.getByLabelText(/mostrar texto de previa/i)).not.toBeChecked();
+    expect(screen.getByLabelText(/mostrar texto de prévia/i)).not.toBeChecked();
     expect(screen.getByLabelText(/atualizar automaticamente/i)).toBeChecked();
   });
 
@@ -57,17 +57,17 @@ describe("MailSettingsDrawer", () => {
 
   it("informa quando ainda nao houve sincronizacao", () => {
     setup();
-    expect(screen.getByText(/aguardando autorizacao/i)).toBeInTheDocument();
+    expect(screen.getByText(/aguardando autorização/i)).toBeInTheDocument();
   });
 
   it("mostra a data da ultima sincronizacao quando existe", () => {
     setup({ status: { connected: true, email: "a@x.com", lastSync: "2026-01-15T10:00:00Z" } as GmailStatus });
-    expect(screen.getByText(/ultima sincronizacao:/i)).toBeInTheDocument();
+    expect(screen.getByText(/última sincronização:/i)).toBeInTheDocument();
   });
 
   it("fecha ao clicar fora, mas nao ao clicar dentro do painel", () => {
     const { onClose } = setup();
-    fireEvent.click(screen.getByText("Ajustes rapidos").closest("aside")!);
+    fireEvent.click(screen.getByText("Ajustes rápidos").closest("aside")!);
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /fechar/i }));

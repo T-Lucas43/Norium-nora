@@ -291,14 +291,14 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
 
   return (
     <div className="space-y-2 leading-5">
-      <div className="rounded-xl border border-white/10 bg-white/10 p-3">
+      <div className="team-nora-block rounded-xl border border-white/10 bg-white/10 p-3">
         <p className="text-xs font-bold uppercase tracking-wide opacity-75">{parsed.eyebrow}</p>
         <p className="mt-1 text-sm font-bold">{parsed.title}</p>
         {parsed.subtitle && <p className="mt-1 text-xs font-bold opacity-80">{parsed.subtitle}</p>}
       </div>
 
       {parsed.changes.length > 0 && (
-        <div className="rounded-xl border border-white/10 bg-black/10 p-3">
+        <div className="team-nora-block rounded-xl border border-white/10 bg-black/10 p-3">
           <p className="text-xs font-bold uppercase tracking-wide opacity-70">Alteracoes</p>
           <ul className="mt-2 space-y-1.5">
             {parsed.changes.map((change) => (
@@ -314,7 +314,7 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
       {parsed.details.length > 0 && (
         <div className="grid grid-cols-2 gap-1.5">
           {parsed.details.map((detail) => (
-            <div key={`${detail.label}-${detail.value}`} className="rounded-lg border border-white/10 bg-white/[0.08] px-2 py-1.5">
+            <div key={`${detail.label}-${detail.value}`} className="team-nora-block rounded-lg border border-white/10 bg-white/[0.08] px-2 py-1.5">
               <p className="text-xs font-bold uppercase opacity-60">{detail.label}</p>
               <p className="truncate text-xs font-bold" title={detail.value}>
                 {detail.value}
@@ -329,8 +329,8 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
 
 function MessageAvatar({ name, avatar, onClick }: { name: string; avatar?: string; onClick?: () => void }) {
   const [failed, setFailed] = useState(false);
-  if (avatar === "nora") return <NoraAvatar className="h-9 w-9 shrink-0" />;
-  const avatarNode = <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] text-xs font-bold text-[var(--text)]">
+  if (avatar === "nora") return <NoraAvatar className="team-chat-avatar h-9 w-9 shrink-0" />;
+  const avatarNode = <span className="team-chat-avatar grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] text-xs font-bold text-[var(--text)]">
       {avatar && !failed ? (
         <img src={avatar} alt={name} className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : (
@@ -378,7 +378,7 @@ function TeamAttachmentCard({ attachment, onPreview, token }: { attachment: Atta
   const Icon = isImageAttachment(attachment) ? ImageIcon : isVideoAttachment(attachment) ? PlayCircle : isAudioAttachment(attachment) ? Volume2 : FileText;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-white/10 bg-black/12 text-xs font-bold">
+    <div className="team-attachment-card overflow-hidden rounded-xl border border-white/10 bg-black/12 text-xs font-bold">
       <div className="block w-full text-left">
         {isImageAttachment(attachment) && objectUrl ? (
           <button type="button" className="block w-full" onClick={() => onPreview(attachment)}><img src={objectUrl} alt={attachment.name} className="h-28 w-full object-cover" /></button>
@@ -491,7 +491,7 @@ function SubteamEditorDialog({
     <div className="fixed inset-0 z-[150] grid place-items-center bg-black/70 p-4" onClick={onClose}>
       <section className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-4">
-          <div><p className="text-xs font-bold uppercase tracking-wide text-blue-400">Comunidade interna</p><h2 className="mt-1 text-xl font-black">{editing ? "Editar subequipe" : "Nova subequipe"}</h2></div>
+          <div><p className="text-xs font-bold uppercase tracking-wide text-blue-400">Comunidade interna</p><h2 className="mt-1 text-xl font-semibold">{editing ? "Editar subequipe" : "Nova subequipe"}</h2></div>
           <Button variant="ghost" size="sm" iconOnly onClick={onClose}><X size={18} /></Button>
         </div>
         <div className="mt-5 grid gap-3">
@@ -993,8 +993,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           {!conversationSelected ? <main className="team-chat-unselected"><div className="team-chat-welcome-icon"><MessageSquare size={32} /></div><h2>Uma equipe. Boas conversas.</h2><p>Selecione uma conversa para trocar mensagens,<br />compartilhar arquivos e tomar decisões em equipe.</p><div className="team-chat-welcome-hints"><span><Pin size={15} /> Fixe as mais importantes</span><span><AtSign size={16} /> Mencione e notifique pessoas</span></div><Button variant="primary" size="md" onClick={() => selectConversation({ scope: "team" })} icon={<Users size={16} />}>Conversar com o time</Button></main> : <main className="team-chat-conversation">
           <div className="team-chat-thread-header"><div className="team-chat-thread-title"><button type="button" className="team-icon-button team-chat-back" onClick={() => selectConversation(null)} aria-label="Voltar às conversas"><ArrowLeft size={18} /></button><span className="team-chat-thread-icon">{scope === "team" ? <Users size={19} /> : scope === "subteam" ? <Hash size={19} /> : <UserRound size={19} />}</span><div><h2>{threadTitle}</h2><p>{scope === "direct" ? conversationOnlineCount > 1 ? "Online agora" : "Conversa privada" : `${conversationMemberCount} participantes · ${conversationOnlineCount} online`}</p></div></div><div className="team-chat-thread-actions">
             {selectedConversation && <button type="button" className={`team-icon-button ${selectedConversation.pinned ? "is-pinned" : ""}`} disabled={Boolean(pinningId)} onClick={() => void togglePin(selectedConversation)} aria-label={selectedConversation.pinned ? "Desafixar conversa atual" : "Fixar conversa atual"} title={selectedConversation.pinned ? "Desafixar conversa" : "Fixar conversa"}>{selectedConversation.pinned ? <PinOff size={16} /> : <Pin size={16} />}</button>}
-            <button type="button" className="team-icon-button" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} aria-label="Agendar reunião" title="Agendar reunião"><CalendarPlus size={17} /></button>
-            <button type="button" className="team-icon-button team-call-action" disabled={!canStartCall} onClick={() => void startOrJoinCall()} aria-label={activeMeeting ? "Ingressar na reunião" : "Iniciar reunião"} title="Reunião por vídeo"><Video size={18} /></button>
+            <button type="button" className="nx-btn is-sm team-thread-button" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} aria-label="Agendar reunião" title="Agendar reunião"><CalendarPlus size={14} /><span>Agendar reunião</span></button>
+            <button type="button" className="nx-btn is-sm team-thread-button team-call-action" disabled={!canStartCall} onClick={() => void startOrJoinCall()} aria-label={activeMeeting ? "Ingressar na reunião" : "Iniciar reunião"} title="Reunião por vídeo"><Video size={14} /><span>{activeMeeting ? "Ingressar" : "Chamada"}</span></button>
             <button type="button" className="team-icon-button" onClick={() => setDetailsOpen((current) => !current)} aria-label="Detalhes da conversa" aria-expanded={detailsOpen} title="Detalhes da conversa"><PanelRight size={17} /></button>
             <button type="button" className="team-icon-button team-chat-deselect" onClick={() => selectConversation(null)} aria-label="Fechar conversa" title="Fechar conversa"><X size={18} /></button>
           </div></div>
@@ -1023,7 +1023,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               const readReceipts = mine ? readReceiptsFor(message) : [];
               const reactions = reactionsFor(message);
               return (
-                <div key={message.id} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
+                <div key={message.id} className={`team-chat-row ${mine ? "is-mine" : ""} flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} onClick={member ? () => setSelectedMemberId(member.id) : undefined} />}
                   <div className={`team-chat-message ${isNora ? "team-chat-message-nora max-w-[94%]" : "max-w-[78%]"} ${Array.isArray(message.metadata?.mentionedUserIds) && message.metadata.mentionedUserIds.includes(session.user.id) ? "mentions-me" : ""} rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "team-chat-message-mine" : "team-chat-message-other"}`}>
                     <div className={`mb-1 flex items-center justify-between gap-3 text-xs font-bold ${mine ? "team-chat-message-meta-mine" : "team-chat-message-meta-other"}`}>
@@ -1112,14 +1112,14 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               <button type="button" className="team-icon-button" aria-label="Mencionar membro" title="Mencionar membro" onClick={() => { const pos = inputRef.current?.selectionStart ?? text.length; const prefix = pos > 0 && !/\s/.test(text[pos - 1]) ? " @" : "@"; setText(text.slice(0, pos) + prefix + text.slice(pos)); setCursor(pos + prefix.length); setMentionIndex(0); setMentionDismissed(false); requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(pos + prefix.length, pos + prefix.length); }); }}><AtSign size={18} /></button>
               <button type="button" className="team-icon-button" aria-label="Escolher emoji" title="Emojis" aria-expanded={emojiPickerOpen} onClick={() => setEmojiPickerOpen((current) => !current)}><SmilePlus size={18} /></button>
               <TeamVoiceRecorder disabled={sending} onSend={(file) => void sendMessage("", [file])} onError={setError} />
-            </div><Button variant="primary" size="sm" onClick={() => void sendMessage()} disabled={sending || (!text.trim() && !files.length)} icon={<Send size={15} />} className="team-chat-send">{sending ? "Enviando..." : "Enviar"}</Button></div>
+            </div><Button variant="primary" size="sm" onClick={() => void sendMessage()} disabled={sending || (!text.trim() && !files.length)} icon={<Send size={15} />} className="team-chat-send"><span className="team-chat-send-label">{sending ? "Enviando..." : "Enviar"}</span></Button></div>
             </div><p className="team-chat-composer-hint"><span>Enter envia · Shift + Enter quebra a linha</span><span>{text.length}/2000</span></p>
           </footer>}
           </main>}
           {conversationSelected && detailsOpen && (
             <aside className="team-chat-context border-l border-[var(--border)] p-4">
               <div className="team-chat-details-heading"><p>Detalhes da conversa</p><button type="button" className="team-icon-button" onClick={() => setDetailsOpen(false)} aria-label="Fechar detalhes"><X size={16} /></button></div>
-              <div className="mt-2 flex items-start justify-between gap-2"><h2 className="text-lg font-black">{threadTitle}</h2>{scope === "subteam" && selectedSubteam && (selectedSubteam.createdBy === session.user.id || session.user.id === (session.user.teamOwnerId || session.user.id) || session.user.systemAdmin) && <Button variant="ghost" size="sm" iconOnly onClick={() => setSubteamEditor(selectedSubteam)} aria-label="Editar subequipe"><Settings2 size={15} /></Button>}</div>
+              <div className="mt-2 flex items-start justify-between gap-2"><h2 className="text-lg font-semibold">{threadTitle}</h2>{scope === "subteam" && selectedSubteam && (selectedSubteam.createdBy === session.user.id || session.user.id === (session.user.teamOwnerId || session.user.id) || session.user.systemAdmin) && <Button variant="ghost" size="sm" iconOnly onClick={() => setSubteamEditor(selectedSubteam)} aria-label="Editar subequipe"><Settings2 size={15} /></Button>}</div>
               <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
                 {scope === "team" ? "Canal interno para decisoes, atualizacoes e colaboracao entre todos os membros." : scope === "subteam" ? selectedSubteam?.description || "Comunidade reservada para os membros desta subequipe." : "Conversa reservada entre os participantes selecionados."}
               </p>

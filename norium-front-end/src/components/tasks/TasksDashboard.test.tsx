@@ -87,7 +87,7 @@ it("opens the existing task creation flow from the main header", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Nova tarefa" }));
   const dialog = screen.getByRole("dialog");
   expect(within(dialog).getByPlaceholderText("Título")).toHaveValue("");
-  expect(within(dialog).getByRole("button", { name: "Criar" })).toBeDisabled();
+  expect(within(dialog).getByRole("button", { name: "Criar tarefa" })).toBeDisabled();
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });

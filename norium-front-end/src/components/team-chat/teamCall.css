@@ -159,3 +159,127 @@ html:not(.dark) .team-call-prejoin-backdrop {background:radial-gradient(circle a
   .team-call-studio-inspector { width:100%; border-left:0; border-top:1px solid #28313b; overflow:visible; }
   .team-call-studio-header { padding:8px 12px; }
 }
+
+/* ===== Layout aprovado (PDF "Chamada de vídeo"): fundo escuro liso, blocos de 14px e controles discretos ===== */
+.team-call-professional.team-call-shell {
+  background: #0b0d12 !important;
+}
+
+.team-call-professional .team-call-stage {
+  background: #0b0d12;
+}
+
+.team-call-professional .team-call-header {
+  border-color: #262830;
+  background: #0b0d12;
+}
+
+.team-call-professional .team-call-remote-tile {
+  border-color: #262830;
+  background: #1b1f2a;
+}
+
+.team-call-professional .team-call-pinned-tile {
+  border-color: #3b82f6;
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+.team-call-professional .team-call-waiting {
+  border-color: #262830 !important;
+  background: #16171c !important;
+  border-radius: 14px;
+}
+
+.team-call-professional .team-call-waiting .team-call-primary-button {
+  border-color: #30323c;
+  background: #22252d !important;
+  color: #f3f4f6 !important;
+}
+
+.team-call-toolbar {
+  border-top-color: #262830;
+  background: #0b0d12;
+}
+
+.team-call-professional .team-call-top-control {
+  border-radius: 12px;
+  color: #d1d5db;
+}
+
+.team-call-professional .team-call-top-control:hover {
+  background: #22252d;
+}
+
+.team-call-professional .team-call-top-control.team-call-active {
+  border-color: #30323c;
+  background: #22252d;
+  color: #fff;
+}
+
+.team-call-professional .team-call-side-panel {
+  border-color: #262830;
+}
+
+.team-call-professional .team-call-screen-optin {
+  background: #111318;
+}
+
+.team-call-professional .font-bold,
+.team-call-professional .font-extrabold,
+.team-call-professional .font-black,
+.team-call-professional-invite .font-bold,
+.team-call-professional-invite .font-black,
+.team-call-prejoin-backdrop .font-bold,
+.team-call-prejoin-backdrop .font-black {
+  font-weight: 600 !important;
+}
+
+.team-call-prejoin-backdrop,
+html:not(.dark) .team-call-prejoin-backdrop {
+  background: rgba(11, 13, 18, .72) !important;
+}
+
+.team-call-prejoin-header,
+html:not(.dark) .team-call-prejoin-header {
+  background: transparent;
+}
+
+.team-call-prejoin-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.team-call-prejoin-header .team-call-accent-text {
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+
+.team-call-prejoin-brand {
+  border: 0;
+  background: #2563eb;
+  box-shadow: none;
+  font-weight: 600;
+}
+
+.team-call-prejoin-placeholder,
+html:not(.dark) .team-call-prejoin-placeholder {
+  background: #1b1f2a;
+}
+
+.team-call-prejoin-placeholder > span {
+  border-color: #30323c;
+  background: #22252d;
+  font-weight: 600;
+}
+
+.team-call-prejoin-cancel,
+.team-call-prejoin-enter {
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.team-call-prejoin-name input,
+.team-call-prejoin-device select {
+  font-weight: 500;
+}

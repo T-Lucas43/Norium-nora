@@ -21,3 +21,4 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 - perf: trabalhador de automações dorme sem consultar o banco e acorda ao chegar um evento; consultas de tarefas em andamento pausam com a aba oculta.
 - perf: imagens da Nora e dos provedores de IA em WebP (1,9 MB → 38 KB).
 - feat(layout): menu e topo no padrão do layout aprovado; Inteligência em um item com abas internas e Perfil como aba de Configurações, sem remover telas.
+- feat(layout): conteúdo de todas as telas no padrão do layout aprovado (claro e escuro), sem remover funções; Chat da equipe com minhas mensagens à direita; E-mails com leitura só ao abrir uma mensagem; Painel com colunas de altura fixa.

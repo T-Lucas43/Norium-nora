@@ -144,27 +144,27 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   }
 
   if (loading) return <main className="grid min-h-dvh place-items-center bg-slate-50 text-slate-700">Carregando horários...</main>;
-  if (error && !page) return <main className="grid min-h-dvh place-items-center bg-slate-50 p-6"><div role="alert" className="max-w-md rounded-2xl bg-white p-8 text-center shadow-xl"><h1 className="text-xl font-black">Página indisponível</h1><p className="mt-2 text-sm text-slate-600">{error}</p></div></main>;
-  if (success) return <main style={theme} className="grid min-h-dvh place-items-center bg-[var(--booking-bg)] p-6 text-[var(--booking-text)]"><section className="max-w-lg rounded-3xl bg-white p-8 text-center shadow-2xl"><CheckCircle2 className="mx-auto text-emerald-500" size={54}/><h1 className="mt-4 text-2xl font-black">Agendamento confirmado</h1><p className="mt-2 text-sm text-slate-600">Seu horário foi reservado com segurança. Identificador: <strong>{success}</strong></p></section></main>;
+  if (error && !page) return <main className="grid min-h-dvh place-items-center bg-slate-50 p-6"><div role="alert" className="max-w-md rounded-xl bg-white p-8 text-center shadow-sm"><h1 className="text-xl font-semibold">Página indisponível</h1><p className="mt-2 text-sm text-slate-600">{error}</p></div></main>;
+  if (success) return <main style={theme} className="grid min-h-dvh place-items-center bg-[var(--booking-bg)] p-6 text-[var(--booking-text)]"><section className="max-w-lg rounded-xl bg-white p-8 text-center shadow-sm"><CheckCircle2 className="mx-auto text-emerald-500" size={54}/><h1 className="mt-4 text-2xl font-semibold">Agendamento confirmado</h1><p className="mt-2 text-sm text-slate-600">Seu horário foi reservado com segurança. Identificador: <strong>{success}</strong></p></section></main>;
 
   return <main style={theme} className="min-h-dvh bg-[var(--booking-bg)] p-4 text-[var(--booking-text)] sm:p-8">
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex items-center gap-3">
         {page?.logo_url ? <img src={`${apiBaseUrl()}${page.logo_url}`} alt="Logo" className="h-11 w-11 rounded-xl object-contain"/> : <div className="grid h-11 w-11 place-items-center rounded-xl bg-[var(--booking-primary)] text-white"><CalendarDays/></div>}
-        <div><p className="text-xs font-black uppercase tracking-widest text-[var(--booking-primary)]">Norium Agendamentos</p><h1 className="text-xl font-black">{page?.title}</h1></div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--booking-primary)]">Norium Agendamentos</p><h1 className="text-xl font-semibold">{page?.title}</h1></div>
       </header>
-      <div className="grid overflow-hidden rounded-3xl bg-white shadow-2xl lg:grid-cols-[.8fr_1.2fr]">
+      <div className="grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[.8fr_1.2fr]">
         <aside className="border-b border-slate-200 p-6 lg:border-b-0 lg:border-r">
-          <h2 className="text-2xl font-black">{service?.name || "Escolha o atendimento"}</h2><p className="mt-2 text-sm text-slate-600">{page?.description || service?.description}</p>
-          {teamMode && <><p className="mt-5 text-sm font-black">1. Escolha o profissional</p><div className="mt-2 grid gap-2">{professionals.map((item) => <button key={item.id} type="button" onClick={() => selectProfessional(item.id)} className={`flex items-center gap-3 rounded-xl border p-3 text-left ${responsibleId===item.id?"border-transparent bg-[var(--booking-primary)] text-white":"border-slate-200"}`}>{item.avatarUrl?<img src={item.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover"/>:<span className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 font-black text-slate-700">{item.name.slice(0,2).toUpperCase()}</span>}<span><strong className="block text-sm">{item.name}</strong><small>{item.profession || item.position || "Profissional"}</small></span></button>)}</div>
-          <label className="mt-5 grid gap-1 text-sm font-black">2. Escolha o serviço<select disabled={!responsibleId} value={service?.id || ""} onChange={(event)=>{const next=availableServices.find(item=>item.id===event.target.value)||null;setService(next);if(next)setDuration(next.durations[0]);}} className="h-11 rounded-xl border border-slate-200 px-3"><option value="">Selecione</option>{availableServices.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></>}
-          <div className="mt-5 flex items-center gap-2 text-sm font-bold"><Clock3 size={18} className="text-[var(--booking-primary)]"/> Duração</div>
-          <div className="mt-2 flex flex-wrap gap-2">{service?.durations.map((item) => <button key={item} onClick={() => setDuration(item)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${duration === item ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{item} min</button>)}</div>
+          <h2 className="text-2xl font-semibold">{service?.name || "Escolha o atendimento"}</h2><p className="mt-2 text-sm text-slate-600">{page?.description || service?.description}</p>
+          {teamMode && <><p className="mt-5 text-sm font-semibold">1. Escolha o profissional</p><div className="mt-2 grid gap-2">{professionals.map((item) => <button key={item.id} type="button" onClick={() => selectProfessional(item.id)} className={`flex items-center gap-3 rounded-xl border p-3 text-left ${responsibleId===item.id?"border-transparent bg-[var(--booking-primary)] text-white":"border-slate-200"}`}>{item.avatarUrl?<img src={item.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover"/>:<span className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 font-semibold text-slate-700">{item.name.slice(0,2).toUpperCase()}</span>}<span><strong className="block text-sm">{item.name}</strong><small>{item.profession || item.position || "Profissional"}</small></span></button>)}</div>
+          <label className="mt-5 grid gap-1 text-sm font-semibold">2. Escolha o serviço<select disabled={!responsibleId} value={service?.id || ""} onChange={(event)=>{const next=availableServices.find(item=>item.id===event.target.value)||null;setService(next);if(next)setDuration(next.durations[0]);}} className="h-11 rounded-xl border border-slate-200 px-3"><option value="">Selecione</option>{availableServices.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></>}
+          <div className="mt-5 flex items-center gap-2 text-sm font-semibold"><Clock3 size={18} className="text-[var(--booking-primary)]"/> Duração</div>
+          <div className="mt-2 flex flex-wrap gap-2">{service?.durations.map((item) => <button key={item} onClick={() => setDuration(item)} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${duration === item ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{item} min</button>)}</div>
           <p className="mt-6 flex items-center gap-2 text-xs text-slate-500"><ShieldCheck size={16}/> Seus dados são usados somente para este agendamento.</p>
         </aside>
         <section className="p-6">
-          <label className="grid gap-1 text-sm font-bold">{teamMode ? "3. Escolha a data" : "Escolha a data"}<input type="date" disabled={teamMode && (!responsibleId || !service)} min={new Date().toISOString().slice(0, 10)} value={day} onChange={(event) => setDay(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3"/></label>
-          <div className="mt-5"><p className="mb-2 text-sm font-bold">Horários disponíveis</p>
+          <label className="grid gap-1 text-sm font-semibold">{teamMode ? "3. Escolha a data" : "Escolha a data"}<input type="date" disabled={teamMode && (!responsibleId || !service)} min={new Date().toISOString().slice(0, 10)} value={day} onChange={(event) => setDay(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3"/></label>
+          <div className="mt-5"><p className="mb-2 text-sm font-semibold">Horários disponíveis</p>
             {!calendarVerified && <p role="status" className="mb-2 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-700">Calendário externo indisponível — os horários podem estar desatualizados. A reserva será validada na confirmação.</p>}
             {slotsLoading
               ? <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Carregando horários">{[0, 1, 2, 3, 4, 5].map((item) => <div key={item} className="h-16 animate-pulse rounded-xl bg-slate-100"/>)}
@@ -172,7 +172,7 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
               : slotsError
                 ? <div role="alert" className="rounded-xl bg-red-50 p-4 text-center text-sm font-semibold text-red-600">{slotsError} <button className="underline" onClick={() => setSlotsRetry((value) => value + 1)}>Tentar novamente</button></div>
                 : <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-              {slots.map((item) => <button key={item.startAt} onClick={() => { bookingOperationKeyRef.current = newOperationKey(); setSlot(item); setFieldErrors({}); setError(""); }} className={`rounded-xl border p-3 text-sm font-black ${slot?.startAt === item.startAt ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{new Date(item.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}<small className="block font-semibold opacity-75">{item.remaining} vaga(s)</small></button>)}
+              {slots.map((item) => <button key={item.startAt} onClick={() => { bookingOperationKeyRef.current = newOperationKey(); setSlot(item); setFieldErrors({}); setError(""); }} className={`rounded-xl border p-3 text-sm font-semibold ${slot?.startAt === item.startAt ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{new Date(item.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}<small className="block font-semibold opacity-75">{item.remaining} vaga(s)</small></button>)}
               {!slots.length && <p className="col-span-full rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Nenhum horário disponível nesta data.</p>}
             </div>}
           </div>
@@ -187,8 +187,8 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
               error={fieldErrors[field.id]}
               onChange={(value) => setFieldValue(field, value)}
             />)}
-            {error && <p role="alert" className="text-sm font-bold text-red-600">{error}</p>}
-            <button disabled={sending || !form.full_name || !form.email} onClick={() => void confirm()} className="mt-2 h-12 rounded-xl bg-[var(--booking-primary)] font-black text-white disabled:opacity-50">{sending ? "Confirmando..." : "Confirmar agendamento"}</button>
+            {error && <p role="alert" className="text-sm font-semibold text-red-600">{error}</p>}
+            <button disabled={sending || !form.full_name || !form.email} onClick={() => void confirm()} className="mt-2 h-12 rounded-xl bg-[var(--booking-primary)] font-semibold text-white disabled:opacity-50">{sending ? "Confirmando..." : "Confirmar agendamento"}</button>
           </div>}
         </section>
       </div>
@@ -197,5 +197,5 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
 }
 
 function Input({label, value, onChange, type="text", required, maxLength, error}: {label:string; value:string; onChange:(value:string)=>void; type?:string; required?:boolean; maxLength:number; error?:string}) {
-  return <label className="grid gap-1 text-sm font-bold">{label}{required && <span className="sr-only">obrigatório</span>}<input aria-required={required} aria-invalid={Boolean(error)} required={required} type={type} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} className={`h-11 rounded-xl border px-3 outline-none focus:border-[var(--booking-primary)] ${error ? "border-red-400" : "border-slate-200"}`}/>{error && <span className="text-xs font-semibold text-red-600">{error}</span>}</label>;
+  return <label className="grid gap-1 text-sm font-semibold">{label}{required && <span className="sr-only">obrigatório</span>}<input aria-required={required} aria-invalid={Boolean(error)} required={required} type={type} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} className={`h-11 rounded-xl border px-3 outline-none focus:border-[var(--booking-primary)] ${error ? "border-red-400" : "border-slate-200"}`}/>{error && <span className="text-xs font-semibold text-red-600">{error}</span>}</label>;
 }

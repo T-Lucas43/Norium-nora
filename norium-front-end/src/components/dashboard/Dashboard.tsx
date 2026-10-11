@@ -13,6 +13,7 @@ import type { TaskItem } from "../../features/tasks/types";
 import { apiRequest } from "../../core/api/client";
 import { formatTodayAgendaTime } from "./todayAgenda";
 import { useTodayAgenda } from "./useTodayAgenda";
+import "./dashboard-v2.css";
 
 type EventsBySource = Record<EventSource, OmnichannelEvent[]>;
 
@@ -75,7 +76,11 @@ function assignedOpenTasks(tasks: TaskItem[], userId: string) {
 }
 
 function formatShortDate(dueDate: string) {
-  return new Date(`${dueDate}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  return new Date(`${dueDate}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function countLabel(value: number, singular: string, plural: string) {
+  return `${value} ${value === 1 ? singular : plural}`;
 }
 
 function describeWeather(code: number) {
@@ -239,119 +244,139 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
     return () => { cancelled = true; };
   }, [userId]);
   const todayAgenda = useTodayAgenda(eventsBySource.calendar);
+  const tasksDueToday = useMemo(() => myTasks.filter((task) => task.dueDate === todayIso).length, [myTasks, todayIso]);
+  const daySummary = todayAgenda.loading || tasksLoading
+    ? undefined
+    : `${countLabel(todayAgenda.items.length, "compromisso", "compromissos")} e ${countLabel(tasksDueToday, "tarefa", "tarefas")} para hoje`;
 
   return (
-    <main className="norium-dashboard">
-      <div className="norium-dashboard-main">
-        <Hero
-          metrics={metrics}
-          profile={profile}
-          connected={connected}
-          onOpenNora={onOpenNora}
-          onNavigate={onNavigate}
-        />
+    <main className="nx-page nxd">
+      <Hero
+        metrics={metrics}
+        profile={profile}
+        connected={connected}
+        onOpenNora={onOpenNora}
+        onNavigate={onNavigate}
+        daySummary={daySummary}
+      />
 
-        <Summary metrics={metrics} financeBalance={financeBalance} myTaskCount={myTasks.length} todayEventCount={todayEventCount} onNavigate={onNavigate} />
+      <Summary metrics={metrics} financeBalance={financeBalance} myTaskCount={myTasks.length} todayEventCount={todayEventCount} onNavigate={onNavigate} />
 
-        <section className="norium-dashboard-detail-grid" aria-label="Prioridades do dia">
-          <section className="norium-dashboard-card norium-today-agenda">
-            <div className="norium-dashboard-section-heading">
-              <h2>Agenda de hoje</h2>
-              <button type="button" onClick={() => onNavigate("Agenda")}>Ver agenda</button>
-            </div>
-            <div className="norium-today-agenda-list">
+      <section className="nxd-grid" aria-label="Prioridades do dia">
+        <section className="nx-card nxd-card nxd-agenda">
+          <div className="nx-card-h">
+            <h2>Agenda de hoje</h2>
+            <button type="button" className="nx-more" onClick={() => onNavigate("Agenda")}>Ver agenda</button>
+          </div>
+          <div className="nx-card-b">
+            <div className="nxd-list is-tall">
               {todayAgenda.loading && todayAgenda.items.length === 0 && (
-                <div className="norium-dashboard-empty">
-                  <CalendarDays size={20} />
+                <div className="nxd-empty">
+                  <CalendarDays size={20} strokeWidth={1.75} />
                   Carregando agenda de hoje...
                 </div>
               )}
               {todayAgenda.items.map((item, index) => (
-                <button type="button" key={item.key} onClick={() => onNavigate("Agenda")}>
-                  <span className={`norium-agenda-dot color-${index % 3}`} />
-                  <time>{formatTodayAgendaTime(item, todayAgenda.timeZone, todayAgenda.dayStartMs)}</time>
-
-
-
-                  <span>
-                    <strong>{item.title}</strong>
-                    <small>{item.description || "Compromisso da agenda"}</small>
+                <button type="button" className="nx-row nxd-row" key={item.key} onClick={() => onNavigate("Agenda")}>
+                  <time className="nxd-time">{formatTodayAgendaTime(item, todayAgenda.timeZone, todayAgenda.dayStartMs)}</time>
+                  <span className={`nxd-bar tone-${index % 3}`} aria-hidden="true" />
+                  <span className="nx-grow">
+                    <strong className="nx-row-t nx-ell block">{item.title}</strong>
+                    <small className="nx-row-sub block">{item.description || "Compromisso da agenda"}</small>
                   </span>
                 </button>
               ))}
               {todayAgenda.error && todayAgenda.items.length > 0 && (
-                <div className="norium-dashboard-empty">
+                <div className="nxd-empty is-inline">
                   <small>{todayAgenda.error}</small>
-                  <button type="button" onClick={() => todayAgenda.reload()}>
+                  <button type="button" className="nx-btn is-sm" onClick={() => todayAgenda.reload()}>
                     Tentar novamente
                   </button>
                 </div>
               )}
               {!todayAgenda.loading && todayAgenda.items.length === 0 && (
-                <div className="norium-dashboard-empty">
-                  <CalendarDays size={20} />
+                <div className="nxd-empty">
+                  <CalendarDays size={20} strokeWidth={1.75} />
                   {todayAgenda.error ?? "Nenhum compromisso hoje."}
                   {todayAgenda.error && (
-                    <button type="button" onClick={() => todayAgenda.reload()}>
+                    <button type="button" className="nx-btn is-sm" onClick={() => todayAgenda.reload()}>
                       Tentar novamente
                     </button>
                   )}
                 </div>
               )}
             </div>
-            <button className="norium-dashboard-card-action" type="button" onClick={() => onNavigate("Agenda")}>
-              <Plus size={16} />
+          </div>
+          <div className="nxd-card-foot">
+            <button className="nx-btn is-ghost is-sm" type="button" onClick={() => onNavigate("Agenda")}>
+              <Plus size={16} strokeWidth={1.75} />
               Novo compromisso
             </button>
-          </section>
+          </div>
+        </section>
 
-          <section className="norium-dashboard-card norium-task-status">
-            <div className="norium-dashboard-section-heading">
-              <h2>Minhas tarefas</h2>
-              <button type="button" onClick={() => onNavigate("Tarefas")}>Ver todas</button>
-            </div>
-            <div className="norium-assigned-task-list" aria-label="Tarefas atribuídas a mim">
-              {myTasks.map((task) => (
-                <button type="button" key={task.id} onClick={() => onNavigate("Tarefas")} className="norium-assigned-task-card">
-                  <span className={`priority-${task.priority}`} aria-hidden="true" />
-                  <span>
-                    <strong>{task.title}</strong>
-                    <small>{taskStatusLabel[task.status]} · {task.category || "Geral"}</small>
-                  </span>
-                  <time>{task.dueDate ? formatShortDate(task.dueDate) : "Sem prazo"}</time>
-                </button>
-              ))}
-              {tasksLoading && <div className="norium-dashboard-empty"><CalendarClock size={18} />Carregando suas tarefas…</div>}
+        <section className="nx-card nxd-card nxd-tasks">
+          <div className="nx-card-h">
+            <h2>Minhas tarefas</h2>
+            <button type="button" className="nx-more" onClick={() => onNavigate("Tarefas")}>Ver todas</button>
+          </div>
+          <div className="nx-card-b">
+            <div className="nxd-list is-tall nxd-task-list" aria-label="Tarefas atribuídas a mim">
+              {myTasks.map((task) => {
+                const overdue = Boolean(task.dueDate && task.dueDate < todayIso);
+                const badge = overdue
+                  ? { label: "Atrasada", tone: "is-red" }
+                  : task.priority === "urgente"
+                    ? { label: taskPriorityLabel.urgente, tone: "is-red" }
+                    : task.priority === "alta"
+                      ? { label: taskPriorityLabel.alta, tone: "is-amber" }
+                      : null;
+                return (
+                  <button type="button" key={task.id} onClick={() => onNavigate("Tarefas")} className="nx-row nxd-row">
+                    <span className={`nxd-dot priority-${task.priority}`} aria-hidden="true" />
+                    <span className="nx-grow">
+                      <strong className="nx-row-t nx-ell block">{task.title}</strong>
+                      <small className="nx-row-sub block">
+                        {taskStatusLabel[task.status]} · {task.category || "Geral"} · <time>{task.dueDate ? formatShortDate(task.dueDate) : "Sem prazo"}</time>
+                      </small>
+                    </span>
+                    {badge && <span className={`nx-badge ${badge.tone}`}>{badge.label}</span>}
+                  </button>
+                );
+              })}
+              {tasksLoading && <div className="nxd-empty"><CalendarClock size={18} strokeWidth={1.75} />Carregando suas tarefas…</div>}
               {!tasksLoading && !myTasks.length && (
-                <div className="norium-dashboard-empty"><Check size={20} />Nenhuma tarefa pendente atribuída a você.</div>
+                <div className="nxd-empty"><Check size={20} strokeWidth={1.75} />Nenhuma tarefa pendente atribuída a você.</div>
               )}
             </div>
-            <button className="norium-dashboard-card-action" type="button" onClick={() => onNavigate("Tarefas")}>
-              <Plus size={16} />
+          </div>
+          <div className="nxd-card-foot">
+            <button className="nx-btn is-ghost is-sm" type="button" onClick={() => onNavigate("Tarefas")}>
+              <Plus size={16} strokeWidth={1.75} />
               Nova tarefa
             </button>
-          </section>
+          </div>
         </section>
 
-        <section className="norium-dashboard-secondary-content">
-          <RecentActivity events={recentEvents} onNavigate={onNavigate} />
-          <IntegrationGrid onNavigate={onNavigate} />
-          <ActiveAutomations onNavigate={onNavigate} />
-          <Statistics metrics={metrics} />
-        </section>
-      </div>
+        <DashboardRail
+          weather={weather}
+          calendarEvents={eventsBySource.calendar}
+          financePending={financePending}
+          financePendingTotal={Number(finance?.resumo?.pendente || 0)}
+          financeOverdueCount={Number(finance?.resumo?.vencidos || 0)}
+          focusTask={focusTask}
+          taskOverdueCount={overdueTasks.length}
+          todayEventCount={todayEventCount}
+          onNavigate={onNavigate}
+        />
+      </section>
 
-      <DashboardRail
-        weather={weather}
-        calendarEvents={eventsBySource.calendar}
-        financePending={financePending}
-        financePendingTotal={Number(finance?.resumo?.pendente || 0)}
-        financeOverdueCount={Number(finance?.resumo?.vencidos || 0)}
-        focusTask={focusTask}
-        taskOverdueCount={overdueTasks.length}
-        todayEventCount={todayEventCount}
-        onNavigate={onNavigate}
-      />
+      <section className="nxd-secondary">
+        <RecentActivity events={recentEvents} onNavigate={onNavigate} />
+        <IntegrationGrid onNavigate={onNavigate} />
+        <ActiveAutomations onNavigate={onNavigate} />
+        <Statistics metrics={metrics} />
+      </section>
     </main>
   );
 }

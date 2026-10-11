@@ -15,7 +15,6 @@ import {
   Plus,
   Search,
   ShieldCheck,
-  Sparkles,
   Trash2,
   UserRoundCheck,
   Workflow,
@@ -27,6 +26,7 @@ import noriumMailIcon from "../../assets/generated/norium-mail.png";
 import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
 import Button from "../shared/Button";
 import { showConfirm } from "../shared/AppDialogProvider";
+import "../../styles/screens/inteligencia-equipe-conta.css";
 
 type CatalogItem = {
   id: string;
@@ -67,7 +67,7 @@ function ProductIcon({ item }: { item: CatalogItem }) {
         : item.icon === "calendar"
           ? noriumAgendaIcon
           : null;
-  if (image) return <img src={image} alt="" className="h-12 w-12 object-contain" />;
+  if (image) return <img src={image} alt="" />;
   const Icon = item.icon === "document-models" ? FileStack
     : item.icon === "browser" ? Globe2
       : item.icon === "knowledge-web" || item.icon === "knowledge" ? LibraryBig
@@ -75,7 +75,7 @@ function ProductIcon({ item }: { item: CatalogItem }) {
           : item.icon === "models" || item.icon === "nora-model" ? Network
             : item.icon === "clients" ? UserRoundCheck
               : Boxes;
-  return <Icon size={29} strokeWidth={1.65} />;
+  return <Icon size={20} strokeWidth={1.75} />;
 }
 
 const itemTypeLabels: Record<string, string> = {
@@ -99,10 +99,8 @@ function Switch({ checked, disabled, label, onChange }: { checked: boolean; disa
       aria-label={label}
       disabled={disabled}
       onClick={onChange}
-      className={`marketplace-switch ${checked ? "is-on" : ""}`}
-    >
-      <span />
-    </button>
+      className="nxi-switch"
+    />
   );
 }
 
@@ -195,81 +193,73 @@ export default function MarketplaceDashboardV2() {
   const activeCount = data.installations.filter((item) => item.status === "installed" && item.enabled).length;
 
   return (
-    <main className="marketplace-page mx-auto w-full max-w-[1720px] space-y-5 p-4 text-[var(--text)] sm:p-6">
-      <header className="marketplace-hero">
-        <div className="marketplace-hero-mark"><Sparkles size={28} /></div>
-        <div className="min-w-0">
-          <span>Ecossistema Norium</span>
-          <h1>Marketplace interno</h1>
-          <p>Instale recursos reais, entenda o que cada conector acessa e controle claramente o que está ativo no workspace.</p>
-        </div>
-        <div className="marketplace-hero-stats">
-          <strong>{data.catalog.length}<small>disponíveis</small></strong>
-          <strong>{installedCount}<small>instalados</small></strong>
-          <strong>{activeCount}<small>ativos</small></strong>
+    <main className="nx-page nxi-screen">
+      <header className="nx-ph">
+        <div>
+          <h1>Marketplace</h1>
+          <p>Agentes, automações e integrações prontos para instalar · {data.catalog.length} {data.catalog.length === 1 ? "disponível" : "disponíveis"} · {installedCount} {installedCount === 1 ? "instalado" : "instalados"} · {activeCount} {activeCount === 1 ? "ativo" : "ativos"}</p>
         </div>
       </header>
 
-      {error && <div role="alert" className="marketplace-notice is-error">{error}</div>}
-      {message && <div role="status" className="marketplace-notice">{message}</div>}
+      {error && <div role="alert" className="nxi-alert is-error">{error}</div>}
+      {message && <div role="status" className="nxi-alert is-success">{message}</div>}
 
-      <section className="marketplace-toolbar">
-        <label><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar conectores, agentes e modelos" /></label>
-        <div className="marketplace-categories" aria-label="Categorias do marketplace">
-          {categories.map((item) => <button key={item} type="button" className={category === item ? "is-active" : ""} onClick={() => setCategory(item)}>{item}</button>)}
+      <section className="nxi-actions" style={{ alignItems: "center" }}>
+        <div className="nxi-chips" aria-label="Categorias do marketplace" style={{ flex: "1 1 320px" }}>
+          {categories.map((item) => <button key={item} type="button" aria-pressed={category === item} className={`nxi-chip ${category === item ? "is-active" : ""}`} onClick={() => setCategory(item)}>{item}</button>)}
         </div>
+        <label className="nxi-search" style={{ flex: "0 1 260px", minWidth: 200, marginLeft: "auto" }}><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar" aria-label="Buscar conectores, agentes e modelos" /></label>
       </section>
 
-      <section className="marketplace-grid">
+      <section className="nxi-cards">
         {visible.map((item) => {
           const installation = installationFor(item.id);
           return (
-            <article key={item.id} className={`marketplace-product ${installation ? "is-installed" : ""} ${installation?.enabled ? "is-enabled" : ""}`}>
-              <div className="marketplace-product-top">
-                <span className="marketplace-product-icon"><ProductIcon item={item} /></span>
-                <div className="marketplace-product-badges">
-                  {installation && <span className="marketplace-installed"><CheckCircle2 size={13} /> Instalado</span>}
-                  {item.verified && <span className="marketplace-verified"><ShieldCheck size={13} /> Verificado</span>}
+            <article key={item.id} className={`nx-card nxi-product ${installation?.enabled ? "is-enabled" : ""}`}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <span className="nxi-tile"><ProductIcon item={item} /></span>
+                <div className="nx-grow">
+                  <h2 className="nxi-product-name">{item.name}</h2>
+                  <div className="nx-faint nx-small">{itemTypeLabels[item.type] || item.type} · {item.category} · v{item.version}{item.verified && <> · <span style={{ color: "var(--nx-primary-text)" }}>Verificado</span></>}</div>
                 </div>
               </div>
-              <p className="marketplace-product-meta">{item.category} · v{item.version}</p>
-              <h2>{item.name}</h2>
-              <p className="marketplace-product-description">{item.description}</p>
-              <div className="marketplace-feature-preview">
-                {(item.features || []).slice(0, 3).map((feature) => <span key={feature}><CheckCircle2 size={13} /> {feature}</span>)}
-              </div>
-              <dl className="marketplace-product-specs">
-                <div><dt>Tipo</dt><dd>{itemTypeLabels[item.type] || item.type}</dd></div>
-                <div><dt>Onde aparece</dt><dd>{item.destination || "Workspace Norium"}</dd></div>
-              </dl>
-              <button type="button" className="marketplace-details-link" onClick={() => { setSelected(item); setConfirmed(false); }}>
+              <p className="nxi-product-desc">{item.description}</p>
+              {!!item.features?.length && <ul className="nxi-product-feats">
+                {item.features.slice(0, 3).map((feature) => <li key={feature}><CheckCircle2 size={12} /> {feature}</li>)}
+              </ul>}
+              <div className="nx-faint nx-small" style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}><MapPin size={12} /> Onde aparece: {item.destination || "Workspace Norium"}</div>
+              <button type="button" className="nxi-link" style={{ marginTop: 10, alignSelf: "flex-start" }} onClick={() => { setSelected(item); setConfirmed(false); }}>
                 <Info size={14} /> Ver ficha completa
               </button>
-              <div className="marketplace-product-footer">
+              <div className="nxi-product-foot">
                 {installation ? (
                   <>
-                    <div><strong>{installation.enabled ? "Instalado e ativo" : "Instalado e desativado"}</strong><small>{installation.enabled ? `Disponível em ${item.destination || "Norium"}` : "Não aparece nos módulos até ser ativado"}</small></div>
+                    <span className={`nx-badge ${installation.enabled ? "is-green" : ""}`}><CheckCircle2 size={12} /> Instalado</span>
+                    <div className="nxi-product-state"><strong>{installation.enabled ? "Instalado e ativo" : "Instalado e desativado"}</strong><small>{installation.enabled ? `Disponível em ${item.destination || "Norium"}` : "Não aparece nos módulos até ser ativado"}</small></div>
                     <Switch checked={installation.enabled} disabled={busyId === item.id} label={`${installation.enabled ? "Desativar" : "Ativar"} ${item.name}`} onChange={() => void toggle(installation, item)} />
-                    <Button iconOnly variant="danger" size="sm" disabled={busyId === item.id} onClick={() => void uninstall(installation, item)} aria-label={`Desinstalar ${item.name}`}><Trash2 size={15} /></Button>
+                    <button type="button" className="nxi-icon-btn is-danger" disabled={busyId === item.id} onClick={() => void uninstall(installation, item)} aria-label={`Desinstalar ${item.name}`} title={`Desinstalar ${item.name}`}><Trash2 size={14} /></button>
                   </>
-                ) : <Button variant="primary" className="w-full" onClick={() => { setSelected(item); setConfirmed(false); }}><Plus size={16} /> Ver detalhes e instalar</Button>}
+                ) : <>
+                  {item.verified ? <span className="nx-badge is-blue"><ShieldCheck size={12} /> Verificado</span> : <span className="nx-faint nx-small">Disponível</span>}
+                  <button type="button" className="nx-btn is-primary is-sm" style={{ marginLeft: "auto" }} onClick={() => { setSelected(item); setConfirmed(false); }}><Plus size={14} /> Ver detalhes e instalar</button>
+                </>}
               </div>
             </article>
           );
         })}
       </section>
-      {!visible.length && <div className="marketplace-empty"><Boxes size={30} /><strong>Nenhum recurso encontrado</strong><span>Tente outro termo ou categoria.</span></div>}
+      {!visible.length && <div className="nx-card nxi-empty"><Boxes size={28} /><strong>Nenhum recurso encontrado</strong><span>Tente outro termo ou categoria.</span></div>}
 
       {selected && (
-        <div className="marketplace-dialog-backdrop" role="dialog" aria-modal="true" aria-label={`Detalhes de ${selected.name}`}>
-          <section className="marketplace-dialog">
-            <div className="marketplace-dialog-header">
-              <span className="marketplace-product-icon is-large"><ProductIcon item={selected} /></span>
-              <div><p>{itemTypeLabels[selected.type] || selected.type} · {selected.category} · v{selected.version} · por {selected.author}</p><h2>{selected.name}</h2><span><ShieldCheck size={13} /> {selectedInstallation ? `Instalado e ${selectedInstallation.enabled ? "ativo" : "desativado"}` : "Componente verificado"}</span></div>
-              <button type="button" onClick={() => setSelected(null)} aria-label="Fechar ficha"><X size={19} /></button>
+        <div className="nxi-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Detalhes de ${selected.name}`}>
+          <section className="nxi-modal">
+            <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+              <span className="nxi-tile" style={{ width: 48, height: 48 }}><ProductIcon item={selected} /></span>
+              <div className="nx-grow"><p className="nx-faint nx-small" style={{ margin: 0 }}>{itemTypeLabels[selected.type] || selected.type} · {selected.category} · v{selected.version} · por {selected.author}</p><h2 style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 600 }}>{selected.name}</h2><span className={`nx-badge ${selectedInstallation?.enabled ? "is-green" : "is-blue"}`} style={{ marginTop: 8 }}><ShieldCheck size={12} /> {selectedInstallation ? `Instalado e ${selectedInstallation.enabled ? "ativo" : "desativado"}` : "Componente verificado"}</span></div>
+              <button type="button" className="nxi-icon-btn is-plain" onClick={() => setSelected(null)} aria-label="Fechar ficha"><X size={18} /></button>
             </div>
-            <p className="marketplace-dialog-description">{selected.details || selected.description}</p>
-            <div className="marketplace-dialog-columns">
+            <p className="nx-muted" style={{ margin: "16px 0 0", lineHeight: 1.55 }}>{selected.details || selected.description}</p>
+            <div className="nxi-sheet">
               <section><h3>O que será adicionado</h3>{(selected.features || []).map((feature) => <p key={feature}><CheckCircle2 size={15} /> {feature}</p>)}</section>
               <section><h3>Onde atua</h3><p><MapPin size={15} /> {selected.destination || "Workspace Norium"}</p>{selected.activationBehavior && <p><CheckCircle2 size={15} /> {selected.activationBehavior}</p>}</section>
               <section><h3>Dados que pode acessar</h3>{(selected.dataAccess || ["Somente os dados autorizados nas permissões abaixo."]).map((entry) => <p key={entry}><Database size={15} /> {entry}</p>)}</section>
@@ -278,16 +268,16 @@ export default function MarketplaceDashboardV2() {
               <section><h3>Como configurar</h3><ol>{(selected.setupSteps || ["Instale o recurso.", "Revise as permissões e ative quando estiver pronto."]).map((step) => <li key={step}>{step}</li>)}</ol></section>
               <section><h3>Limites e proteções</h3>{(selected.limitations || ["Ações externas continuam protegidas pelas confirmações do Norium."]).map((entry) => <p key={entry}><AlertCircle size={15} /> {entry}</p>)}</section>
             </div>
-            <div className="marketplace-safety-note"><ShieldCheck size={18} /><span><strong>Você mantém o controle.</strong> {selectedInstallation ? "Este recurso já está instalado. Você pode ativá-lo ou desativá-lo sem perder os dados que ele criou." : `O recurso será instalado já ativo e ficará disponível em ${selected.destination || "seu destino"}. Você poderá desativá-lo quando quiser.`}</span></div>
+            <div className="nxi-alert is-info" style={{ marginTop: 16, alignItems: "flex-start", flexWrap: "nowrap" }}><ShieldCheck size={16} /><span><strong>Você mantém o controle.</strong> {selectedInstallation ? "Este recurso já está instalado. Você pode ativá-lo ou desativá-lo sem perder os dados que ele criou." : `O recurso será instalado já ativo e ficará disponível em ${selected.destination || "seu destino"}. Você poderá desativá-lo quando quiser.`}</span></div>
             {selectedInstallation ? (
-              <div className="marketplace-dialog-actions is-installed">
-                <div className="marketplace-dialog-installed-actions"><span><strong>{selectedInstallation.enabled ? "Ativo" : "Desativado"}</strong><small>{selectedInstallation.enabled ? `Disponível em ${selected.destination || "Norium"}` : "O recurso está instalado, mas não aparece no destino"}</small></span><Switch checked={selectedInstallation.enabled} disabled={busyId === selected.id} label={`${selectedInstallation.enabled ? "Desativar" : "Ativar"} ${selected.name}`} onChange={() => void toggle(selectedInstallation, selected)} /></div>
+              <div className="nxi-actions" style={{ marginTop: 16, justifyContent: "space-between" }}>
+                <div className="nxi-actions" style={{ flexWrap: "nowrap" }}><span className="nxi-product-state"><strong>{selectedInstallation.enabled ? "Ativo" : "Desativado"}</strong><small>{selectedInstallation.enabled ? `Disponível em ${selected.destination || "Norium"}` : "O recurso está instalado, mas não aparece no destino"}</small></span><Switch checked={selectedInstallation.enabled} disabled={busyId === selected.id} label={`${selectedInstallation.enabled ? "Desativar" : "Ativar"} ${selected.name}`} onChange={() => void toggle(selectedInstallation, selected)} /></div>
                 <Button onClick={() => setSelected(null)}>Fechar</Button>
               </div>
             ) : (
               <>
-                <label className="marketplace-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>Revisei os dados acessados, permissões, pré-requisitos e limites desta versão.</span></label>
-                <div className="marketplace-dialog-actions"><Button onClick={() => setSelected(null)}>Cancelar</Button><Button variant="primary" disabled={!confirmed || busyId === selected.id} onClick={() => void install(selected)}>{busyId === selected.id ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Instalar</Button></div>
+                <label className="nxi-alert" style={{ marginTop: 16, flexWrap: "nowrap", cursor: "pointer", color: "var(--nx-text)" }}><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>Revisei os dados acessados, permissões, pré-requisitos e limites desta versão.</span></label>
+                <div className="nxi-actions is-end" style={{ marginTop: 16 }}><Button onClick={() => setSelected(null)}>Cancelar</Button><Button variant="primary" disabled={!confirmed || busyId === selected.id} onClick={() => void install(selected)}>{busyId === selected.id ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Instalar</Button></div>
               </>
             )}
           </section>

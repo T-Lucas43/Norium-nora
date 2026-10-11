@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Globe2, Maximize2, Radio, RefreshCw } from "lucide-react";
+import { Circle, Globe2, Lock, Maximize2, Radio, RefreshCw } from "lucide-react";
 import { authenticatedWebSocketUrl } from "../../core/api/client";
 import { wsBaseUrl } from "../../core/api/config";
 import Button from "../shared/Button";
@@ -69,12 +69,13 @@ export default function BrowserLiveView({ runId, status, url }: { runId: string;
     setInputError(""); socketRef.current.send(JSON.stringify(payload));
   }
   const label = !active ? status === "planned" ? "Pronto para iniciar" : "Sessão encerrada" : interactive ? "Faça login no site para continuar" : status === "paused" ? "Navegador pausado" : status === "awaiting_approval" ? "Aguardando sua confirmação" : connection === "live" ? "Ao vivo" : connection === "error" ? "Transmissão indisponível" : connection === "reconnecting" ? "Reconectando…" : "Conectando ao navegador…";
-  return <div ref={containerRef} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]">
-    <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-3 py-2">
-      <span className={`flex items-center gap-2 text-xs font-semibold ${active && connection === "live" ? "text-emerald-400" : "text-[var(--text-secondary)]"}`}><Radio size={15} />{label}</span>
-      <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-secondary)]" title={url}>{url}</span>
-      {connection === "error" && <Button iconOnly aria-label="Reconectar transmissão" onClick={() => setRetry((value) => value + 1)}><RefreshCw size={15} /></Button>}
-      <Button iconOnly aria-label="Ampliar navegador" onClick={() => { void containerRef.current?.requestFullscreen().catch(() => undefined); }}><Maximize2 size={15} /></Button>
+  const tone = active && connection === "live" && !interactive ? "is-red" : interactive || status === "paused" || status === "awaiting_approval" ? "is-amber" : connection === "error" ? "is-red" : "";
+  return <div ref={containerRef} className="nxi-live">
+    <div className="nxi-live-bar">
+      <span className={`nx-badge ${tone}`}>{active && connection === "live" && !interactive ? <Circle size={9} fill="currentColor" /> : <Radio size={13} />}{label}</span>
+      <span className="nxi-live-url" title={url}><Lock size={13} /><span>{url}</span></span>
+      {connection === "error" && <Button iconOnly size="sm" aria-label="Reconectar transmissão" onClick={() => setRetry((value) => value + 1)}><RefreshCw size={15} /></Button>}
+      <Button iconOnly size="sm" aria-label="Ampliar navegador" onClick={() => { void containerRef.current?.requestFullscreen().catch(() => undefined); }}><Maximize2 size={15} /></Button>
     </div>
     {interactive && <div className="space-y-2 border-b border-[var(--border)] p-3 text-sm">
       <p className="text-amber-400">Clique na página abaixo para fazer login ou concluir a verificação. O agente está aguardando você.</p>
@@ -85,7 +86,7 @@ export default function BrowserLiveView({ runId, status, url }: { runId: string;
       </form>
       {inputError && <p role="alert" className="text-xs text-rose-400">{inputError}</p>}
     </div>}
-    <div className="relative aspect-[16/10] bg-[#09090b]">
+    <div className="nxi-live-stage">
       <canvas ref={canvasRef} aria-label="Navegação do agente em tempo real" tabIndex={interactive ? 0 : -1}
         onClick={event => {
           if (!interactive) return;
@@ -109,7 +110,7 @@ export default function BrowserLiveView({ runId, status, url }: { runId: string;
         onPaste={event => { if (interactive) { event.preventDefault(); const text = event.clipboardData.getData("text").slice(0, 2000); if (text) send({ type: "text", text }); } }}
         onWheel={event => { if (interactive) send({ type: "scroll", delta: Math.max(-1000, Math.min(1000, event.deltaY)) }); }}
         className={`h-full w-full object-contain ${hasFrame ? "" : "invisible"}`} />
-      {!hasFrame && <div className="absolute inset-0 grid place-content-center gap-3 p-8 text-center text-zinc-400"><Globe2 className="mx-auto" size={36} /><p className="text-sm">{active ? label : status === "planned" ? "Revise o plano e inicie para acompanhar a navegação aqui." : "A navegação terminou. O resultado está disponível abaixo."}</p></div>}
+      {!hasFrame && <div className="absolute inset-0 grid place-content-center gap-3 p-8 text-center" style={{ color: "var(--nx-text-3)" }}><Globe2 className="mx-auto" size={32} /><p className="text-sm">{active ? label : status === "planned" ? "Revise o plano e inicie para acompanhar a navegação aqui." : "A navegação terminou. O resultado está disponível abaixo."}</p></div>}
     </div>
   </div>;
 }

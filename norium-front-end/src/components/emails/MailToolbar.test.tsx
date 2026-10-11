@@ -29,13 +29,13 @@ function setup(over: Partial<Parameters<typeof MailToolbar>[0]> = {}) {
 describe("MailToolbar", () => {
   it("aplica a busca com Enter", () => {
     const h = setup();
-    fireEvent.keyDown(screen.getByPlaceholderText(/pesquisar email/i), { key: "Enter" });
+    fireEvent.keyDown(screen.getByPlaceholderText(/buscar e-mails/i), { key: "Enter" });
     expect(h.onApplySearch).toHaveBeenCalled();
   });
 
   it("nao aplica busca em outras teclas", () => {
     const h = setup();
-    fireEvent.keyDown(screen.getByPlaceholderText(/pesquisar email/i), { key: "a" });
+    fireEvent.keyDown(screen.getByPlaceholderText(/buscar e-mails/i), { key: "a" });
     expect(h.onApplySearch).not.toHaveBeenCalled();
   });
 
@@ -67,17 +67,17 @@ describe("MailToolbar", () => {
 
   it("marca o estado do painel de filtros para leitores de tela", () => {
     setup({ filtersOpen: true });
-    expect(screen.getByRole("button", { name: /filtros avancados/i })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /filtros avançados/i })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("mantem o painel avancado fechado por padrao", () => {
     setup();
-    expect(screen.queryByText(/pesquisa avancada/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pesquisa avançada/i)).not.toBeInTheDocument();
   });
 
   it("abre o painel avancado quando filtersOpen", () => {
     setup({ filtersOpen: true });
-    expect(screen.getByText(/pesquisa avancada/i)).toBeInTheDocument();
+    expect(screen.getByText(/pesquisa avançada/i)).toBeInTheDocument();
   });
 
   it("propaga a alteracao de um filtro avancado preservando os demais", () => {
@@ -109,8 +109,8 @@ describe("MailToolbar", () => {
   it("dispara as acoes do lado direito", () => {
     const h = setup();
     fireEvent.click(screen.getByRole("button", { name: /nora para e-mails/i }));
-    fireEvent.click(screen.getByRole("button", { name: /alternar previa/i }));
-    fireEvent.click(screen.getByRole("button", { name: /configuracoes do mail/i }));
+    fireEvent.click(screen.getByRole("button", { name: /alternar prévia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /configurações do e-mail/i }));
     fireEvent.click(screen.getByRole("button", { name: /perfil/i }));
     fireEvent.click(screen.getByRole("button", { name: /abrir menu do e-mail/i }));
 

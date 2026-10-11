@@ -51,12 +51,12 @@ describe("MailReplyBox", () => {
 
   it("esconde a Nora para conta sem acesso", () => {
     setup({ canUseNora: false });
-    expect(screen.queryByRole("button", { name: /gerar sugestao/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /gerar sugestão/i })).not.toBeInTheDocument();
   });
 
   it("trava a sugestao enquanto outra esta sendo gerada", () => {
     setup({ noraSuggesting: "compose" });
-    expect(screen.getByRole("button", { name: /gerar sugestao/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /gerar sugestão/i })).toBeDisabled();
   });
 
   it("mostra anexos da resposta e permite remover", () => {

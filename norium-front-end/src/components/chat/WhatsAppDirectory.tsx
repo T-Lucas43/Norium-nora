@@ -39,7 +39,7 @@ function SyncBar({ sync }: { sync?: WhatsAppSyncProgress | null }) {
         <span className="truncate text-[var(--text)]">{sync.message || sync.phase || (sync.status === "complete" ? "Sincronização concluída" : "Sincronizando contatos")}</span>
         <span className="shrink-0 text-[var(--primary)]">{Math.round(progress)}%</span>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/45">
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--nx-hover)]">
         <div className="h-full rounded-full bg-[var(--primary)] transition-[width] duration-300" style={{ width: `${progress}%` }} />
       </div>
       {(sync.contactsSynced || sync.photosSynced) ? (
@@ -60,18 +60,18 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
 
   return (
     <>
-      <aside className="norium-chat-sidebar flex h-full min-h-0 w-[380px] min-w-[320px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)] text-[var(--text)]">
+      <aside className="norium-chat-sidebar flex h-full min-h-0 w-[300px] min-w-[280px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)] text-[var(--text)]">
         <header className="shrink-0 border-b border-[var(--border)] px-4 py-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="flex items-center gap-2 text-lg font-semibold"><Icon size={19} className="text-[var(--primary)]" /> {title}</h2>
+              <h2 className="flex items-center gap-2 text-[15px] font-semibold"><Icon size={16} className="text-[var(--nx-primary-text)]" /> {title}</h2>
               <p className="mt-0.5 text-[11px] text-[var(--text-secondary)]">{mode === "contacts" ? "Contatos retornados pelo WhatsApp" : "Conversas em grupo e comunidades"}</p>
             </div>
             {mode === "groups" && (
-              <button type="button" onClick={onCreateGroup} className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--primary)] text-white" aria-label="Criar grupo" title="Criar grupo"><Plus size={18} /></button>
+              <button type="button" onClick={onCreateGroup} className="nx-btn is-primary is-sm w-[30px] px-0" aria-label="Criar grupo" title="Criar grupo"><Plus size={18} /></button>
             )}
           </div>
-          <label className="mt-4 flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 focus-within:border-[var(--primary)]">
+          <label className="nx-conv-search mt-3">
             <Search size={15} className="text-[var(--text-secondary)]" />
             <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={mode === "contacts" ? "Pesquisar nome ou telefone" : "Pesquisar grupos"} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--text-secondary)]" aria-label={`Pesquisar ${title.toLocaleLowerCase("pt-BR")}`} />
           </label>
@@ -84,7 +84,7 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
           {!loading && error && (
             <div className="p-8 text-center text-sm">
               <p className="font-semibold text-red-400">{error}</p>
-              <button type="button" onClick={onRefresh} className="mt-3 rounded-xl border border-[var(--border)] px-4 py-2 font-semibold hover:border-[var(--primary)]">Tentar novamente</button>
+              <button type="button" onClick={onRefresh} className="nx-btn is-sm mt-3">Tentar novamente</button>
             </div>
           )}
           {!loading && !error && mode === "contacts" && filteredContacts.map((contact) => {
@@ -120,10 +120,10 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
       </aside>
 
       <main className="norium-chat-directory-empty flex min-w-0 flex-1 flex-col items-center justify-center bg-[var(--background)] p-8 text-center text-[var(--text)]">
-        <div className="grid h-24 w-24 place-items-center rounded-[30px] border border-[var(--primary)]/25 bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] text-[var(--primary)]"><Icon size={42} strokeWidth={1.35} /></div>
+        <div className="grid h-14 w-14 place-items-center rounded-xl bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)]"><Icon size={24} /></div>
         <h3 className="mt-5 text-xl font-semibold">{mode === "contacts" ? "Escolha um contato" : "Escolha um grupo"}</h3>
         <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-secondary)]">{mode === "contacts" ? "Abra uma conversa usando o nome disponível no WhatsApp. O Norium mantém nomes e fotos retornados pela integração sincronizados." : "Abra o histórico, veja participantes e continue a conversa em grupo pelo Norium."}</p>
-        {mode === "groups" && <button type="button" onClick={onCreateGroup} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-bold text-white"><Plus size={17} /> Novo grupo</button>}
+        {mode === "groups" && <button type="button" onClick={onCreateGroup} className="nx-btn is-primary mt-5"><Plus size={17} /> Novo grupo</button>}
       </main>
     </>
   );

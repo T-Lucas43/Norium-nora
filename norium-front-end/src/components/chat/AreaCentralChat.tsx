@@ -1,7 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Bot,
   Check,
   CheckCheck,
   Clock3,
@@ -10,7 +9,9 @@ import {
   Eye,
   FileText,
   Languages,
+  ListChecks,
   Maximize2,
+  MessageCircle,
   Mic,
   MoreVertical,
   Paperclip,
@@ -20,6 +21,7 @@ import {
   Search,
   SendHorizontal,
   Smile,
+  Sparkles,
   Trash2,
   User,
   Users,
@@ -32,6 +34,18 @@ import { conversationDisplayName, formatWhatsAppPhone, isTechnicalWhatsAppLabel 
 import NoraChatComposer from "./NoraChatComposer";
 import MessageNoraActions, { type MessageNoraRequest } from "./MessageNoraActions";
 import MessageTemplatePicker from "../message-templates/MessageTemplatePicker";
+import { avatarColor } from "./avatarColor";
+
+function messageDayLabel(timestamp?: number) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return "Hoje";
+  if (date.toDateString() === yesterday.toDateString()) return "Ontem";
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
 
 interface AreaCentralProps {
   conversaAtiva: ChatConversa | undefined;
@@ -76,17 +90,19 @@ function HeaderAvatar({ conversa }: { conversa: ChatConversa }) {
   const [failed, setFailed] = useState(false);
   const photoUrl = useAuthenticatedMedia(conversa.metadados?.photoUrl || conversa.photoUrl);
   const displayName = conversationDisplayName(conversa);
+  const hasPhoto = Boolean(photoUrl && !failed);
+  const showInitials = !hasPhoto && !conversa.esGrupo && Boolean(displayName) && !isTechnicalWhatsAppLabel(displayName);
 
   return (
-    <div className="h-10 w-10 rounded-full bg-[var(--background)] border border-[var(--border)] flex items-center justify-center overflow-hidden shrink-0 text-[var(--text-secondary)]">
-      {photoUrl && !failed ? (
+    <div className={`nx-conv-av h-[34px] w-[34px] ${showInitials ? "" : "is-photo"}`} style={showInitials ? { background: avatarColor(displayName) } : undefined}>
+      {hasPhoto ? (
         <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : conversa.esGrupo ? (
-        <Users size={17} />
-      ) : displayName && !isTechnicalWhatsAppLabel(displayName) ? (
-        <span className="text-xs font-extrabold">{initials(displayName)}</span>
+        <Users size={16} />
+      ) : showInitials ? (
+        <span>{initials(displayName)}</span>
       ) : (
-        <User size={17} />
+        <User size={16} />
       )}
     </div>
   );
@@ -96,7 +112,7 @@ function ParticipantAvatar({ conversa, message }: { conversa: ChatConversa; mess
   const participant = conversa.metadados?.participantes?.find((item) => item.id === message.remetenteId || item.phone === message.remetenteId);
   const photoUrl = useAuthenticatedMedia(participant?.photoUrl);
   return (
-    <div className="mb-0.5 grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] text-[9px] font-extrabold text-[var(--text-secondary)]">
+    <div className={`nx-conv-av mb-0.5 h-7 w-7 text-[10.5px] ${photoUrl ? "is-photo" : ""}`} style={photoUrl ? undefined : { background: avatarColor(message.remetenteNome || "?") }}>
       {photoUrl ? <img src={photoUrl} alt={message.remetenteNome || "Participante"} className="h-full w-full object-cover" /> : initials(message.remetenteNome || "?")}
     </div>
   );
@@ -657,8 +673,9 @@ export default function AreaCentralChat({
 
   if (!conversaAtiva) {
     return (
-      <div className="norium-chat-thread flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--background)] text-sm font-semibold text-[var(--text-secondary)]">
-        Selecione uma conversa para comecar.
+      <div className="norium-chat-thread flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden bg-[var(--nx-bg)] p-6 text-center text-[var(--nx-text-2)]">
+        <span className="grid h-12 w-12 place-items-center rounded-xl bg-[var(--nx-surface)] text-[var(--nx-text-3)] ring-1 ring-[var(--nx-border)]"><MessageCircle size={20} /></span>
+        <p className="text-sm">Selecione uma conversa para começar.</p>
       </div>
     );
   }
@@ -732,70 +749,73 @@ export default function AreaCentralChat({
   return (
     <section onPaste={handlePasteAttachments} className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
       {!modoSelecao ? (
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4">
-          <button className="min-w-0 flex items-center gap-3 text-left" onClick={onAbrirDadosPerfil}>
+        <div className="nx-conv-thread-head">
+          <button type="button" className="flex min-w-0 items-center gap-2.5 text-left" onClick={onAbrirDadosPerfil}>
             <HeaderAvatar conversa={conversaAtiva} />
             <div className="min-w-0">
-              <h3 className="font-semibold text-sm truncate text-[var(--text)]">{displayName}</h3>
-              <p className="text-xs text-[var(--text-secondary)] truncate">
+              <h3 className="truncate text-sm font-semibold text-[var(--nx-text)]">{displayName}</h3>
+              <p className="truncate text-[12.5px] text-[var(--nx-text-3)]">
                 {conversaAtiva.esGrupo ? `${conversaAtiva.metadados?.participantes?.length || 0} participantes` : phoneLabel || "WhatsApp"}
               </p>
             </div>
           </button>
 
-          <div className="flex items-center gap-1">
-            <button title="Pesquisar" onClick={() => setMostrarPesquisa(!mostrarPesquisa)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${mostrarPesquisa ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Pesquisar">
-              <Search size={17} />
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <span className="nx-badge is-green max-sm:hidden">WhatsApp</span>
+            <button type="button" title="Pesquisar" onClick={() => setMostrarPesquisa(!mostrarPesquisa)} aria-pressed={mostrarPesquisa} className="nx-conv-iconbtn h-[30px] w-[30px]" aria-label="Pesquisar">
+              <Search size={16} />
             </button>
-            <button title="Traduzir" onClick={() => setTraduzirChat(!traduzirChat)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${traduzirChat ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Traduzir">
-              <Languages size={17} />
+            <button type="button" title="Traduzir" onClick={() => setTraduzirChat(!traduzirChat)} aria-pressed={traduzirChat} className="nx-conv-iconbtn h-[30px] w-[30px]" aria-label="Traduzir">
+              <Languages size={16} />
             </button>
-            <Button size="sm" onClick={onAbrirDadosPerfil}>
-              Dados
-            </Button>
+            <button type="button" className="nx-btn is-sm" onClick={onAbrirDadosPerfil}>
+              <User size={14} /> Dados
+            </button>
           </div>
         </div>
       ) : (
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 text-[var(--text)]">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" iconOnly onClick={() => { setModoSelecao(false); setSelecionadas([]); }}>
-              <X size={17} />
-            </Button>
-            <span className="text-sm font-bold">{selecionadas.length} selecionadas</span>
-          </div>
+        <div className="nx-conv-thread-head">
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => { onEncaminharMensagens(selecionadas); setModoSelecao(false); setSelecionadas([]); }}>
+            <button type="button" className="nx-conv-iconbtn" onClick={() => { setModoSelecao(false); setSelecionadas([]); }} aria-label="Cancelar seleção" title="Cancelar seleção">
+              <X size={16} />
+            </button>
+            <span className="text-sm font-semibold">{selecionadas.length} selecionadas</span>
+          </div>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <button type="button" className="nx-btn is-sm" onClick={() => { onEncaminharMensagens(selecionadas); setModoSelecao(false); setSelecionadas([]); }}>
               <CornerUpRight size={14} /> Encaminhar
-            </Button>
-            {podeApagarSelecionadasParaTodos && <Button variant="danger" size="sm" onClick={() => { onApagarMensagensEmMassa(selecionadas, true); setModoSelecao(false); setSelecionadas([]); }} className="bg-red-600">
+            </button>
+            {podeApagarSelecionadasParaTodos && <button type="button" className="nx-btn is-sm border-transparent bg-[var(--nx-danger)] text-white hover:bg-[var(--nx-danger)]" onClick={() => { onApagarMensagensEmMassa(selecionadas, true); setModoSelecao(false); setSelecionadas([]); }}>
               <Trash2 size={14} /> Apagar para todos
-            </Button>}
-            <Button variant="danger" size="sm" onClick={() => { onApagarMensagensEmMassa(selecionadas, false); setModoSelecao(false); setSelecionadas([]); }} className="border-red-500/40 text-red-300">
+            </button>}
+            <button type="button" className="nx-btn is-sm text-[var(--nx-danger)]" onClick={() => { onApagarMensagensEmMassa(selecionadas, false); setModoSelecao(false); setSelecionadas([]); }}>
               <Trash2 size={14} /> Apagar para mim
-            </Button>
+            </button>
           </div>
         </div>
       )}
 
       {mostrarPesquisa && (
-        <div className="flex shrink-0 gap-2 border-b border-[var(--border)] bg-[var(--surface)] p-2.5">
-          <input
-            type="text"
-            placeholder="Buscar nesta conversa"
-            value={termoPesquisa}
-            onChange={(event) => setTermoPesquisa(event.target.value)}
-            className="flex-1 h-9 bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 text-sm outline-none text-[var(--text)]"
-          />
-          <Button variant="ghost" size="sm" iconOnly onClick={() => { setTermoPesquisa(""); setMostrarPesquisa(false); }}>
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--nx-border)] bg-[var(--nx-surface)] px-5 py-2.5">
+          <label className="nx-conv-search flex-1">
+            <Search size={15} />
+            <input
+              type="text"
+              placeholder="Buscar nesta conversa"
+              value={termoPesquisa}
+              onChange={(event) => setTermoPesquisa(event.target.value)}
+            />
+          </label>
+          <button type="button" className="nx-conv-iconbtn" aria-label="Fechar busca" title="Fechar busca" onClick={() => { setTermoPesquisa(""); setMostrarPesquisa(false); }}>
             <X size={15} />
-          </Button>
+          </button>
         </div>
       )}
 
       <div
         ref={scrollRef}
         onScroll={handleMessageScroll}
-        className="norium-chat-message-scroll norium-chat-wallpaper min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-8 py-6"
+        className="norium-chat-message-scroll norium-chat-wallpaper min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain px-7 py-5"
         style={{
           backgroundImage: wallpaperUrl
             ? `linear-gradient(var(--chat-wallpaper-overlay), var(--chat-wallpaper-overlay)), url("${wallpaperUrl}")`
@@ -813,23 +833,28 @@ export default function AreaCentralChat({
               variant="ghost"
               disabled={carregandoMensagens}
               onClick={carregarAnterioresPreservandoPosicao}
-              className="rounded-full bg-[var(--surface)]/80 text-[var(--text)]"
+              className="rounded-full border border-[var(--nx-border)] bg-[var(--nx-surface)] font-medium text-[var(--nx-text-2)]"
             >
               {carregandoMensagens ? "Carregando mensagens..." : "Carregar mensagens anteriores"}
             </Button>
           </div>
         )}
         {!carregandoMensagens && mensagensFiltradas.length === 0 && (
-          <div className="flex min-h-40 items-center justify-center text-center text-sm font-medium text-[var(--text-secondary)]">
+          <div className="flex min-h-40 items-center justify-center text-center text-sm text-[var(--nx-text-3)]">
             {termoPesquisa ? "Nenhuma mensagem corresponde à busca." : "Nenhuma mensagem disponível nesta conversa."}
           </div>
         )}
-        {mensagensFiltradas.map((msg) => {
+        {mensagensFiltradas.map((msg, index) => {
           const outgoing = msg.remetente === "usuario";
           const estaSelecionada = selecionadas.includes(msg.id);
+          const dayLabel = messageDayLabel(msg.timestamp);
+          const previousDayLabel = index > 0 ? messageDayLabel(mensagensFiltradas[index - 1].timestamp) : "";
+          const showDay = Boolean(dayLabel) && dayLabel !== previousDayLabel;
 
           return (
-            <div key={msg.id} onClick={() => modoSelecao && alternarSelecaoMensagem(msg.id)} className={`flex w-full items-end gap-3 group ${outgoing ? "justify-end" : "justify-start"} ${modoSelecao ? "cursor-pointer" : ""}`}>
+            <Fragment key={msg.id}>
+            {showDay && <div className="nx-conv-day py-1">{dayLabel}</div>}
+            <div onClick={() => modoSelecao && alternarSelecaoMensagem(msg.id)} className={`flex w-full items-end gap-3 group ${outgoing ? "justify-end" : "justify-start"} ${modoSelecao ? "cursor-pointer" : ""}`}>
               {modoSelecao && (
                 <input
                   type="checkbox"
@@ -843,12 +868,12 @@ export default function AreaCentralChat({
               {!outgoing && conversaAtiva.esGrupo && <ParticipantAvatar conversa={conversaAtiva} message={msg} />}
 
               <div
-                className={`norium-message-bubble relative max-w-[min(66%,620px)] rounded-xl px-3 py-2 shadow-sm ${outgoing ? "norium-message-outgoing text-white" : "norium-message-incoming text-[var(--text)]"} ${estaSelecionada ? "ring-2 ring-[var(--primary)]" : ""}`}
+                className={`norium-message-bubble relative ${outgoing ? "norium-message-outgoing" : "norium-message-incoming"} ${estaSelecionada ? "ring-2 ring-[var(--nx-primary)]" : ""}`}
                 data-message-menu-root
                 onContextMenu={(event) => { if (!modoSelecao) alternarMenuMensagem(event, msg.id); }}
               >
                 {!modoSelecao && (
-                  <button type="button" aria-label="Ações da mensagem" onClick={(event) => alternarMenuMensagem(event, msg.id)} className="absolute top-1 right-1 h-7 w-7 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 transition hover:bg-black/20">
+                  <button type="button" aria-label="Ações da mensagem" onClick={(event) => alternarMenuMensagem(event, msg.id)} className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-md text-[var(--nx-text-2)] opacity-0 transition hover:bg-black/10 focus:opacity-100 group-hover:opacity-100">
                     <MoreVertical size={14} />
                   </button>
                 )}
@@ -857,79 +882,79 @@ export default function AreaCentralChat({
                   <div
                     data-message-menu-root
                     role="menu"
-                    className="fixed z-[210] max-h-[min(520px,80vh)] w-56 overflow-y-auto rounded-xl border border-[var(--border)] bg-[#080b0f] py-1 text-xs font-bold text-[var(--text)] shadow-2xl"
+                    className="nx-conv-menu fixed z-[210] max-h-[min(520px,80vh)] w-56 overflow-y-auto py-1"
                     style={{ top: menuMensagemPosicao.top, left: menuMensagemPosicao.left }}
                   >
-                    <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5">
+                    <div className="flex items-center justify-between border-b border-[var(--nx-border)] px-2 py-1.5">
                       {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => (
-                        <button key={emoji} className="grid h-7 w-7 place-items-center rounded-full text-base hover:bg-[var(--surface-hover)]" onClick={() => { void onReagirMensagem(msg.id, emoji); setMenuMensagemId(null); }} aria-label={`Reagir com ${emoji}`}>{emoji}</button>
+                        <button key={emoji} className="grid h-7 w-7 place-items-center rounded-full text-base" onClick={() => { void onReagirMensagem(msg.id, emoji); setMenuMensagemId(null); }} aria-label={`Reagir com ${emoji}`}>{emoji}</button>
                       ))}
                     </div>
-                    <button onClick={() => { setRespondendoA(msg); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
-                      <CornerUpRight size={13} /> Responder
+                    <button onClick={() => { setRespondendoA(msg); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <CornerUpRight size={14} /> Responder
                     </button>
-                    {outgoing && msg.tipo === "texto" && Boolean(msg.texto?.trim()) && <button onClick={() => abrirEdicao(msg)} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
-                      <PencilLine size={13} /> Editar mensagem
+                    {outgoing && msg.tipo === "texto" && Boolean(msg.texto?.trim()) && <button onClick={() => abrirEdicao(msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <PencilLine size={14} /> Editar mensagem
                     </button>}
-                    <button onClick={() => { onEncaminharMensagens([msg.id]); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
-                      <CornerUpRight size={13} /> Encaminhar
+                    <button onClick={() => { onEncaminharMensagens([msg.id]); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <CornerUpRight size={14} /> Encaminhar
                     </button>
-                    <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
-                      <Copy size={13} /> Copiar
+                    <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <Copy size={14} /> Copiar
                     </button>
-                    <button onClick={() => { setModoSelecao(true); setSelecionadas([msg.id]); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
-                      <Check size={13} /> Selecionar
+                    <button onClick={() => { setModoSelecao(true); setSelecionadas([msg.id]); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <Check size={14} /> Selecionar
                     </button>
-                    <div className="my-1 border-t border-[var(--border)]" />
-                    <p className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-cyan-300">Nora</p>
-                    <button onClick={() => abrirAcaoNora("reply", msg)} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-cyan-400/10 text-left">
-                      <Bot size={13} className="text-cyan-300" /> Responder com a Nora
+                    <div className="my-1 border-t border-[var(--nx-border)]" />
+                    <p className="nx-conv-menu-label px-3 py-1">Nora</p>
+                    <button onClick={() => abrirAcaoNora("reply", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <Sparkles size={14} className="text-[var(--nx-primary-text)]" /> Responder com a Nora
                     </button>
-                    <button onClick={() => abrirAcaoNora("summary", msg)} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-cyan-400/10 text-left">
-                      <Bot size={13} className="text-cyan-300" /> Resumir com a Nora
+                    <button onClick={() => abrirAcaoNora("summary", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <Sparkles size={14} className="text-[var(--nx-primary-text)]" /> Resumir com a Nora
                     </button>
-                    <button onClick={() => abrirAcaoNora("task", msg)} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-cyan-400/10 text-left">
-                      <Bot size={13} className="text-cyan-300" /> Transformar em tarefa
+                    <button onClick={() => abrirAcaoNora("task", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <ListChecks size={14} className="text-[var(--nx-primary-text)]" /> Transformar em tarefa
                     </button>
-                    <div className="my-1 border-t border-[var(--border)]" />
-                    {outgoing && <button onClick={() => { onApagarMensagensEmMassa([msg.id], true); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-red-500/10 text-red-400 text-left">
-                      <Trash2 size={13} /> Apagar para todos
+                    <div className="my-1 border-t border-[var(--nx-border)]" />
+                    {outgoing && <button onClick={() => { onApagarMensagensEmMassa([msg.id], true); setMenuMensagemId(null); }} className="is-danger flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <Trash2 size={14} /> Apagar para todos
                     </button>}
-                    <button onClick={() => { onApagarMensagensEmMassa([msg.id], false); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-red-500/10 text-red-400 text-left">
-                      <Trash2 size={13} /> Apagar para mim
+                    <button onClick={() => { onApagarMensagensEmMassa([msg.id], false); setMenuMensagemId(null); }} className="is-danger flex w-full items-center gap-2 px-3 py-2 text-left">
+                      <Trash2 size={14} /> Apagar para mim
                     </button>
                   </div>,
                   document.body,
                 )}
 
                 {msg.remetenteNome && !outgoing && (
-                  <span className="mb-1 block text-xs font-extrabold text-[var(--primary)]">~ {msg.remetenteNome}</span>
+                  <span className="mb-1 block text-xs font-semibold text-[var(--nx-primary-text)]">~ {msg.remetenteNome}</span>
                 )}
 
                 {msg.citada?.content && (
-                  <div className="mb-1.5 rounded-md border-l-2 border-[var(--primary)] bg-black/10 px-2 py-1 text-xs opacity-80">
-                    {msg.citada.senderName && <span className="block font-bold text-[var(--primary)]">{msg.citada.senderName}</span>}
+                  <div className="mb-1.5 rounded-md border-l-2 border-[var(--nx-primary)] bg-black/5 px-2 py-1 text-xs text-[var(--nx-text-2)]">
+                    {msg.citada.senderName && <span className="block font-semibold text-[var(--nx-primary-text)]">{msg.citada.senderName}</span>}
                     <span className="line-clamp-2">{msg.citada.content}</span>
                   </div>
                 )}
 
                 {(msg.forwarded || msg.edited) && (
-                  <div className="mb-1 flex items-center gap-2 pr-6 text-[10px] font-semibold italic opacity-60">
+                  <div className="mb-1 flex items-center gap-2 pr-6 text-[11px] italic text-[var(--nx-text-3)]">
                     {msg.forwarded && <span>Encaminhada</span>}
                     {msg.edited && <span>Editada</span>}
                   </div>
                 )}
 
                 {msg.tipo === "texto" ? (
-                  <p className="whitespace-pre-wrap break-words pr-6 text-sm leading-relaxed font-medium">
+                  <p className="whitespace-pre-wrap break-words pr-6">
                     <MessageText conversa={conversaAtiva} text={msg.texto || ""} />
                   </p>
                 ) : (
                   <MessageMedia msg={msg} outgoing={outgoing} />
                 )}
 
-                <div className="mt-1 flex items-center justify-end gap-1 opacity-70">
-                  <span className="text-xs font-medium">{msg.horario}</span>
+                <div className="nx-conv-msg-time mt-[3px] flex items-center justify-end gap-1">
+                  <span>{msg.horario}</span>
                   {outgoing && <MessageStatus status={msg.status} />}
                 </div>
                 {Boolean(msg.reacoes?.length) && (
@@ -938,8 +963,8 @@ export default function AreaCentralChat({
                       <button
                         key={`${reaction.emoji}-${index}`}
                         onClick={() => void onReagirMensagem(msg.id, reaction.fromMe ? "" : reaction.emoji)}
-                        className={`rounded-full border px-1.5 py-0.5 text-xs shadow-sm ${reaction.fromMe ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_18%,var(--surface))]" : "border-[var(--border)] bg-[var(--surface)]"}`}
-                        title={reaction.fromMe ? "Remover sua reacao" : "Reagir igual"}
+                        className={`rounded-full border px-1.5 py-0.5 text-xs ${reaction.fromMe ? "border-[var(--nx-primary)] bg-[var(--nx-primary-soft)]" : "border-[var(--nx-border)] bg-[var(--nx-surface)]"}`}
+                        title={reaction.fromMe ? "Remover sua reação" : "Reagir igual"}
                       >
                         {reaction.emoji}{reaction.count > 1 ? ` ${reaction.count}` : ""}
                       </button>
@@ -948,17 +973,20 @@ export default function AreaCentralChat({
                 )}
               </div>
             </div>
+            </Fragment>
           );
         })}
         <div ref={bottomRef} />
       </div>
 
-      <div className="norium-chat-composer relative shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-3">
+      <div className="norium-chat-composer relative shrink-0">
         {mostrarPainelEmojis && (
-          <div data-emoji-panel-root className="absolute bottom-16 left-4 z-50 w-[340px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-xs font-bold text-[var(--text)] shadow-2xl">
-            <div className="flex border-b border-[var(--border)] p-1.5">
-              <button onClick={() => setModoPainelEmojis("emoji")} className={`flex-1 rounded-lg px-3 py-2 ${modoPainelEmojis === "emoji" ? "bg-[var(--surface-hover)] text-[var(--primary)]" : "text-[var(--text-secondary)]"}`}>Emojis</button>
-              <button onClick={() => setModoPainelEmojis("figurinha")} className={`flex-1 rounded-lg px-3 py-2 ${modoPainelEmojis === "figurinha" ? "bg-[var(--surface-hover)] text-[var(--primary)]" : "text-[var(--text-secondary)]"}`}>Figurinhas</button>
+          <div data-emoji-panel-root className="nx-conv-menu absolute bottom-full left-5 z-50 mb-2 w-[340px] max-w-[calc(100vw-24px)] overflow-hidden">
+            <div className="p-2">
+              <div className="nx-conv-seg" role="group" aria-label="Emojis ou figurinhas">
+                <button type="button" aria-pressed={modoPainelEmojis === "emoji"} onClick={() => setModoPainelEmojis("emoji")} className="flex-1">Emojis</button>
+                <button type="button" aria-pressed={modoPainelEmojis === "figurinha"} onClick={() => setModoPainelEmojis("figurinha")} className="flex-1">Figurinhas</button>
+              </div>
             </div>
             {modoPainelEmojis === "emoji" ? (
               <div className="grid max-h-64 grid-cols-8 gap-1 overflow-y-auto p-3 text-xl">
@@ -968,7 +996,7 @@ export default function AreaCentralChat({
               </div>
             ) : (
               <div className="p-3">
-                <p className="mb-2 px-1 text-left font-bold text-[var(--text-secondary)]">Figurinhas recentes</p>
+                <p className="mb-2 px-1 text-left text-[12.5px] font-medium text-[var(--nx-text-2)]">Figurinhas recentes</p>
                 {figurinhasRecentes.length > 0 ? (
                   <div className="grid max-h-60 grid-cols-4 gap-2 overflow-y-auto pr-1">
                     {figurinhasRecentes.map((sticker) => (
@@ -983,7 +1011,7 @@ export default function AreaCentralChat({
                     ))}
                   </div>
                 ) : (
-                  <p className="rounded-xl bg-[var(--background)] p-4 text-center font-medium text-[var(--text-secondary)]">As figurinhas usadas nas suas conversas aparecerao aqui.</p>
+                  <p className="rounded-lg bg-[var(--nx-surface-2)] p-4 text-center text-[12.5px] text-[var(--nx-text-3)]">As figurinhas usadas nas suas conversas aparecerão aqui.</p>
                 )}
                 <Button variant="ghost" onClick={() => { onEscolherFigurinha(); setMostrarPainelEmojis(false); }} className="mt-3 w-full">Adicionar nova figurinha</Button>
               </div>
@@ -991,83 +1019,90 @@ export default function AreaCentralChat({
           </div>
         )}
 
-        <AttachmentPreviewTray anexos={anexosPendentes} onRemover={onRemoverAnexo} onLimpar={onLimparAnexos} onToggleViewOnce={onAlternarVisualizacaoUnica} />
+        <div className="nx-conv-composer-box">
+          <AttachmentPreviewTray anexos={anexosPendentes} onRemover={onRemoverAnexo} onLimpar={onLimparAnexos} onToggleViewOnce={onAlternarVisualizacaoUnica} />
 
-        {(gravando || statusMicrofone === "solicitando" || statusMicrofone === "negado") && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs font-bold text-[var(--text)]">
-            <span className={`h-2 w-2 rounded-full ${gravando ? "animate-pulse bg-red-500" : statusMicrofone === "negado" ? "bg-red-500" : "bg-amber-400"}`} />
-            <span>
-              {gravando
-                ? `Gravando audio: ${formatarTempo(tempoGravacao)}`
-                : statusMicrofone === "negado"
-                  ? "Microfone bloqueado"
-                  : "Permissao do microfone"}
-            </span>
-          </div>
-        )}
-
-        {respondendoA && (
-          <div className="mb-2 flex items-start gap-2 rounded-lg border-l-4 border-[var(--primary)] bg-[var(--background)] px-3 py-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-extrabold text-[var(--primary)]">
-                Respondendo{respondendoA.remetenteNome ? ` a ${respondendoA.remetenteNome}` : ""}
-              </p>
-              <p className="truncate text-xs font-medium text-[var(--text-secondary)]">
-                {respondendoA.texto || "[midia]"}
-              </p>
+          {(gravando || statusMicrofone === "solicitando" || statusMicrofone === "negado") && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg bg-[var(--nx-surface-2)] px-3 py-2 text-xs font-medium text-[var(--nx-text)]">
+              <span className={`h-2 w-2 rounded-full ${gravando ? "animate-pulse bg-[var(--nx-danger)]" : statusMicrofone === "negado" ? "bg-[var(--nx-danger)]" : "bg-[var(--nx-warning)]"}`} />
+              <span>
+                {gravando
+                  ? `Gravando áudio: ${formatarTempo(tempoGravacao)}`
+                  : statusMicrofone === "negado"
+                    ? "Microfone bloqueado"
+                    : "Permissão do microfone"}
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setRespondendoA(null)}
-              aria-label="Cancelar resposta"
-              className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
+          )}
 
-        <div className="flex items-center gap-2">
-          <Button size="lg" iconOnly onClick={onAnexarArquivo} title="Anexar" aria-label="Anexar">
-            <Paperclip size={19} />
-          </Button>
-          <button data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" className={`h-11 w-11 border rounded-lg flex items-center justify-center transition ${mostrarPainelEmojis ? "bg-[var(--primary)] text-white border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Emoji">
-            <Smile size={19} />
-          </button>
-          <MessageTemplatePicker channel="whatsapp" clientName={displayName} onApply={({ body }) => setResposta(body)} />
+          {respondendoA && (
+            <div className="mb-2 flex items-start gap-2 rounded-lg border-l-2 border-[var(--nx-primary)] bg-[var(--nx-surface-2)] px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-[var(--nx-primary-text)]">
+                  Respondendo{respondendoA.remetenteNome ? ` a ${respondendoA.remetenteNome}` : ""}
+                </p>
+                <p className="truncate text-xs text-[var(--nx-text-2)]">
+                  {respondendoA.texto || "[mídia]"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRespondendoA(null)}
+                aria-label="Cancelar resposta"
+                className="nx-conv-iconbtn h-6 w-6"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           <input
             type="text"
             value={resposta}
             disabled={gravando || enviandoAnexos}
             onChange={(event) => setResposta(event.target.value)}
             onKeyDown={(event) => { if (event.key === "Enter") acionarEnviar(); }}
-            placeholder={gravando ? `Gravando audio: ${formatarTempo(tempoGravacao)}` : "Digite uma mensagem"}
-            className="h-11 min-w-0 flex-1 bg-[var(--background)] border border-[var(--border)] rounded-lg px-4 text-sm outline-none focus:border-[var(--primary)] text-[var(--text)]"
+            placeholder={gravando ? `Gravando áudio: ${formatarTempo(tempoGravacao)}` : "Digite uma mensagem"}
+            aria-label="Mensagem"
+            className="nx-conv-composer-input"
           />
-          <NoraChatComposer
-            conversationId={conversaAtiva.id}
-            disabled={gravando || enviandoAnexos}
-            onInsertDraft={setResposta}
-          />
-          <button onClick={onGravarAudio} disabled={enviandoAnexos} title="Audio" className={`h-11 w-11 border rounded-lg flex items-center justify-center ${gravando ? "bg-red-500 text-white animate-pulse border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"} ${enviandoAnexos ? "opacity-50" : ""}`} aria-label="Audio">
-            <Mic size={19} />
-          </button>
-          <button
-            onClick={acionarEnviar}
-            disabled={enviandoAnexos || (!resposta.trim() && anexosPendentes.length === 0)}
-            title="Enviar"
-            className={`h-11 w-11 bg-[var(--primary)] text-white rounded-lg flex items-center justify-center shadow-sm ${enviandoAnexos || (!resposta.trim() && anexosPendentes.length === 0) ? "opacity-50" : ""}`}
-           aria-label="Enviar">
-            <SendHorizontal size={18} />
-          </button>
+
+          <div className="nx-conv-tools flex flex-wrap items-center gap-1">
+            <button type="button" className="nx-conv-iconbtn" onClick={onAnexarArquivo} title="Anexar" aria-label="Anexar">
+              <Paperclip size={16} />
+            </button>
+            <button type="button" data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" aria-pressed={mostrarPainelEmojis} className="nx-conv-iconbtn" aria-label="Emoji">
+              <Smile size={16} />
+            </button>
+            <MessageTemplatePicker channel="whatsapp" clientName={displayName} onApply={({ body }) => setResposta(body)} />
+            <NoraChatComposer
+              conversationId={conversaAtiva.id}
+              disabled={gravando || enviandoAnexos}
+              onInsertDraft={setResposta}
+            />
+            <div className="ml-auto flex items-center gap-1.5">
+              <button type="button" onClick={onGravarAudio} disabled={enviandoAnexos} title="Áudio" className={`nx-conv-iconbtn ${gravando ? "animate-pulse bg-[var(--nx-danger)] text-white hover:bg-[var(--nx-danger)] hover:text-white" : ""}`} aria-label="Audio">
+                <Mic size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={acionarEnviar}
+                disabled={enviandoAnexos || (!resposta.trim() && anexosPendentes.length === 0)}
+                title="Enviar"
+                className="nx-conv-send"
+                aria-label="Enviar">
+                <SendHorizontal size={16} />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       {editandoMensagem && (
-        <div className="fixed inset-0 z-[225] flex items-center justify-center bg-black/75 p-4" role="presentation">
-          <section role="dialog" aria-modal="true" aria-labelledby="edit-message-title" className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[#080b0f] p-5 text-[var(--text)] shadow-2xl">
-            <div className="flex items-center justify-between"><div><h3 id="edit-message-title" className="text-sm font-extrabold">Editar mensagem enviada</h3><p className="mt-1 text-xs text-[var(--text-secondary)]">A alteração será sincronizada com o WhatsApp.</p></div><button type="button" onClick={() => setEditandoMensagem(null)} disabled={salvandoEdicao} aria-label="Fechar edição" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/10 disabled:opacity-40"><X size={16} /></button></div>
-            <textarea autoFocus value={textoEdicao} onChange={(event) => setTextoEdicao(event.target.value)} rows={5} className="mt-4 w-full resize-y rounded-xl border border-[var(--border)] bg-black p-3 text-sm leading-6 outline-none focus:border-[var(--primary)]" />
+        <div className="fixed inset-0 z-[225] flex items-center justify-center bg-black/50 p-4" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="edit-message-title" className="nx-conv-panel w-full max-w-lg p-5 shadow-2xl">
+            <div className="flex items-center justify-between"><div><h3 id="edit-message-title" className="text-[15px] font-semibold">Editar mensagem enviada</h3><p className="mt-1 text-[12.5px] text-[var(--nx-text-2)]">A alteração será sincronizada com o WhatsApp.</p></div><button type="button" onClick={() => setEditandoMensagem(null)} disabled={salvandoEdicao} aria-label="Fechar edição" className="nx-conv-iconbtn h-8 w-8"><X size={16} /></button></div>
+            <textarea autoFocus value={textoEdicao} onChange={(event) => setTextoEdicao(event.target.value)} rows={5} className="nx-conv-field mt-4 w-full resize-y p-3 text-sm leading-6" />
             <div className="mt-4 flex justify-end gap-2"><Button variant="ghost" onClick={() => setEditandoMensagem(null)} disabled={salvandoEdicao}>Cancelar</Button><Button onClick={() => void salvarEdicao()} loading={salvandoEdicao} disabled={!textoEdicao.trim()}>Salvar edição</Button></div>
           </section>
         </div>

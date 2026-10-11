@@ -26,7 +26,7 @@ describe("LabelDialog", () => {
 
   it("avisa cada digitacao no campo", () => {
     const { onNameChange } = setup();
-    fireEvent.change(screen.getByPlaceholderText(/clientes prioritarios/i), { target: { value: "Fiscal" } });
+    fireEvent.change(screen.getByPlaceholderText(/clientes prioritários/i), { target: { value: "Fiscal" } });
     expect(onNameChange).toHaveBeenCalledWith("Fiscal");
   });
 

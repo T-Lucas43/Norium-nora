@@ -146,7 +146,7 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
   };
 
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div ref={rootRef} className="shrink-0">
       <button
         type="button"
         disabled={disabled || loading}
@@ -158,77 +158,79 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
         }}
         aria-label="Abrir ações da Nora"
         aria-expanded={menuOpen || customOpen || reviewOpen}
-        className={`grid h-11 w-11 place-items-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-50 ${menuOpen || customOpen || reviewOpen ? "border-cyan-400/60 bg-cyan-400/10" : "border-[var(--border)] bg-[var(--background)] hover:border-cyan-400/45 hover:bg-cyan-400/[0.07]"}`}
+        title="Ações da Nora"
+        className={`ml-1 inline-flex h-[26px] items-center gap-1.5 rounded-full pl-1 pr-2.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${menuOpen || customOpen || reviewOpen ? "bg-[var(--nx-primary)] text-white" : "bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)] hover:brightness-95"}`}
       >
-        <NoraAvatar className="h-7 w-7" />
+        <NoraAvatar className="h-5 w-5" />
+        <span>Nora</span>
       </button>
 
       {menuOpen && (
-        <div role="menu" aria-label="Ações da Nora" className="absolute bottom-full right-0 z-[80] mb-2 w-64 overflow-hidden rounded-xl border border-cyan-400/25 bg-[#05080d] p-1.5 text-[var(--text)] shadow-2xl shadow-black/70">
-          <p className="px-3 pb-1.5 pt-1 text-[10px] font-black uppercase tracking-[0.14em] text-cyan-300">Nora na conversa</p>
-          <button role="menuitem" onClick={() => void requestDraft("suggest")} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-bold hover:bg-white/[0.06]">
-            <MessageSquareText size={16} className="text-cyan-300" /> Sugerir resposta com a Nora
+        <div role="menu" aria-label="Ações da Nora" className="nx-conv-menu absolute bottom-full left-5 z-[80] mb-2 w-64 overflow-hidden p-1.5">
+          <p className="nx-conv-menu-label px-3 pb-1.5 pt-1">Nora na conversa</p>
+          <button role="menuitem" onClick={() => void requestDraft("suggest")} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left">
+            <MessageSquareText size={16} className="text-[var(--nx-primary-text)]" /> Sugerir resposta com a Nora
           </button>
-          <button role="menuitem" onClick={() => void requestDraft("summary")} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-bold hover:bg-white/[0.06]">
-            <ListCollapse size={16} className="text-cyan-300" /> Resumir conversa
+          <button role="menuitem" onClick={() => void requestDraft("summary")} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left">
+            <ListCollapse size={16} className="text-[var(--nx-primary-text)]" /> Resumir conversa
           </button>
-          <button role="menuitem" onClick={() => { setAction("custom"); setMenuOpen(false); setCustomOpen(true); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs font-bold hover:bg-white/[0.06]">
-            <FilePenLine size={16} className="text-cyan-300" /> Ação personalizada
+          <button role="menuitem" onClick={() => { setAction("custom"); setMenuOpen(false); setCustomOpen(true); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left">
+            <FilePenLine size={16} className="text-[var(--nx-primary-text)]" /> Ação personalizada
           </button>
         </div>
       )}
 
       {customOpen && (
-        <section aria-label="Ação personalizada da Nora" className="absolute bottom-full right-0 z-[80] mb-2 w-[390px] max-w-[calc(100vw-24px)] rounded-2xl border border-cyan-400/25 bg-[#05080d] p-4 text-[var(--text)] shadow-2xl shadow-black/70">
+        <section aria-label="Ação personalizada da Nora" className="nx-conv-menu absolute bottom-full left-5 z-[80] mb-2 w-[390px] max-w-[calc(100vw-24px)] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="flex items-center gap-2 text-sm font-black"><Sparkles size={16} className="text-cyan-300" /> Ação personalizada</p>
-              <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Diga o que a Nora deve produzir usando esta conversa.</p>
+              <p className="flex items-center gap-2 text-sm font-semibold"><Sparkles size={16} className="text-[var(--nx-primary-text)]" /> Ação personalizada</p>
+              <p className="mt-1 text-[12.5px] font-normal text-[var(--nx-text-2)]">Diga o que a Nora deve produzir usando esta conversa.</p>
             </div>
-            <button type="button" onClick={cancelPendingRequestAndClose} aria-label="Fechar ação personalizada" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/[0.06]"><X size={15} /></button>
+            <button type="button" onClick={cancelPendingRequestAndClose} aria-label="Fechar ação personalizada" className="nx-conv-iconbtn h-8 w-8"><X size={15} /></button>
           </div>
-          <label className="mt-4 block text-xs font-bold" htmlFor="nora-custom-instruction">Instrução para a Nora</label>
+          <label className="nx-conv-label mt-4 block" htmlFor="nora-custom-instruction">Instrução para a Nora</label>
           <textarea
             id="nora-custom-instruction"
             value={customInstruction}
             onChange={(event) => setCustomInstruction(event.target.value)}
             placeholder="Ex.: crie uma resposta cordial confirmando o prazo para amanhã."
-            className="mt-2 h-24 w-full resize-none rounded-xl border border-[var(--border)] bg-black/50 p-3 text-sm outline-none focus:border-cyan-400/60"
+            className="nx-conv-field mt-2 h-24 w-full resize-none p-3 text-sm font-normal"
           />
-          {error && <p role="alert" className="mt-2 text-xs font-bold text-red-400">{error}</p>}
+          {error && <p role="alert" className="mt-2 text-xs text-[var(--nx-danger)]">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">
             <Button variant="ghost" onClick={cancelPendingRequestAndClose}>Cancelar</Button>
-            <Button loading={loading} disabled={!customInstruction.trim()} onClick={() => void requestDraft("custom", customInstruction)} className="bg-cyan-600 hover:bg-cyan-500">Gerar para revisar</Button>
+            <Button variant="primary" loading={loading} disabled={!customInstruction.trim()} onClick={() => void requestDraft("custom", customInstruction)}>Gerar para revisar</Button>
           </div>
         </section>
       )}
 
       {reviewOpen && (
-        <section role="dialog" aria-modal="false" aria-labelledby="nora-review-title" className="absolute bottom-full right-0 z-[80] mb-2 w-[430px] max-w-[calc(100vw-24px)] rounded-2xl border border-cyan-400/25 bg-[#05080d] p-4 text-[var(--text)] shadow-2xl shadow-black/70">
+        <section role="dialog" aria-modal="false" aria-labelledby="nora-review-title" className="nx-conv-menu absolute bottom-full left-5 z-[80] mb-2 w-[430px] max-w-[calc(100vw-24px)] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p id="nora-review-title" className="flex items-center gap-2 text-sm font-black"><Sparkles size={16} className="text-cyan-300" /> {action === "summary" ? "Resumo para consulta" : "Revisão obrigatória"}</p>
-              <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{action === "summary" ? "O resumo é somente para leitura e nunca será colocado no campo de mensagem." : `${ACTION_LABELS[action]}. Edite e confirme antes de colocar no campo de mensagem.`}</p>
+              <p id="nora-review-title" className="flex items-center gap-2 text-sm font-semibold"><Sparkles size={16} className="text-[var(--nx-primary-text)]" /> {action === "summary" ? "Resumo para consulta" : "Revisão obrigatória"}</p>
+              <p className="mt-1 text-[12.5px] font-normal text-[var(--nx-text-2)]">{action === "summary" ? "O resumo é somente para leitura e nunca será colocado no campo de mensagem." : `${ACTION_LABELS[action]}. Edite e confirme antes de colocar no campo de mensagem.`}</p>
             </div>
-            <button type="button" onClick={closePanels} disabled={loading} aria-label="Fechar revisão da Nora" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/[0.06] disabled:opacity-50"><X size={15} /></button>
+            <button type="button" onClick={closePanels} disabled={loading} aria-label="Fechar revisão da Nora" className="nx-conv-iconbtn h-8 w-8"><X size={15} /></button>
           </div>
 
-          {loading && !draft && <p role="status" className="mt-4 flex items-center gap-2 rounded-xl bg-cyan-400/[0.07] p-3 text-xs font-bold text-cyan-200"><LoaderCircle size={15} className="animate-spin" /> A Nora está preparando um texto para revisão...</p>}
-          {error && <p role="alert" className="mt-3 rounded-xl bg-red-500/10 p-3 text-xs font-bold text-red-300">{error}</p>}
+          {loading && !draft && <p role="status" className="mt-4 flex items-center gap-2 rounded-lg bg-[var(--nx-primary-soft)] p-3 text-xs text-[var(--nx-primary-text)]"><LoaderCircle size={15} className="animate-spin" /> A Nora está preparando um texto para revisão...</p>}
+          {error && <p role="alert" className="mt-3 rounded-lg bg-[var(--nx-danger-soft)] p-3 text-xs text-[var(--nx-danger)]">{error}</p>}
 
           {draft && (
             <>
-              <label htmlFor="nora-reviewed-draft" className="mt-4 block text-xs font-bold text-cyan-200">{action === "summary" ? "Resumo da conversa" : "Texto sugerido"}</label>
+              <label htmlFor="nora-reviewed-draft" className="nx-conv-label mt-4 block">{action === "summary" ? "Resumo da conversa" : "Texto sugerido"}</label>
               <textarea
                 id="nora-reviewed-draft"
                 value={draft}
                 onChange={(event) => { if (action !== "summary") setDraft(event.target.value); }}
                 readOnly={action === "summary"}
                 disabled={loading}
-                className="mt-2 h-36 w-full resize-y rounded-xl border border-[var(--border)] bg-black/50 p-3 text-sm font-medium leading-6 outline-none focus:border-cyan-400/60 disabled:opacity-60"
+                className="nx-conv-field mt-2 h-36 w-full resize-y p-3 text-sm font-normal leading-6 disabled:opacity-60"
               />
               {action !== "summary" && <>
-                <label htmlFor="nora-improvement" className="mt-3 block text-xs font-bold">Pedir melhoria à Nora</label>
+                <label htmlFor="nora-improvement" className="nx-conv-label mt-3 block">Pedir melhoria à Nora</label>
                 <div className="mt-2 flex gap-2">
                   <input
                     id="nora-improvement"
@@ -237,25 +239,25 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
                     onKeyDown={(event) => { if (event.key === "Enter" && improvement.trim() && !loading) void improveDraft(); }}
                     placeholder="Ex.: deixe mais curto e acolhedor"
                     disabled={loading}
-                    className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-black/50 px-3 text-xs font-semibold outline-none focus:border-cyan-400/60"
+                    className="nx-conv-field h-9 min-w-0 flex-1 px-3 text-[13px] font-normal"
                   />
                   <Button loading={loading} disabled={!improvement.trim()} onClick={() => void improveDraft()}>Melhorar</Button>
                 </div>
               </>}
-              <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-white/[0.07] pt-3">
+              <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-[var(--nx-border)] pt-3">
                 <Button variant="ghost" onClick={closePanels} disabled={loading}>Descartar</Button>
                 {action === "summary"
-                  ? <Button onClick={() => void copySummary()} disabled={loading || !draft.trim()} className="bg-cyan-600 hover:bg-cyan-500"><Copy size={14} /> {summaryCopied ? "Resumo copiado" : "Copiar resumo"}</Button>
-                  : <Button onClick={acceptDraft} disabled={loading || !draft.trim()} className="bg-cyan-600 hover:bg-cyan-500">Confirmar e inserir</Button>}
+                  ? <Button variant="primary" onClick={() => void copySummary()} disabled={loading || !draft.trim()}><Copy size={14} /> {summaryCopied ? "Resumo copiado" : "Copiar resumo"}</Button>
+                  : <Button variant="primary" onClick={acceptDraft} disabled={loading || !draft.trim()}>Confirmar e inserir</Button>}
               </div>
-              <p className="mt-2 text-right text-[10px] font-semibold text-[var(--text-secondary)]">{action === "summary" ? "O resumo não altera nem prepara uma mensagem." : "A mensagem não será enviada automaticamente."}</p>
+              <p className="mt-2 text-right text-[11px] font-normal text-[var(--nx-text-3)]">{action === "summary" ? "O resumo não altera nem prepara uma mensagem." : "A mensagem não será enviada automaticamente."}</p>
             </>
           )}
         </section>
       )}
 
       {loading && !reviewOpen && !customOpen && (
-        <div role="status" className="absolute bottom-full right-0 z-[80] mb-2 flex w-64 items-center gap-2 rounded-xl border border-cyan-400/25 bg-[#05080d] p-3 text-xs font-bold text-cyan-200 shadow-2xl">
+        <div role="status" className="nx-conv-menu absolute bottom-full left-5 z-[80] mb-2 flex w-64 items-center gap-2 p-3 text-xs text-[var(--nx-primary-text)]">
           <LoaderCircle size={15} className="animate-spin" /> Consultando a Nora...
         </div>
       )}

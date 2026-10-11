@@ -118,8 +118,11 @@ describe("Client workspace", () => {
     expect(api.apiRequest).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Clientes" }));
     expect(
-      screen.getByText("Um lugar para cada relacionamento"),
+      screen.getByRole("region", { name: "Lista de clientes" }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Ficha do cliente" }),
+    ).not.toBeInTheDocument();
   });
   it("searches phone numbers and filters client statuses", async () => {
     const user = userEvent.setup();

@@ -1,12 +1,9 @@
-import WorkspaceHeader from "../shared/WorkspaceHeader";
+import "../../styles/screens/trabalho-comum.css";
+import "../../styles/screens/controle.css";
 import { useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  Gauge,
-  History,
-  Activity,
   AlertTriangle,
-  BellRing,
   BrainCircuit,
   CalendarDays,
   Check,
@@ -17,12 +14,17 @@ import {
   FileCheck2,
   ExternalLink,
   LoaderCircle,
+  Mail,
+  MessageCircle,
   Pencil,
   Plus,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
+  SquareCheck,
   Trash2,
   Undo2,
+  Wallet,
   X,
   XCircle,
 } from "lucide-react";
@@ -30,7 +32,6 @@ import {
 import { apiBaseUrl, authToken } from "../../utils/api";
 import { useOperationsData, type OperationSection } from "./useOperationsData";
 import { showConfirm } from "../shared/AppDialogProvider";
-import Button from "../shared/Button";
 
 type Summary = {
   pendingApprovals: number;
@@ -155,11 +156,11 @@ function headers(): HeadersInit {
 }
 
 function formatDate(value?: string | null, includeDate = true) {
-  if (!value) return "Ainda nao sincronizado";
+  if (!value) return "Ainda não sincronizado";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return new Intl.DateTimeFormat("pt-BR", {
-    ...(includeDate ? { day: "2-digit", month: "short" } : {}),
+    ...(includeDate ? { day: "2-digit", month: "2-digit", year: "numeric" } : {}),
     hour: "2-digit",
     minute: "2-digit",
   }).format(parsed);
@@ -185,13 +186,14 @@ type OperationsDashboardProps = {
 export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: OperationsDashboardProps) {
   const { overview, ready, errors: sectionErrors, refreshing, refresh: loadOverview, loadSection } = useOperationsData(userId);
   const sectionStatus = (section: OperationSection, label: string) => (
-    <div role={sectionErrors[section] ? "alert" : "status"} className="flex min-h-28 items-center justify-center gap-3 p-5 text-sm text-[var(--text-secondary)]">
-      {sectionErrors[section] ? <><AlertTriangle size={18} /><span>{label} indisponíveis no momento.</span><Button size="sm" onClick={() => void loadSection(section, true)}>Tentar novamente</Button></> : <><LoaderCircle size={18} className="animate-spin" /><span>Carregando {label.toLocaleLowerCase("pt-BR")}...</span></>}
+    <div role={sectionErrors[section] ? "alert" : "status"} className="nxo-status">
+      {sectionErrors[section] ? <><AlertTriangle size={16} /><span>{label} indisponíveis no momento.</span><button type="button" className="nx-btn is-sm" onClick={() => void loadSection(section, true)}>Tentar novamente</button></> : <><LoaderCircle size={16} className="nxw-spin" /><span>Carregando {label.toLocaleLowerCase("pt-BR")}...</span></>}
     </div>
   );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("receipts");
+  const [activeSection, setActiveSection] = useState("operations-approvals");
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalTitle, setApprovalTitle] = useState("");
   const [approvalDescription, setApprovalDescription] = useState("");
@@ -255,13 +257,13 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
               metadata: { createdFrom: "operations_dashboard" },
             }),
       });
-      if (!response.ok) throw new Error((await response.text()) || "Falha ao solicitar aprovacao.");
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao solicitar aprovação.");
       const wasEditing = Boolean(editingApproval);
       closeApprovalDialog();
-      setNotice(wasEditing ? "Solicitacao atualizada antes da decisao." : "Aprovacao criada e enviada para o controle operacional.");
+      setNotice(wasEditing ? "Solicitação atualizada antes da decisão." : "Aprovação criada e enviada para o controle operacional.");
       await loadOverview(true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Falha ao solicitar aprovacao.");
+      setError(requestError instanceof Error ? requestError.message : "Falha ao solicitar aprovação.");
     } finally {
       setSavingApproval(false);
     }
@@ -276,11 +278,11 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
         // Aprovações exatas só executam o conteúdo mostrado nesta tela.
         body: JSON.stringify({ decision, note: "Decisao registrada pelo painel operacional.", expectedDigest: expectedDigest ?? undefined }),
       });
-      if (!response.ok) throw new Error((await response.text()) || "Falha ao registrar a decisao.");
-      setNotice(decision === "approved" ? "Solicitacao aprovada." : "Solicitacao rejeitada.");
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao registrar a decisão.");
+      setNotice(decision === "approved" ? "Solicitação aprovada." : "Solicitação rejeitada.");
       await loadOverview(true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Falha ao registrar a decisao.");
+      setError(requestError instanceof Error ? requestError.message : "Falha ao registrar a decisão.");
     } finally {
       setDecisionId(null);
     }
@@ -294,11 +296,11 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
         headers: headers(),
       });
       const payload = await response.json().catch(() => ({})) as { ok?: boolean; detail?: string };
-      if (!response.ok) throw new Error(payload.detail || "Falha ao testar a integracao.");
-      setNotice(payload.ok ? "Integracao testada com sucesso." : "A integracao precisa ser reconectada.");
+      if (!response.ok) throw new Error(payload.detail || "Falha ao testar a integração.");
+      setNotice(payload.ok ? "Integração testada com sucesso." : "A integração precisa ser reconectada.");
       await loadOverview(true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Falha ao testar a integracao.");
+      setError(requestError instanceof Error ? requestError.message : "Falha ao testar a integração.");
     } finally {
       setCheckingIntegrationId(null);
     }
@@ -306,7 +308,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
 
   async function saveMemory() {
     if (!memoryKey.trim() || !memoryValue.trim()) {
-      setError("Informe um nome e o conteudo da preferencia.");
+      setError("Informe um nome e o conteúdo da preferência.");
       return;
     }
     setSavingMemory(true);
@@ -321,13 +323,13 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
           scope: memoryScope,
         }),
       });
-      if (!response.ok) throw new Error((await response.text()) || "Falha ao salvar a preferencia.");
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao salvar a preferência.");
       setMemoryKey("");
       setMemoryValue("");
-      setNotice("Preferencia salva na memoria controlada da Nora.");
+      setNotice("Preferência salva na memória controlada da Nora.");
       await loadOverview(true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Falha ao salvar a preferencia.");
+      setError(requestError instanceof Error ? requestError.message : "Falha ao salvar a preferência.");
     } finally {
       setSavingMemory(false);
     }
@@ -337,11 +339,11 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
     setDeletingMemoryId(memoryId);
     try {
       const response = await fetch(`${API_URL}/memoria-nora/${memoryId}`, { method: "DELETE", headers: headers() });
-      if (!response.ok) throw new Error((await response.text()) || "Falha ao remover a preferencia.");
-      setNotice("Preferencia removida da memoria da Nora.");
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao remover a preferência.");
+      setNotice("Preferência removida da memória da Nora.");
       await loadOverview(true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Falha ao remover a preferencia.");
+      setError(requestError instanceof Error ? requestError.message : "Falha ao remover a preferência.");
     } finally {
       setDeletingMemoryId(null);
     }
@@ -377,11 +379,11 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
     try {
       const response = await fetch(`${API_URL}/comprovantes/${receiptId}/desfazer`, { method: "POST", headers: headers() });
       const payload = await response.json().catch(() => ({})) as { detail?: string };
-      if (!response.ok) throw new Error(payload.detail || "Nao foi possivel desfazer a operacao.");
-      setNotice("Operacao desfeita e estado anterior restaurado.");
+      if (!response.ok) throw new Error(payload.detail || "Não foi possível desfazer a operação.");
+      setNotice("Operação desfeita e estado anterior restaurado.");
       await loadOverview(true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel desfazer a operacao.");
+      setError(requestError instanceof Error ? requestError.message : "Não foi possível desfazer a operação.");
     } finally {
       setUndoingReceiptId(null);
     }
@@ -389,219 +391,233 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
 
   const summary = overview.summary || {};
   const alertsReady = ready.summary && ready.history && ready.integrations;
+  const sections: Array<[string, string]> = [["operations-briefing", "Briefing da Nora"], ["operations-approvals", "Aprovações"], ["operations-history", "Histórico"], ["operations-integrations", "Integrações"]];
+  const integrationTab = (id: string) => id === "gmail" ? "E-mails" : id === "calendar" ? "Agenda" : id === "whatsapp" ? "Chat" : "Mais";
 
   return (
-    <div className="clean-workspace operations-workspace h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 xl:p-8">
-      <div className="mx-auto max-w-[1680px] space-y-5">
-        <WorkspaceHeader title="Controle operacional" description="Aprovações, alertas e integrações sob controle." icon={Gauge}>
-<Button iconOnly onClick={() => void loadOverview(true)} aria-label="Atualizar" title="Atualizar"><RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /></Button>
-<Button onClick={() => onOpenNora?.("Analise o Controle operacional, explique os alertas e recomende os próximos passos.")}><BrainCircuit size={16} />Consultar Nora</Button>
-<Button variant="primary" className="workspace-primary" onClick={openNewApproval}><Plus size={16} />Nova aprovação</Button>
-</WorkspaceHeader>
+    <div className="nx-page nxw-screen nxo-page h-full overflow-y-auto">
+      <header className="nx-ph">
+        <div>
+          <h1>Controle operacional</h1>
+          <p>Aprovações, histórico do que foi feito e saúde das integrações</p>
+        </div>
+        <div className="nx-ph-actions">
+          <button type="button" className="nx-btn" onClick={() => void loadOverview(true)} aria-label="Atualizar" title="Atualizar"><RefreshCw className={refreshing ? "nxw-spin" : ""} size={16} />Atualizar</button>
+          <button type="button" className="nx-btn" onClick={() => onOpenNora?.("Analise o Controle operacional, explique os alertas e recomende os próximos passos.")}><Sparkles size={16} />Consultar Nora</button>
+          <button type="button" className="nx-btn is-primary" onClick={openNewApproval}><Plus size={16} />Nova aprovação</button>
+        </div>
+      </header>
 
-        {(error || notice) && (
-          <div className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm font-bold ${error ? "border-rose-500/30 bg-rose-500/10 text-rose-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>
-            <span>{error || notice}</span>
-            <button type="button" onClick={() => { setError(""); setNotice(""); }} aria-label="Fechar aviso"><X size={16} /></button>
+      {(error || notice) && (
+        <div className={`nxw-alert ${error ? "is-error" : "is-success"}`}>
+          <span>{error || notice}</span>
+          <button type="button" className="nxw-icon-btn is-sm is-plain" onClick={() => { setError(""); setNotice(""); }} aria-label="Fechar aviso"><X size={16} /></button>
+        </div>
+      )}
+
+      {Object.values(sectionErrors).some(Boolean) && <div role="alert" className="nxw-alert is-warning"><span>Algumas seções não puderam ser atualizadas. Os dados já carregados continuam disponíveis. Use Atualizar para tentar novamente.</span></div>}
+
+      <section className="nx-kpis" aria-label="Resumo operacional">
+        <MetricCard label="Aprovações pendentes" value={ready.approvals ? summary.pendingApprovals : undefined} />
+        <MetricCard label="Tarefas vencidas" value={ready.summary ? summary.overdueTasks : undefined} />
+        <MetricCard label="Agenda hoje" value={ready.summary ? summary.todayEvents : undefined} />
+        <MetricCard label="Integrações em atenção" value={ready.integrations ? summary.unhealthyIntegrations : undefined} />
+      </section>
+
+      <nav className="nx-tabs" aria-label="Seções do controle operacional">
+        {sections.map(([id, label]) => (
+          <button key={id} type="button" className={`nx-tab ${activeSection === id ? "is-active" : ""}`} onClick={() => { setActiveSection(id); document.getElementById(id)?.scrollIntoView({ block: "start" }); }}>{label}</button>
+        ))}
+      </nav>
+
+      <section className="nxo-top">
+        <article id="operations-briefing" className="nx-card nxo-briefing">
+          <div className="nxo-briefing-in">
+            <span className="nxw-icon"><BrainCircuit size={16} /></span>
+            <div className="nx-grow">
+              <div className="nxo-eyebrow">Briefing da Nora</div>
+              <h2 className="nxo-h2">{ready.summary ? `${overview.briefing?.greeting}. ${overview.briefing?.title}` : "Seu resumo operacional"}</h2>
+              {ready.summary ? <p className="nxo-text">{overview.briefing?.description}</p> : sectionStatus("summary", "Indicadores")}
+              {ready.summary && <p className="nx-faint nx-small" style={{ margin: "10px 0 0" }}>Atualizado em {formatDate(overview.briefing?.generatedAt || overview.generatedAt)}</p>}
+            </div>
           </div>
-        )}
+        </article>
+        <article className="nx-card">
+          <SectionHeader title="Alertas proativos" description="Pendências calculadas com seus dados reais." action={alertsReady ? `${overview.alerts?.length || 0} alerta(s)` : "Verificando fontes"} />
+          <div className="nxo-alerts">
+            {(overview?.alerts || []).length === 0 ? (
+              <p className="nxo-dashed">{alertsReady ? "Nenhum alerta operacional neste momento." : "Aguardando os dados para verificar os alertas."}</p>
+            ) : (overview?.alerts || []).map((alert) => (
+              <button key={alert.id} type="button" onClick={() => onNavigate?.(alert.tab)} className="nxo-alert">
+                <span className={`nxo-dot ${alert.severity === "error" ? "is-red" : alert.severity === "warning" ? "is-amber" : ""}`} />
+                <span className="nx-grow"><span className="nxw-row-t nx-ell" style={{ display: "block" }}>{alert.title}</span><span className="nxw-row-sub nxo-clamp">{alert.description}</span></span>
+                <ChevronRight className="nx-faint" size={14} />
+              </button>
+            ))}
+          </div>
+        </article>
+      </section>
 
-        {Object.values(sectionErrors).some(Boolean) && <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">Algumas seções não puderam ser atualizadas. Os dados já carregados continuam disponíveis. Use Atualizar para tentar novamente.</div>}
+      <div className="nxo-grid">
+        <div className="nxo-col">
+          <section id="operations-approvals" className="nx-card">
+            <SectionHeader title="Aprovações pendentes" description="Ações sensíveis ficam visíveis antes da decisão." action={ready.approvals ? `${pendingApprovals.length} pendente(s)` : undefined} />
+            <div>
+              {!ready.approvals ? sectionStatus("approvals", "Aprovações") : pendingApprovals.length === 0 ? (
+                <EmptyState icon={CheckCircle2} title="Tudo aprovado por aqui" description="Novas solicitações aparecerão automaticamente." />
+              ) : pendingApprovals.map((approval) => {
+                const tone = approvalTone(approval);
+                const ToneIcon = tone.icon;
+                return (
+                  <article key={approval.id} className="nxo-approval">
+                    <div className="nxo-approval-head">
+                      <span className={`nxw-icon ${tone.className}`}><ToneIcon size={16} /></span>
+                      <div className="nx-grow">
+                        <div className="nxo-approval-title"><strong>{approval.title}</strong><span className="nx-badge is-amber">Pendente</span></div>
+                        <div className="nxw-row-sub nxo-clamp">{approval.description || `Ação: ${approval.action}`}</div>
+                        <div className="nx-faint nx-small" style={{ marginTop: 2 }}>{approval.requestedBy?.name || "Operador"} · {formatDate(approval.createdAt)}</div>
+                      </div>
+                    </div>
+                    <div className="nxo-approval-actions">
+                      <button type="button" className="nx-btn is-sm is-primary" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved", approval.digest)}>{decisionId === approval.id ? <LoaderCircle className="nxw-spin" size={14} /> : <Check size={14} />} Aprovar</button>
+                      <button type="button" className="nx-btn is-sm" disabled={decisionId === approval.id} onClick={() => openApprovalEditor(approval)}><Pencil size={14} /> Editar</button>
+                      <button type="button" className="nx-btn is-sm is-ghost nxo-reject" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "rejected")}><XCircle size={14} /> Rejeitar</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
 
-        <section className="workspace-metrics grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="Resumo operacional">
-          <MetricCard icon={ClipboardCheck} label="Aprovações" value={ready.approvals ? summary.pendingApprovals : undefined} tone="amber" />
-          <MetricCard icon={AlertTriangle} label="Tarefas vencidas" value={ready.summary ? summary.overdueTasks : undefined} tone="rose" />
-          <MetricCard icon={CalendarDays} label="Agenda hoje" value={ready.summary ? summary.todayEvents : undefined} tone="violet" />
-          <MetricCard icon={Activity} label="Integrações em atenção" value={ready.integrations ? summary.unhealthyIntegrations : undefined} tone="cyan" />
-        </section>
-
-        <nav className="workspace-tabs operations-nav" aria-label="Seções do controle operacional">
-          {[["operations-approvals", "Aprovações", ClipboardCheck], ["operations-history", "Histórico", History], ["operations-integrations", "Integrações", Activity]].map(([id, label, Icon]) => {
-            const SectionIcon = Icon as LucideIcon;
-            return <button key={String(id)} type="button" onClick={() => document.getElementById(String(id))?.scrollIntoView({ block: "start" })}><SectionIcon size={16} />{String(label)}</button>;
-          })}
-        </nav>
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,.75fr)_minmax(0,1.25fr)]">
-          <article className="workspace-panel operations-briefing p-5">
-            <div className="flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><BrainCircuit size={20} /></span>
-              <div>
-                <p className="text-xs font-bold uppercase text-blue-300">Briefing da Nora</p>
-                <h2 className="mt-1 font-black">{ready.summary ? `${overview.briefing?.greeting}. ${overview.briefing?.title}` : "Seu resumo operacional"}</h2>
-                {ready.summary ? <p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{overview.briefing?.description}</p> : sectionStatus("summary", "Indicadores")}
-                {ready.summary && <p className="mt-3 text-xs font-bold uppercase text-[var(--text-secondary)]">Atualizado em {formatDate(overview.briefing?.generatedAt || overview.generatedAt)}</p>}
+          <section id="operations-history" className="nx-card">
+            <div className="nx-card-h nxo-card-h">
+              <div className="nx-grow"><h2>Rastreabilidade</h2><p>Veja o que foi executado e por quem.</p></div>
+              <div className="nxo-history-tools">
+                <div className="nx-seg"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>
+                {timelineMode === "audit" && <button type="button" className="nx-btn is-sm" onClick={() => void exportAudit()}><Download size={14} /> Exportar CSV</button>}
               </div>
             </div>
-          </article>
-          <article className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <SectionHeader title="Alertas proativos" description="Pendencias calculadas com seus dados reais." icon={BellRing} action={alertsReady ? `${overview.alerts?.length || 0} alerta(s)` : "Verificando fontes"} />
-            <div className="grid max-h-52 gap-2 overflow-y-auto p-3 sm:grid-cols-2">
-              {(overview?.alerts || []).length === 0 ? (
-                <p className="col-span-full rounded-lg border border-dashed border-[var(--border)] p-5 text-center text-xs font-semibold text-[var(--text-secondary)]">{alertsReady ? "Nenhum alerta operacional neste momento." : "Aguardando os dados para verificar os alertas."}</p>
-              ) : (overview?.alerts || []).map((alert) => (
-                <button key={alert.id} type="button" onClick={() => onNavigate?.(alert.tab)} className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left hover:bg-[var(--surface-hover)]">
-                  <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${alert.severity === "error" ? "bg-rose-400" : alert.severity === "warning" ? "bg-amber-400" : "bg-blue-400"}`} />
-                  <span className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{alert.title}</strong><small className="mt-1 line-clamp-2 font-semibold leading-5 text-[var(--text-secondary)]">{alert.description}</small></span>
-                  <ChevronRight className="mt-1 shrink-0 text-[var(--text-secondary)]" size={14} />
-                </button>
+            <div className="nxo-history">
+              {!ready.history ? sectionStatus("history", "Registros") : timeline.length === 0 ? (
+                <EmptyState icon={FileCheck2} title="Histórico pronto para registrar" description="As próximas ações concluídas aparecerão aqui." />
+              ) : timeline.map((entry) => (
+                <article key={entry.id} className="nxw-row" style={{ alignItems: "flex-start" }}>
+                  <span className={`nxw-icon is-sm ${entry.status === "failed" || entry.status === "error" ? "is-red" : "is-green"}`}>{entry.status === "failed" || entry.status === "error" ? <XCircle size={16} /> : <FileCheck2 size={16} />}</span>
+                  <div className="nx-grow">
+                    <div className="nxo-entry-head"><strong className="nxw-row-t nx-ell">{entry.title || entry.action}</strong><time className="nx-faint nx-small">{formatDate(entry.timestamp)}</time></div>
+                    <p className="nxw-row-sub nxo-clamp" style={{ margin: "2px 0 0" }}>{entry.description}</p>
+                    <div className="nxo-entry-meta">
+                      <span className="nx-badge is-blue">{entry.actor?.name || "Norium"}</span>
+                      {entry.entityId && <span className="nx-faint nx-small nx-ell">Registro: {entry.entityId}</span>}
+                      {timelineMode === "receipts" && entryTarget(entry) && onNavigate && (
+                        <button type="button" onClick={() => onNavigate(entryTarget(entry) as string)} className="nxo-link">
+                          Abrir resultado <ExternalLink size={12} />
+                        </button>
+                      )}
+                      {timelineMode === "receipts" && entry.undoAction && !entry.metadata?.undoneAt && (
+                        <button type="button" disabled={undoingReceiptId === entry.id} onClick={() => void undoOperation(entry.id)} className="nxo-link is-amber">
+                          {undoingReceiptId === entry.id ? <LoaderCircle className="nxw-spin" size={12} /> : <Undo2 size={12} />} Desfazer
+                        </button>
+                      )}
+                      {timelineMode === "receipts" && Boolean(entry.metadata?.undoneAt) && <span className="nx-badge is-amber">Operação desfeita</span>}
+                    </div>
+                  </div>
+                </article>
               ))}
             </div>
-          </article>
-        </section>
-
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
-          <div className="space-y-5">
-            <section id="operations-approvals" className="workspace-panel overflow-hidden">
-              <SectionHeader title="Aprovações pendentes" description="Ações sensíveis ficam visíveis antes da decisão." icon={ClipboardCheck} action={ready.approvals ? `${pendingApprovals.length} pendente(s)` : undefined} />
-              <div className="divide-y divide-[var(--border)]">
-                {!ready.approvals ? sectionStatus("approvals", "Aprovações") : pendingApprovals.length === 0 ? (
-                  <EmptyState icon={CheckCircle2} title="Tudo aprovado por aqui" description="Novas solicitacoes aparecerao automaticamente." />
-                ) : pendingApprovals.map((approval) => (
-                  <article key={approval.id} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm font-bold">{approval.title}</strong><span className="rounded-full bg-amber-500/12 px-2 py-1 text-xs font-bold uppercase text-amber-300">pendente</span></div>
-                      <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{approval.description || `Acao: ${approval.action}`}</p>
-                      <p className="mt-2 text-xs font-bold text-[var(--text-secondary)]">{approval.requestedBy?.name || "Operador"} · {formatDate(approval.createdAt)}</p>
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      <Button size="sm" disabled={decisionId === approval.id} onClick={() => openApprovalEditor(approval)}><Pencil size={14} /> Editar</Button>
-                      <Button variant="danger" size="sm" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "rejected")} className="border-rose-500/25 text-rose-300 hover:bg-rose-500/10"><XCircle size={15} /> Rejeitar</Button>
-                      <Button variant="primary" size="sm" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved", approval.digest)} className="bg-emerald-600 hover:bg-emerald-500">{decisionId === approval.id ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />} Aprovar</Button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <section id="operations-history" className="workspace-panel overflow-hidden">
-              <div className="flex flex-col gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div><h2 className="font-black">Rastreabilidade</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Veja o que foi executado e por quem.</p></div>
-                <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <Button size="sm" onClick={() => void exportAudit()}><Download size={14} /> Exportar CSV</Button>}</div>
-              </div>
-              <div className="max-h-[390px] divide-y divide-[var(--border)] overflow-y-auto">
-                {!ready.history ? sectionStatus("history", "Registros") : timeline.length === 0 ? (
-                  <EmptyState icon={FileCheck2} title="Historico pronto para registrar" description="As proximas acoes concluidas aparecerao aqui." />
-                ) : timeline.map((entry) => (
-                  <article key={entry.id} className="flex items-start gap-3 px-5 py-4">
-                    <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg ${entry.status === "failed" || entry.status === "error" ? "bg-rose-500/12 text-rose-300" : "bg-emerald-500/12 text-emerald-300"}`}>{entry.status === "failed" || entry.status === "error" ? <XCircle size={17} /> : <FileCheck2 size={17} />}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-4"><strong className="truncate text-sm font-bold">{entry.title || entry.action}</strong><time className="shrink-0 text-xs font-bold text-[var(--text-secondary)]">{formatDate(entry.timestamp)}</time></div>
-                      <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{entry.description}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-3">
-                        <span className="inline-flex text-xs font-bold uppercase text-blue-400">{entry.actor?.name || "Norium"}</span>
-                        {entry.entityId && <span className="truncate text-xs font-bold text-[var(--text-secondary)]">Registro: {entry.entityId}</span>}
-                        {timelineMode === "receipts" && entryTarget(entry) && onNavigate && (
-                          <button type="button" onClick={() => onNavigate(entryTarget(entry) as string)} className="inline-flex items-center gap-1 text-xs font-bold uppercase text-cyan-300 hover:text-cyan-200">
-                            Abrir resultado <ExternalLink size={12} />
-                          </button>
-                        )}
-                        {timelineMode === "receipts" && entry.undoAction && !entry.metadata?.undoneAt && (
-                          <button type="button" disabled={undoingReceiptId === entry.id} onClick={() => void undoOperation(entry.id)} className="inline-flex items-center gap-1 text-xs font-bold uppercase text-amber-300 hover:text-amber-200 disabled:opacity-50">
-                            {undoingReceiptId === entry.id ? <LoaderCircle className="animate-spin" size={12} /> : <Undo2 size={12} />} Desfazer
-                          </button>
-                        )}
-                        {timelineMode === "receipts" && Boolean(entry.metadata?.undoneAt) && <span className="text-xs font-bold uppercase text-amber-300">Operacao desfeita</span>}
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          </div>
-
-          <aside className="space-y-5">
-            <section id="operations-integrations" className="workspace-panel overflow-hidden">
-              <SectionHeader title="Saúde das integrações" description="Estado local e ultima sincronizacao." icon={Activity} />
-              <div className="divide-y divide-[var(--border)]">
-                {!ready.integrations && sectionStatus("integrations", "Integrações")}
-                {(overview?.integrations || []).map((integration) => (
-                  <article key={integration.id} className="flex items-start gap-3 px-4 py-4">
-                    <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${integration.status === "online" ? "bg-emerald-500/12 text-emerald-300" : "bg-amber-500/12 text-amber-300"}`}>{integration.status === "online" ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-3"><strong className="truncate text-sm font-bold">{integration.name}</strong><span className={`text-xs font-bold uppercase ${integration.status === "online" ? "text-emerald-300" : "text-amber-300"}`}>{integration.status === "online" ? "online" : "atencao"}</span></div>
-                      <p className="mt-1 truncate text-xs font-semibold text-[var(--text-secondary)]">{integration.detail}</p>
-                      <p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">Ultima sincronizacao: {formatDate(integration.lastSync)}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {(integration.permissions || []).map((permission) => <span key={permission} className="rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase text-[var(--text-secondary)]">{permission}</span>)}
-                        {integration.failures > 0 && <span className="rounded-full bg-rose-500/12 px-2 py-1 text-xs font-bold uppercase text-rose-300">{integration.failures} falha(s)</span>}
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button size="sm" disabled={checkingIntegrationId === integration.id} onClick={() => void testIntegration(integration.id)} className="uppercase">
-                          {checkingIntegrationId === integration.id ? <LoaderCircle className="animate-spin" size={13} /> : <RefreshCw size={13} />} Testar
-                        </Button>
-                        {!integration.connected && onNavigate && (
-                          <Button variant="primary" size="sm" onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" ? "Chat" : "Mais")} className="bg-blue-600 uppercase hover:bg-blue-500">
-                            Reconectar <ChevronRight size={13} />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    {onNavigate && integration.connected && (
-                      <Button size="sm" iconOnly
-                       
-                        onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" ? "Chat" : "Mais")}
-                        className="text-[var(--text-secondary)] hover:text-[var(--text)]"
-                        aria-label={`Abrir ${integration.name}`}
-                        title={`Abrir ${integration.name}`}
-                      >
-                        <ChevronRight size={15} />
-                      </Button>
-                    )}
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 hover:bg-[var(--surface-hover)]">
-                <span className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><BrainCircuit size={17} /></span><span className="min-w-0"><strong className="block truncate text-sm font-bold">Memoria controlada da Nora</strong><small className="block truncate font-semibold text-[var(--text-secondary)]">{ready.memory ? `${overview.memory?.length || 0} preferência(s) salva(s)` : "Preferências ainda não consultadas"}</small></span></span>
-                <ChevronRight className="shrink-0 transition group-open:rotate-90" size={16} />
-              </summary>
-              <div className="space-y-3 border-t border-[var(--border)] p-4">
-                <input value={memoryKey} onChange={(event) => setMemoryKey(event.target.value)} maxLength={120} placeholder="Nome da preferencia" className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
-                <textarea value={memoryValue} onChange={(event) => setMemoryValue(event.target.value)} maxLength={1200} rows={3} placeholder="Ex.: prefiro respostas profissionais e objetivas." className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold outline-none focus:border-blue-500" />
-                <div className="flex gap-2">
-                  <select value={memoryScope} onChange={(event) => setMemoryScope(event.target.value as "personal" | "team")} className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none">
-                    <option value="personal">Somente para mim</option><option value="team">Compartilhar com a equipe</option>
-                  </select>
-                  <Button variant="primary" size="sm" disabled={savingMemory} onClick={() => void saveMemory()} className="bg-blue-600 hover:bg-blue-500">{savingMemory ? <LoaderCircle className="animate-spin" size={14} /> : <Plus size={14} />} Salvar</Button>
-                </div>
-                <div className="max-h-52 space-y-2 overflow-y-auto">
-                  {(overview?.memory || []).map((memory) => (
-                    <article key={memory.id} className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-                      <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-1.5"><strong className="truncate text-xs font-bold">{memory.key}</strong><span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-xs font-bold uppercase text-blue-300">{memory.scope === "team" ? "equipe" : "pessoal"}</span></div><p className="mt-1 line-clamp-3 text-xs font-semibold leading-4 text-[var(--text-secondary)]">{memory.value}</p></div>
-                      <Button variant="danger" size="sm" iconOnly disabled={deletingMemoryId === memory.id} onClick={() => void deleteMemory(memory.id)} className="text-rose-300 hover:bg-rose-500/10" aria-label={`Remover ${memory.key}`}>{deletingMemoryId === memory.id ? <LoaderCircle className="animate-spin" size={14} /> : <Trash2 size={14} />}</Button>
-                    </article>
-                  ))}
-                  {!ready.memory && sectionStatus("memory", "Preferências")}
-                  {ready.memory && (overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
-                </div>
-              </div>
-            </details>
-
-            <section className="workspace-panel operations-briefing p-5">
-              <div className="flex items-center gap-3 text-blue-300"><ShieldCheck size={21} /><h2 className="font-black">Política de segurança</h2></div>
-              <p className="mt-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">Operacoes sensiveis podem passar por aprovacao e cada decisao gera um registro rastreavel por usuario.</p>
-              <button type="button" onClick={openNewApproval} className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-blue-300 hover:text-blue-200">Solicitar revisao <ChevronRight size={15} /></button>
-            </section>
-          </aside>
+          </section>
         </div>
+
+        <aside className="nxo-col">
+          <details className="nx-card nxo-memory">
+            <summary>
+              <span className="nxo-memory-sum">
+                <strong>Memória controlada da Nora</strong>
+                <span className="nx-muted nx-small">{ready.memory ? `${overview.memory?.length || 0} preferência(s) salva(s)` : "Preferências ainda não consultadas"}</span>
+                {overview.memory?.[0] && <span className="nx-muted nx-small nxo-clamp">“{overview.memory[0].value}” · {overview.memory[0].scope === "team" ? "compartilhada com a equipe" : "somente para você"}</span>}
+              </span>
+              <span className="nx-btn is-sm nxo-memory-toggle">Gerenciar memórias <ChevronRight size={14} /></span>
+            </summary>
+            <div className="nxo-memory-body">
+              <input value={memoryKey} onChange={(event) => setMemoryKey(event.target.value)} maxLength={120} placeholder="Nome da preferência" className="nxw-field" style={{ width: "100%" }} />
+              <textarea value={memoryValue} onChange={(event) => setMemoryValue(event.target.value)} maxLength={1200} rows={3} placeholder="Ex.: prefiro respostas profissionais e objetivas." className="nxw-field" style={{ width: "100%" }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <select value={memoryScope} onChange={(event) => setMemoryScope(event.target.value as "personal" | "team")} className="nxw-field" style={{ flex: 1 }}>
+                  <option value="personal">Somente para mim</option><option value="team">Compartilhar com a equipe</option>
+                </select>
+                <button type="button" className="nx-btn is-primary" disabled={savingMemory} onClick={() => void saveMemory()}>{savingMemory ? <LoaderCircle className="nxw-spin" size={14} /> : <Plus size={14} />} Salvar</button>
+              </div>
+              <div className="nxo-memory-list">
+                {(overview?.memory || []).map((memory) => (
+                  <article key={memory.id} className="nxw-action nxo-memory-item">
+                    <div className="nx-grow"><div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}><strong className="nxw-row-t nx-ell">{memory.key}</strong><span className="nx-badge is-blue">{memory.scope === "team" ? "Equipe" : "Pessoal"}</span></div><p className="nx-muted nx-small nxo-clamp" style={{ margin: "4px 0 0" }}>{memory.value}</p></div>
+                    <button type="button" className="nxw-icon-btn is-sm is-plain nxo-reject" disabled={deletingMemoryId === memory.id} onClick={() => void deleteMemory(memory.id)} aria-label={`Remover ${memory.key}`}>{deletingMemoryId === memory.id ? <LoaderCircle className="nxw-spin" size={14} /> : <Trash2 size={14} />}</button>
+                  </article>
+                ))}
+                {!ready.memory && sectionStatus("memory", "Preferências")}
+                {ready.memory && (overview?.memory || []).length === 0 && <p className="nxo-dashed">Nenhuma preferência salva. A Nora também aprende quando você diz "lembre que...".</p>}
+              </div>
+            </div>
+          </details>
+
+          <section className="nx-card nxo-policy">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ShieldCheck size={16} className="nx-muted" /><strong>Política de segurança</strong></div>
+            <p className="nx-muted nx-small" style={{ margin: "6px 0 0", lineHeight: 1.5 }}>Operações sensíveis podem passar por aprovação e cada decisão gera um registro rastreável por usuário.</p>
+            <button type="button" onClick={openNewApproval} className="nx-btn is-sm" style={{ marginTop: 10 }}>Solicitar revisão <ChevronRight size={14} /></button>
+          </section>
+
+          <section id="operations-integrations" className="nx-card">
+            <SectionHeader title="Saúde das integrações" description="Estado local e última sincronização." />
+            <div>
+              {!ready.integrations && sectionStatus("integrations", "Integrações")}
+              {(overview?.integrations || []).map((integration) => (
+                <article key={integration.id} className="nxw-row" style={{ alignItems: "flex-start" }}>
+                  <span className={`nxw-icon is-sm ${integration.status === "online" ? "is-green" : "is-amber"}`}>{integration.status === "online" ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}</span>
+                  <div className="nx-grow">
+                    <div className="nxo-entry-head"><strong className="nxw-row-t nx-ell">{integration.name}</strong><span className={`nx-badge ${integration.status === "online" ? "is-green" : "is-amber"}`}>{integration.status === "online" ? "Online" : "Atenção"}</span></div>
+                    <p className="nxw-row-sub nx-ell" style={{ margin: "2px 0 0" }}>{integration.detail}</p>
+                    <p className="nx-faint nx-small" style={{ margin: "2px 0 0" }}>Última sincronização: {formatDate(integration.lastSync)}</p>
+                    <div className="nxo-entry-meta">
+                      {(integration.permissions || []).map((permission) => <span key={permission} className="nx-badge">{permission}</span>)}
+                      {integration.failures > 0 && <span className="nx-badge is-red">{integration.failures} falha(s)</span>}
+                    </div>
+                    <div className="nxo-entry-meta">
+                      <button type="button" className="nx-btn is-sm" disabled={checkingIntegrationId === integration.id} onClick={() => void testIntegration(integration.id)}>
+                        {checkingIntegrationId === integration.id ? <LoaderCircle className="nxw-spin" size={13} /> : <RefreshCw size={13} />} Testar
+                      </button>
+                      {!integration.connected && onNavigate && (
+                        <button type="button" className="nx-btn is-sm is-primary" onClick={() => onNavigate(integrationTab(integration.id))}>
+                          Reconectar <ChevronRight size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {onNavigate && integration.connected && (
+                    <button type="button" className="nxw-icon-btn is-sm is-plain" onClick={() => onNavigate(integrationTab(integration.id))} aria-label={`Abrir ${integration.name}`} title={`Abrir ${integration.name}`}>
+                      <ChevronRight size={15} />
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+        </aside>
       </div>
 
       {approvalOpen && (
-        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/65 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
-            <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
-              <div><h2 className="font-black">{editingApproval ? "Editar solicitacao" : "Nova solicitacao de aprovacao"}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{editingWhatsAppApproval ? "Revise a mensagem. O destinatario permanece protegido e nao pode ser alterado aqui." : editingApproval ? "Ajuste o plano antes de aprovar ou rejeitar." : "Registre a decisao antes de executar uma acao sensivel."}</p></div>
-              <Button variant="ghost" size="sm" iconOnly onClick={closeApprovalDialog} aria-label="Fechar"><X size={18} /></Button>
+        <div className="nxo-modal-backdrop">
+          <div className="nx-card nxo-modal" role="dialog" aria-modal="true" aria-label={editingApproval ? "Editar solicitação" : "Nova solicitação de aprovação"}>
+            <header className="nxo-modal-h">
+              <div className="nx-grow"><h2 className="nxo-h2" style={{ margin: 0 }}>{editingApproval ? "Editar solicitação" : "Nova solicitação de aprovação"}</h2><p className="nx-muted nx-small" style={{ margin: "4px 0 0" }}>{editingWhatsAppApproval ? "Revise a mensagem. O destinatário permanece protegido e não pode ser alterado aqui." : editingApproval ? "Ajuste o plano antes de aprovar ou rejeitar." : "Registre a decisão antes de executar uma ação sensível."}</p></div>
+              <button type="button" className="nxw-icon-btn is-sm is-plain" onClick={closeApprovalDialog} aria-label="Fechar"><X size={18} /></button>
             </header>
-            <div className="space-y-4 p-5">
-              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">{editingWhatsAppApproval ? "Destinatario protegido" : "O que precisa ser aprovado?"}<input value={approvalTitle} onChange={(event) => { if (!editingWhatsAppApproval) setApprovalTitle(event.target.value); }} readOnly={editingWhatsAppApproval} aria-readonly={editingWhatsAppApproval} maxLength={180} className={`mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold normal-case text-[var(--text)] outline-none ${editingWhatsAppApproval ? "cursor-not-allowed opacity-70" : "focus:border-blue-500"}`} placeholder="Ex.: autorizar envio para toda a base" /></label>
-              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">{editingWhatsAppApproval ? "Mensagem que sera enviada" : "Contexto"}<textarea value={approvalDescription} onChange={(event) => setApprovalDescription(event.target.value)} maxLength={1200} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder={editingWhatsAppApproval ? "Revise o texto exato antes de aprovar." : "Explique o impacto e o motivo da solicitacao."} /></label>
+            <div className="nxo-modal-b">
+              <label className="nxw-label">{editingWhatsAppApproval ? "Destinatário protegido" : "O que precisa ser aprovado?"}<input value={approvalTitle} onChange={(event) => { if (!editingWhatsAppApproval) setApprovalTitle(event.target.value); }} readOnly={editingWhatsAppApproval} aria-readonly={editingWhatsAppApproval} maxLength={180} className="nxw-field" style={editingWhatsAppApproval ? { cursor: "not-allowed", opacity: 0.7 } : undefined} placeholder="Ex.: autorizar envio para toda a base" /></label>
+              <label className="nxw-label">{editingWhatsAppApproval ? "Mensagem que será enviada" : "Contexto"}<textarea value={approvalDescription} onChange={(event) => setApprovalDescription(event.target.value)} maxLength={1200} rows={4} className="nxw-field" placeholder={editingWhatsAppApproval ? "Revise o texto exato antes de aprovar." : "Explique o impacto e o motivo da solicitação."} /></label>
             </div>
-            <footer className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-              <Button onClick={closeApprovalDialog}>Cancelar</Button>
-              <Button variant="primary" disabled={savingApproval} onClick={() => void saveApproval()} className="bg-blue-600 hover:bg-blue-500">{savingApproval ? <LoaderCircle className="animate-spin" size={16} /> : <ClipboardCheck size={16} />} {editingApproval ? "Salvar alteracoes" : "Solicitar aprovacao"}</Button>
+            <footer className="nxo-modal-f">
+              <button type="button" className="nx-btn" onClick={closeApprovalDialog}>Cancelar</button>
+              <button type="button" className="nx-btn is-primary" disabled={savingApproval} onClick={() => void saveApproval()}>{savingApproval ? <LoaderCircle className="nxw-spin" size={16} /> : <ClipboardCheck size={16} />} {editingApproval ? "Salvar alterações" : "Solicitar aprovação"}</button>
             </footer>
           </div>
         </div>
@@ -610,19 +626,28 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
   );
 }
 
-function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value?: number; tone: "amber" | "blue" | "rose" | "violet" | "emerald" | "cyan" }) {
-  const tones = { amber: "bg-amber-500/12 text-amber-300", blue: "bg-blue-500/12 text-blue-300", rose: "bg-rose-500/12 text-rose-300", violet: "bg-violet-500/12 text-violet-300", emerald: "bg-emerald-500/12 text-emerald-300", cyan: "bg-cyan-500/12 text-cyan-300" };
-  return <article data-metric-tone={tone} className="workspace-metric flex min-h-28 items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tones[tone]}`}><Icon size={20} className="metric-icon" /></span><div className="min-w-0"><strong className="metric-value block text-2xl font-black">{value ?? "—"}</strong><span className="mt-1 block text-xs font-bold leading-4 text-[var(--text-secondary)]">{label}</span></div></article>;
+function approvalTone(approval: Approval): { icon: LucideIcon; className: string } {
+  const value = `${approval.source || ""} ${approval.action || ""}`.toLocaleLowerCase("pt-BR");
+  if (/whatsapp|chat/.test(value)) return { icon: MessageCircle, className: "is-green" };
+  if (/email|gmail/.test(value)) return { icon: Mail, className: "is-red" };
+  if (/financ|lancamento|boleto|gasto/.test(value)) return { icon: Wallet, className: "is-cyan" };
+  if (/calendar|agenda/.test(value)) return { icon: CalendarDays, className: "" };
+  if (/task|tarefa/.test(value)) return { icon: SquareCheck, className: "is-amber" };
+  return { icon: ClipboardCheck, className: "" };
 }
 
-function SectionHeader({ title, description, icon: Icon, action }: { title: string; description: string; icon: LucideIcon; action?: string }) {
-  return <header className="flex flex-col items-start gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="font-black sm:truncate">{title}</h2><p className="text-xs font-semibold text-[var(--text-secondary)] sm:truncate">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-xs font-bold uppercase text-amber-300">{action}</span>}</header>;
+function MetricCard({ label, value }: { label: string; value?: number }) {
+  return <article className="nx-card nx-kpi"><div className="nx-kpi-l">{label}</div><div className="nx-kpi-v">{value ?? "—"}</div></article>;
+}
+
+function SectionHeader({ title, description, action }: { title: string; description: string; action?: string }) {
+  return <header className="nx-card-h nxo-card-h"><div className="nx-grow"><h2>{title}</h2><p>{description}</p></div>{action && <span className="nx-badge is-amber">{action}</span>}</header>;
 }
 
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return <button type="button" onClick={onClick} className={`rounded-md px-3 py-2 text-xs font-bold transition ${active ? "bg-blue-600 text-white" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"}`}>{children}</button>;
+  return <button type="button" onClick={onClick} className={active ? "is-active" : ""}>{children}</button>;
 }
 
 function EmptyState({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
-  return <div className="grid min-h-44 place-items-center p-6 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-emerald-500/10 text-emerald-300"><Icon size={22} /></span><strong className="mt-3 block text-sm font-bold">{title}</strong><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>;
+  return <div className="nxw-empty"><span className="nxw-icon is-green"><Icon size={18} /></span><strong>{title}</strong><span>{description}</span></div>;
 }

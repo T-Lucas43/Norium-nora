@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { CalendarDays, Clock, MapPin, Users, Video, X } from "lucide-react";
 import AgendaSidebar from "./AgendaSidebar";
 import AgendaTimeline from "./AgendaTimeline";
 import { apiRequest } from "../../core/api/client";
-import Button from "../shared/Button";
+import "./agenda-v2.css";
 
 export type ViewMode = "Dia" | "Semana" | "Mês" | "Ano";
 
@@ -100,13 +100,14 @@ function viewRange(date: Date, mode: ViewMode) {
   return { start, end };
 }
 
+// Cor do evento nas cores do layout aprovado (azul, violeta, verde, ciano; âmbar para eventos locais).
 function colorClass(title: string, source: string) {
   const value = title.toLowerCase();
-  if (source === "local") return "border-amber-400 bg-amber-500/10 text-amber-100";
-  if (value.includes("call") || value.includes("reuni")) return "border-sky-400 bg-sky-500/10 text-sky-100";
-  if (value.includes("projeto") || value.includes("norium")) return "border-blue-400 bg-blue-500/10 text-blue-100";
-  if (value.includes("almoço") || value.includes("almoco")) return "border-emerald-400 bg-emerald-500/10 text-emerald-100";
-  return "border-cyan-400 bg-cyan-500/10 text-cyan-100";
+  if (source === "local") return "is-amber";
+  if (value.includes("call") || value.includes("reuni")) return "is-blue";
+  if (value.includes("projeto") || value.includes("norium")) return "is-violet";
+  if (value.includes("almoço") || value.includes("almoco")) return "is-green";
+  return "is-cyan";
 }
 
 function normalizeEvent(raw: any, index: number): Evento {
@@ -251,20 +252,14 @@ export default function AgendaDashboard({ userId = "primary" }: { userId?: strin
     }
   }
 
+  const fecharCriacao = () => setShowCreate(false);
+
   return (
-    <div className={`norium-agenda ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
-      <button
-        type="button"
-        className="mobile-sidebar-toggle mobile-screen-fab"
-        aria-label="Abrir menu da agenda"
-        onClick={() => setMobileSidebarOpen(true)}
-      >
-        <Menu size={18} />
-      </button>
+    <div className={`nx-page nx-ag ${mobileSidebarOpen ? "is-side-open" : ""}`}>
       {mobileSidebarOpen && (
         <button
           type="button"
-          className="mobile-sidebar-backdrop"
+          className="nx-ag-backdrop"
           aria-label="Fechar menu da agenda"
           onClick={() => setMobileSidebarOpen(false)}
         />
@@ -291,86 +286,112 @@ export default function AgendaDashboard({ userId = "primary" }: { userId?: strin
         onRefresh={() => void carregarEventos()}
         onCreateEvent={abrirCriacao}
         onOpenEvent={setSelectedEvent}
+        onOpenMenu={() => setMobileSidebarOpen(true)}
         todayKey={todayKey()}
       />
 
       {selectedEvent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onMouseDown={() => setSelectedEvent(null)}>
-          <div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4">
-              <div className="min-w-0">
-                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Evento</p>
-                <h2 className="mt-1 truncate text-lg font-bold">{selectedEvent.title}</h2>
+        <div className="nx-ag-overlay" onMouseDown={() => setSelectedEvent(null)}>
+          <div className="nx-card nx-ag-modal" style={{ maxWidth: 560 }} role="dialog" aria-modal="true" aria-label={selectedEvent.title} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="nx-ag-modal-h">
+              <div className="nx-grow">
+                <span className="nx-faint nx-small">Evento</span>
+                <h2 title={selectedEvent.title}>{selectedEvent.title}</h2>
               </div>
-              <Button variant="ghost" size="sm" iconOnly onClick={() => setSelectedEvent(null)}>
+              <button type="button" className="nx-btn is-ghost nx-ag-icon is-sm" aria-label="Fechar" onClick={() => setSelectedEvent(null)}>
                 <X size={18} />
-              </Button>
+              </button>
             </div>
-            <div className="grid gap-4 p-5 text-sm">
-              <div>
-                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Data e hora</p>
-                <p className="mt-1 font-semibold">
-                  {new Date(selectedEvent.inicio).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
-                  {!selectedEvent.allDay && ` · ${selectedEvent.timeStart} - ${selectedEvent.timeEnd}`}
-                </p>
-              </div>
+            <dl className="nx-ag-modal-b nx-ag-dl">
+              <dt>Data e hora</dt>
+              <dd>
+                {new Date(selectedEvent.inicio).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+                {!selectedEvent.allDay && ` · ${selectedEvent.timeStart} - ${selectedEvent.timeEnd}`}
+              </dd>
               {selectedEvent.location && (
-                <div>
-                  <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Endereço</p>
-                  <p className="mt-1 whitespace-pre-wrap">{selectedEvent.location}</p>
-                </div>
+                <>
+                  <dt>Endereço</dt>
+                  <dd>{selectedEvent.location}</dd>
+                </>
               )}
               {selectedEvent.description && (
-                <div>
-                  <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Descrição</p>
-                  <p className="mt-1 whitespace-pre-wrap leading-6">{selectedEvent.description}</p>
-                </div>
+                <>
+                  <dt>Descrição</dt>
+                  <dd style={{ lineHeight: 1.55 }}>{selectedEvent.description}</dd>
+                </>
               )}
               {selectedEvent.participants.length > 0 && (
-                <div>
-                  <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Participantes</p>
-                  <p className="mt-1">{selectedEvent.participants.join(", ")}</p>
-                </div>
+                <>
+                  <dt>Participantes</dt>
+                  <dd>{selectedEvent.participants.join(", ")}</dd>
+                </>
               )}
               {selectedEvent.meetLink && (
-                <div>
-                  <a href={selectedEvent.meetLink} target="_blank" rel="noreferrer" className="font-bold text-[var(--primary)] hover:underline">
-                    Entrar na reunião
-                  </a>
-                </div>
+                <>
+                  <dt>Reunião</dt>
+                  <dd>
+                    <a href={selectedEvent.meetLink} target="_blank" rel="noreferrer" className="nx-ag-link">
+                      <Video size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                      Entrar na reunião
+                    </a>
+                  </dd>
+                </>
               )}
-            </div>
+            </dl>
           </div>
         </div>
       )}
 
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
-              <h2 className="text-base font-bold">Novo evento</h2>
-              <Button variant="ghost" size="sm" iconOnly onClick={() => setShowCreate(false)}>
+        <div className="nx-ag-overlay">
+          <div className="nx-card nx-ag-modal" style={{ maxWidth: 600 }} role="dialog" aria-modal="true" aria-label="Novo evento">
+            <div className="nx-ag-modal-h">
+              <h2 className="nx-grow">Novo evento</h2>
+              <button type="button" className="nx-btn is-ghost nx-ag-icon is-sm" aria-label="Fechar" onClick={fecharCriacao}>
                 <X size={18} />
-              </Button>
+              </button>
             </div>
-            <div className="grid gap-3 p-5 text-sm">
-              <input value={form.titulo} onChange={(event) => setForm({ ...form, titulo: event.target.value })} placeholder="Título" className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 outline-none" />
-              <div className="grid grid-cols-3 gap-3">
-                <input type="date" value={form.data} onChange={(event) => setForm({ ...form, data: event.target.value })} className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 outline-none" />
-                <input type="time" value={form.inicio} onChange={(event) => setForm({ ...form, inicio: event.target.value })} className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 outline-none" />
-                <input type="time" value={form.fim} onChange={(event) => setForm({ ...form, fim: event.target.value })} className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 outline-none" />
+            <div className="nx-ag-modal-b">
+              <label className="nx-ag-field">
+                <span className="nx-ag-lbl">Título <em>*</em></span>
+                <span className="nx-input"><input value={form.titulo} onChange={(event) => setForm({ ...form, titulo: event.target.value })} placeholder="Título" /></span>
+              </label>
+              <div className="nx-ag-3">
+                <label className="nx-ag-field">
+                  <span className="nx-ag-lbl">Data</span>
+                  <span className="nx-input"><CalendarDays size={16} /><input type="date" value={form.data} onChange={(event) => setForm({ ...form, data: event.target.value })} /></span>
+                </label>
+                <label className="nx-ag-field">
+                  <span className="nx-ag-lbl">Início</span>
+                  <span className="nx-input"><Clock size={16} /><input type="time" value={form.inicio} onChange={(event) => setForm({ ...form, inicio: event.target.value })} /></span>
+                </label>
+                <label className="nx-ag-field">
+                  <span className="nx-ag-lbl">Fim</span>
+                  <span className="nx-input"><Clock size={16} /><input type="time" value={form.fim} onChange={(event) => setForm({ ...form, fim: event.target.value })} /></span>
+                </label>
               </div>
-              <input value={form.local} onChange={(event) => setForm({ ...form, local: event.target.value })} placeholder="Local ou chamada" className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 outline-none" />
-              <input value={form.participantes} onChange={(event) => setForm({ ...form, participantes: event.target.value })} placeholder="Convidados por e-mail" className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 outline-none" />
-              <textarea value={form.descricao} onChange={(event) => setForm({ ...form, descricao: event.target.value })} placeholder="Descrição" rows={3} className="resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 outline-none" />
-              <label className="flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)]">
-                <input type="checkbox" checked={form.criar_meet} onChange={(event) => setForm({ ...form, criar_meet: event.target.checked })} className="h-4 w-4 accent-[var(--primary)]" />
-                Criar Google Meet
+              <label className="nx-ag-field">
+                <span className="nx-ag-lbl">Local ou chamada</span>
+                <span className="nx-input"><MapPin size={16} /><input value={form.local} onChange={(event) => setForm({ ...form, local: event.target.value })} placeholder="Local ou chamada" /></span>
+              </label>
+              <label className="nx-ag-field">
+                <span className="nx-ag-lbl">Convidados</span>
+                <span className="nx-input"><Users size={16} /><input value={form.participantes} onChange={(event) => setForm({ ...form, participantes: event.target.value })} placeholder="Convidados por e-mail" /></span>
+              </label>
+              <label className="nx-ag-field">
+                <span className="nx-ag-lbl">Descrição</span>
+                <textarea value={form.descricao} onChange={(event) => setForm({ ...form, descricao: event.target.value })} placeholder="Descrição" rows={3} />
               </label>
             </div>
-            <div className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-              <Button onClick={() => setShowCreate(false)}>Cancelar</Button>
-              <Button variant="primary" disabled={!form.titulo} onClick={() => void criarEvento()}>Salvar</Button>
+            <div className="nx-ag-modal-f">
+              <label className="nx-ag-switch">
+                <input type="checkbox" checked={form.criar_meet} onChange={(event) => setForm({ ...form, criar_meet: event.target.checked })} />
+                <i aria-hidden="true" />
+                <Video size={16} />
+                Criar Google Meet
+              </label>
+              <button type="button" className="nx-btn" onClick={fecharCriacao}>Cancelar</button>
+              <button type="button" className="nx-btn is-primary" disabled={!form.titulo} onClick={() => void criarEvento()}>Salvar evento</button>
             </div>
           </div>
         </div>

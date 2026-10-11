@@ -89,7 +89,7 @@ function ChannelMessageMedia({ message }: { message: MsgConteudo }) {
   }
   if (media.error || nativeError || !media.source) {
     return (
-      <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-300">
+      <div className="rounded-lg bg-[var(--nx-danger-soft)] p-4 text-sm text-[var(--nx-danger)]">
         <p>{"M\u00eddia indispon\u00edvel."}</p>
         <button type="button" onClick={retry} className="mt-2 font-bold underline">
           Tentar novamente
@@ -153,7 +153,7 @@ function ChannelMessageMedia({ message }: { message: MsgConteudo }) {
 
 function ChannelMessage({ message }: { message: MsgConteudo }) {
   return (
-    <li className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
+    <li className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <ChannelMessageMedia message={message} />
       {message.texto && (
         <p className={`${message.arquivoUrl ? "mt-3" : ""} whitespace-pre-wrap text-sm leading-6 text-[var(--text)]`}>
@@ -193,10 +193,10 @@ export default function WhatsAppChannelsView({
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-1 bg-[var(--background)]" aria-label="Canais do WhatsApp">
-      <aside className="flex w-[360px] min-w-[300px] flex-col border-r border-[var(--border)] bg-[var(--surface)]">
+      <aside className="flex w-[300px] min-w-[280px] flex-col border-r border-[var(--border)] bg-[var(--surface)]">
         <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
           <div>
-            <h1 className="text-lg font-black text-[var(--text)]">Canais</h1>
+            <h1 className="text-[15px] font-semibold text-[var(--text)]">Canais</h1>
             <p className="text-xs text-[var(--text-secondary)]">{"Atualiza\u00e7\u00f5es que voc\u00ea acompanha"}</p>
           </div>
           <button
@@ -212,7 +212,7 @@ export default function WhatsAppChannelsView({
         </header>
 
         <div className="border-b border-[var(--border)] p-3">
-          <label className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 focus-within:border-[var(--primary)]">
+          <label className="nx-conv-search">
             <Search size={16} className="text-[var(--text-secondary)]" aria-hidden="true" />
             <input
               type="search"
@@ -227,7 +227,7 @@ export default function WhatsAppChannelsView({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {error && (
-            <div role="alert" className="m-2 rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-300">
+            <div role="alert" className="m-2 rounded-lg bg-[var(--nx-danger-soft)] p-3 text-sm text-[var(--nx-danger)]">
               <p>{error}</p>
               <button type="button" onClick={onRefresh} className="mt-2 font-bold text-[var(--text)] underline">
                 Tentar novamente
@@ -256,7 +256,7 @@ export default function WhatsAppChannelsView({
                     aria-pressed={active}
                     className={`flex w-full items-center gap-3 rounded-xl p-3 text-left transition ${
                       active
-                        ? "bg-[color-mix(in_srgb,var(--primary)_15%,transparent)]"
+                        ? "bg-[var(--nx-primary-soft)]"
                         : "hover:bg-[var(--surface-hover)]"
                     }`}
                   >
@@ -264,14 +264,14 @@ export default function WhatsAppChannelsView({
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
                         <span className="truncate text-sm font-bold text-[var(--text)]">{channel.name}</span>
-                        {channel.verified && <BadgeCheck size={15} className="shrink-0 text-sky-400" aria-label="Verificado" />}
+                        {channel.verified && <BadgeCheck size={15} className="shrink-0 text-[var(--nx-primary)]" aria-label="Verificado" />}
                       </span>
                       <span className="mt-0.5 block truncate text-xs text-[var(--text-secondary)]">
                         {channel.description || "Canal do WhatsApp"}
                       </span>
                     </span>
                     {Boolean(channel.unreadCount) && (
-                      <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--primary)] px-1.5 text-[10px] font-black text-white">
+                      <span className="nx-conv-count">
                         {channel.unreadCount}
                       </span>
                     )}
@@ -290,10 +290,10 @@ export default function WhatsAppChannelsView({
               <ChannelAvatar channel={selected} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <h2 className="truncate text-lg font-black text-[var(--text)]">{selected.name}</h2>
-                  {selected.verified && <BadgeCheck size={18} className="shrink-0 text-sky-400" aria-hidden="true" />}
+                  <h2 className="truncate text-[15px] font-semibold text-[var(--text)]">{selected.name}</h2>
+                  {selected.verified && <BadgeCheck size={18} className="shrink-0 text-[var(--nx-primary)]" aria-hidden="true" />}
                 </div>
-                {selected.verified && <p className="text-xs font-semibold text-sky-400">Canal verificado</p>}
+                {selected.verified && <p className="text-xs font-medium text-[var(--nx-primary-text)]">Canal verificado</p>}
                 <p className="truncate text-xs text-[var(--text-secondary)]">
                   {selected.description || "Canal do WhatsApp"}
                 </p>
@@ -334,11 +334,11 @@ export default function WhatsAppChannelsView({
         ) : (
           <div className="grid min-h-0 flex-1 place-items-center p-8">
             <div className="flex max-w-sm flex-col items-center text-center text-[var(--text-secondary)]">
-              <span className="grid h-16 w-16 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--primary)]">
+              <span className="grid h-14 w-14 place-items-center rounded-xl bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)]">
                 <RadioTower size={28} />
               </span>
-              <h2 className="mt-4 text-lg font-bold text-[var(--text)]">Selecione um canal</h2>
-              <p className="mt-1 text-sm">Escolha um canal na lista para ver suas atualiza\u00e7\u00f5es.</p>
+              <h2 className="mt-4 text-lg font-semibold text-[var(--text)]">Selecione um canal</h2>
+              <p className="mt-1 text-sm">Escolha um canal na lista para ver suas atualizações.</p>
             </div>
           </div>
         )}

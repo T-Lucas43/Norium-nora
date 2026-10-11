@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Loader2, Paperclip, Reply, Sparkles } from "lucide-react";
-import Button from "../shared/Button";
 import AttachmentPreview from "./AttachmentPreview";
 import type { ComposeAttachment } from "../../features/mail/types";
 import MessageTemplatePicker from "../message-templates/MessageTemplatePicker";
@@ -34,45 +33,51 @@ export default function MailReplyBox({
   onSend,
 }: MailReplyBoxProps) {
   return (
-    <div className="mail-card mt-5 rounded-lg border border-white/10 bg-[#121217]">
+    <div className="nx-mail-reply">
+      <div className="nx-mail-reply-h">
+        <Reply size={15} />
+        Responder
+      </div>
       <textarea
         value={text}
         onChange={(event) => onTextChange(event.target.value)}
         placeholder="Escreva sua resposta..."
-        className="h-28 w-full resize-none bg-transparent p-4 text-sm font-medium text-white outline-none placeholder:text-white/35"
+        aria-label="Resposta"
+        className="nx-mail-textarea"
       />
       {attachments.length > 0 && <AttachmentPreview attachments={attachments} onRemove={onRemoveAttachment} />}
       {suggestionPanel}
-      <div className="flex items-center justify-between border-t border-white/10 p-3">
-        <div className="flex items-center gap-2">
-          <label className="flex h-9 w-9 items-center justify-center rounded-lg text-white/65 hover:bg-white/7">
-            <Paperclip size={17} />
-            <span className="sr-only">Anexar arquivo a resposta</span>
+      <div className="nx-mail-reply-foot">
+        <div>
+          <button
+            type="button"
+            disabled={sending || !text.trim()}
+            onClick={onSend}
+            className="nx-btn is-sm is-primary"
+          >
+            {sending ? <Loader2 size={14} className="nx-mail-spin" /> : <Reply size={14} />}
+            Responder
+          </button>
+          {canUseNora && (
+            <button
+              type="button"
+              onClick={onAskNora}
+              disabled={noraSuggesting !== null}
+              className="nx-btn is-sm"
+            >
+              {noraSuggesting === "reply" ? <Loader2 size={14} className="nx-mail-spin" /> : <Sparkles size={14} />}
+              Gerar sugestão
+            </button>
+          )}
+        </div>
+        <div>
+          <label className="nx-mail-attach-btn" title="Anexar arquivo à resposta">
+            <Paperclip size={16} />
+            <span className="sr-only">Anexar arquivo à resposta</span>
             <input type="file" multiple className="hidden" onChange={(event) => onAddFiles(event.target.files)} />
           </label>
           <MessageTemplatePicker channel="email" onApply={({ body }) => onTextChange(body)} />
-          {canUseNora && (
-            <Button
-              size="sm"
-              onClick={onAskNora}
-              disabled={noraSuggesting !== null}
-              className="mail-hover border-cyan-400/25 text-cyan-300 hover:bg-cyan-400/10"
-            >
-              {noraSuggesting === "reply" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-              Gerar sugestao
-            </Button>
-          )}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={sending || !text.trim()}
-          onClick={onSend}
-          className="mail-primary bg-[#0EA5E9]"
-        >
-          {sending ? <Loader2 size={15} className="animate-spin" /> : <Reply size={15} />}
-          Responder
-        </Button>
       </div>
     </div>
   );

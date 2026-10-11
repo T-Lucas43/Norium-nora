@@ -75,7 +75,7 @@ describe("MailMessageRow", () => {
 
   it("destaca visualmente a mensagem nao lida", () => {
     const { container } = setup({ message: { ...base, unread: true } as GmailMessage });
-    expect(container.querySelector("button")!.className).toContain("bg-white/[0.035]");
+    expect(container.querySelector("button")!.className).toContain("is-unread");
   });
 
   it("marca a linha selecionada", () => {
@@ -85,7 +85,7 @@ describe("MailMessageRow", () => {
 
   it("usa altura reduzida no modo compacto", () => {
     const { container } = setup({ compactMode: true });
-    expect(container.querySelector("button")!.className).toContain("min-h-[42px]");
+    expect(container.querySelector("button")!.className).toContain("is-compact");
   });
 
   it("mostra o clipe somente quando ha anexo", () => {

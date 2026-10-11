@@ -40,9 +40,9 @@ export default function TeamMeetingMessageCard({
     }
   }
 
-  return <div className="mt-2 rounded-xl border border-blue-400/25 bg-blue-500/10 p-3 text-blue-50">
-    <div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/20 text-blue-200"><CalendarCheck2 size={17} /></span><div className="min-w-0 flex-1"><strong className="block truncate text-sm">{String(metadata.title || "Reunião da equipe")}</strong><span className="mt-1 flex items-center gap-1 text-xs font-semibold text-blue-100/75"><Clock3 size={13} /> {formatMeetingDate(metadata.startsAt)}</span><span className="mt-1 flex items-center gap-1 text-xs font-semibold text-blue-100/75"><Users size={13} /> {participantIds.length} convidado(s)</span></div></div>
-    {description && <p className="mt-3 text-xs font-semibold leading-5 text-blue-50/80">{description}</p>}
+  return <div className="nx-card mt-2 max-w-[520px] p-3 text-[var(--nx-text)]">
+    <div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)]"><CalendarCheck2 size={17} /></span><div className="min-w-0 flex-1"><strong className="block truncate text-[13.5px] font-semibold">{String(metadata.title || "Reunião da equipe")}</strong><span className="mt-1 flex items-center gap-1 text-[12.5px] text-[var(--nx-text-3)]"><Clock3 size={13} /> {formatMeetingDate(metadata.startsAt)}</span><span className="mt-1 flex items-center gap-1 text-[12.5px] text-[var(--nx-text-3)]"><Users size={13} /> {participantIds.length} convidado(s)</span></div></div>
+    {description && <p className="mt-3 text-[13px] leading-5 text-[var(--nx-text-2)]">{description}</p>}
     <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => void addToCalendar()} loading={adding} disabled={!invited || added} icon={added ? <Check size={14} /> : <CalendarPlus size={14} />}>{added ? "Adicionada à agenda" : "Adicionar à minha agenda"}</Button><Button size="sm" variant="ghost" onClick={onStart} icon={<PlayCircle size={14} />}>Abrir chamada</Button></div>
   </div>;
 }

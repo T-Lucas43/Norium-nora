@@ -54,35 +54,35 @@ export default function SessionDevices() {
       else { await load(); setMessage("Outras sessões encerradas."); }
     });
   }
-  return <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5" aria-label="Sessões e dispositivos">
-    <h2 className="flex items-center gap-2 text-base font-bold"><ShieldCheck size={18} /> Sessões e dispositivos</h2>
-    <p className="mt-2 text-sm text-[var(--text-secondary)]">Cada sessão representa um perfil de navegador. Um mesmo aparelho pode aparecer mais de uma vez. O último uso é aproximado.</p>
-    {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
-    {message && <p role="status" className="mt-3 text-sm text-[var(--primary)]">{message}</p>}
-    {loading && <p role="status" className="mt-3 text-sm text-[var(--text-secondary)]">Carregando sessões…</p>}
-    {!loading && !error && devices.length === 0 && <p className="mt-3 text-sm text-[var(--text-secondary)]">Nenhuma sessão ativa encontrada.</p>}
-    <ul className="mt-4 space-y-3">
-      {devices.map((device) => <li key={device.id} className="rounded-lg border border-[var(--border)] p-3">
-        <div className="flex items-start gap-2">
-          {device.kind === "Computador" ? <Monitor size={20} /> : <Smartphone size={20} />}
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold">{device.browser} · {device.system} · {device.kind}{device.current && <span className="ml-2 text-xs text-[var(--primary)]">Este navegador</span>}</p>
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">Criada em {date(device.createdAt)} · Último uso {date(device.lastUsedAt)}</p>
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">Válida até {date(device.expiresAt)}{device.persistent ? " · Login persistente" : " · Cookie de sessão"}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <input aria-label={`Nome da sessão ${device.browser}`} maxLength={80} value={labels[device.id] ?? ""} onChange={(event) => setLabels((current) => ({ ...current, [device.id]: event.target.value }))} placeholder="Nome opcional, como Notebook" className="min-w-0 rounded border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-sm" />
-              <Button disabled={busy} onClick={() => void action(async () => { await apiRequest(`/api/auth/sessions/${encodeURIComponent(device.id)}`, { method: "PATCH", body: JSON.stringify({ label: labels[device.id] ?? "" }) }); setMessage("Nome atualizado."); })}>Salvar nome</Button>
-              <Button variant="danger" disabled={busy} onClick={() => revoke(device)}>Encerrar sessão</Button>
-            </div>
+  return <section className="nxi-stack is-sm" aria-label="Sessões e dispositivos">
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="min-w-0 flex-1"><h2 className="nxi-h2" style={{ display: "flex", alignItems: "center", gap: 8 }}><ShieldCheck size={18} /> Sessões e dispositivos</h2><p className="nx-muted" style={{ margin: "4px 0 0" }}>Cada sessão representa um perfil de navegador. Um mesmo aparelho pode aparecer mais de uma vez. O último uso é aproximado.</p></div>
+      <Button size="sm" disabled={busy} onClick={() => void action(load)}>Atualizar lista</Button>
+    </div>
+    {error && <p role="alert" className="nxi-alert is-error">{error}</p>}
+    {message && <p role="status" className="nxi-alert is-success">{message}</p>}
+    {loading && <p role="status" className="nxi-alert">Carregando sessões…</p>}
+    <ul className="nx-card" style={{ margin: 0, padding: 0, listStyle: "none" }}>
+      {!loading && !error && devices.length === 0 && <li className="nxi-empty">Nenhuma sessão ativa encontrada.</li>}
+      {devices.map((device, index) => <li key={device.id} className="flex flex-wrap items-start gap-3.5" style={{ padding: "16px 20px", borderTop: index ? "1px solid var(--nx-border)" : 0 }}>
+        <span className="nxi-tile">{device.kind === "Computador" ? <Monitor size={20} /> : <Smartphone size={20} />}</span>
+        <div className="min-w-0 flex-1">
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{device.browser} · {device.system} · {device.kind}{device.current && <span className="nx-badge is-green" style={{ marginLeft: 6 }}>Este navegador</span>}</p>
+          <p className="nx-faint nx-small" style={{ margin: "2px 0 0" }}>Criada em {date(device.createdAt)} · Último uso {date(device.lastUsedAt)}</p>
+          <p className="nx-faint nx-small" style={{ margin: "2px 0 0" }}>Válida até {date(device.expiresAt)}{device.persistent ? " · Login persistente" : " · Cookie de sessão"}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input aria-label={`Nome da sessão ${device.browser}`} maxLength={80} value={labels[device.id] ?? ""} onChange={(event) => setLabels((current) => ({ ...current, [device.id]: event.target.value }))} placeholder="Nome opcional, como Notebook" className="nxi-field" style={{ width: 240, height: 30 }} />
+            <Button size="sm" disabled={busy} onClick={() => void action(async () => { await apiRequest(`/api/auth/sessions/${encodeURIComponent(device.id)}`, { method: "PATCH", body: JSON.stringify({ label: labels[device.id] ?? "" }) }); setMessage("Nome atualizado."); })}>Salvar nome</Button>
+            <Button size="sm" variant="danger" disabled={busy} onClick={() => revoke(device)}>Encerrar sessão</Button>
           </div>
         </div>
       </li>)}
     </ul>
-    <div className="mt-4 flex flex-wrap items-center gap-2">
-      <input type="password" aria-label="Senha atual para encerrar sessões" autoComplete="current-password" maxLength={180} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Senha atual" className="rounded border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" />
-      <Button disabled={busy} onClick={() => revokeMany(false)}>Encerrar outras sessões</Button>
+    <div className="nx-card flex flex-wrap items-center gap-3" style={{ padding: "18px 22px" }}>
+      <div className="min-w-0 flex-1" style={{ flexBasis: 240 }}><b style={{ fontWeight: 600 }}>Encerrar todas as outras sessões</b><div className="nx-faint nx-small">Você continuará conectado só neste navegador. Pedimos sua senha para confirmar.</div></div>
+      <input type="password" aria-label="Senha atual para encerrar sessões" autoComplete="current-password" maxLength={180} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Senha atual" className="nxi-field" style={{ width: 200 }} />
+      <Button variant="danger" disabled={busy} onClick={() => revokeMany(false)}>Encerrar outras sessões</Button>
       <Button variant="danger" disabled={busy} onClick={() => revokeMany(true)}>Sair de todos os dispositivos</Button>
-      <Button disabled={busy} onClick={() => void action(load)}>Atualizar lista</Button>
     </div>
   </section>;
 }

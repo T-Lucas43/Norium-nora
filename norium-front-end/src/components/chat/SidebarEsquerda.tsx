@@ -4,10 +4,10 @@ import {
   MessageSquare,
   MoreVertical,
   Pin,
-  PlusCircle,
   RefreshCw,
   Search,
   Settings,
+  SquarePen,
   Star,
   Trash2,
   User,
@@ -17,9 +17,9 @@ import {
 } from "lucide-react";
 import type { ChatConversa } from "./types";
 import type { WhatsAppSyncProgress } from "./whatsappApi";
-import Button from "../shared/Button";
 import { useWhatsAppProfilePhoto } from "./useAuthenticatedMedia";
 import { conversationDisplayName, isTechnicalWhatsAppLabel } from "./contactPicker";
+import { avatarColor } from "./avatarColor";
 
 type ChatAction = "lida" | "fixada" | "favorita" | "silenciada" | "arquivada";
 type Filter = "todos" | "nao-lidas" | "favoritos" | "grupos" | "arquivados";
@@ -46,13 +46,14 @@ function getInitials(name: string) {
 function ChatAvatar({ chat }: { chat: ChatConversa }) {
   const { source: photoUrl, onError } = useWhatsAppProfilePhoto(chat.id, chat.metadados?.photoUrl || chat.photoUrl);
   const displayName = conversationDisplayName(chat);
+  const showInitials = !photoUrl && !chat.esGrupo && Boolean(displayName) && !isTechnicalWhatsAppLabel(displayName);
   return (
-    <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background)] text-[var(--text-secondary)]">
+    <div className={`nx-conv-av h-9 w-9 ${showInitials ? "" : "is-photo"}`} style={showInitials ? { background: avatarColor(displayName) } : undefined}>
       {photoUrl ? (
         <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={onError} />
-      ) : chat.esGrupo ? <Users size={17} /> : displayName && !isTechnicalWhatsAppLabel(displayName) ? (
-        <span className="text-xs font-extrabold">{getInitials(displayName)}</span>
-      ) : <User size={17} />}
+      ) : chat.esGrupo ? <Users size={16} /> : showInitials ? (
+        <span>{getInitials(displayName)}</span>
+      ) : <User size={16} />}
     </div>
   );
 }
@@ -124,35 +125,35 @@ export default function SidebarEsquerda({
       <div
         key={chat.id}
         onClick={() => onSelecionar(chat.id)}
-        className={`group/chat relative flex min-h-[72px] cursor-pointer items-center gap-3 border-b border-[var(--border)]/55 px-3 py-2.5 transition-colors ${selected ? "bg-[color-mix(in_srgb,var(--primary)_14%,var(--surface))]" : "hover:bg-[var(--surface-hover)]"}`}
+        className={`nx-conv-row group/chat relative flex cursor-pointer items-center gap-2.5 px-4 py-3 ${selected ? "is-selected" : ""}`}
       >
         <ChatAvatar chat={chat} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <span className={`truncate text-sm text-[var(--text)] ${unread > 0 ? "font-extrabold" : "font-semibold"}`}>{displayName}</span>
-            <span className={`shrink-0 text-[11px] ${unread > 0 ? "font-bold text-[var(--primary)]" : "text-[var(--text-secondary)]"}`}>{chat.horario}</span>
+            <span className="truncate text-[13.5px] font-semibold text-[var(--nx-text)]">{displayName}</span>
+            <span className={`shrink-0 text-xs ${unread > 0 ? "font-medium text-[var(--nx-primary-text)]" : "text-[var(--nx-text-3)]"}`}>{chat.horario}</span>
           </div>
-          <div className="mt-1 flex min-w-0 items-center gap-1.5">
-            {chat.fixada && <Pin size={11} className="shrink-0 rotate-45 text-[var(--primary)]" />}
-            {chat.favorita && <Star size={11} fill="currentColor" className="shrink-0 text-[var(--primary)]" />}
-            {chat.silenciada && <VolumeX size={11} className="shrink-0 text-[var(--text-secondary)]" />}
-            <span className={`truncate text-xs ${unread > 0 ? "font-semibold text-[var(--text)]" : "text-[var(--text-secondary)]"}`}>{chat.ultimoTexto || "Sem mensagens recentes"}</span>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+            {chat.fixada && <Pin size={11} className="shrink-0 rotate-45 text-[var(--nx-text-3)]" aria-label="Fixada" />}
+            {chat.favorita && <Star size={11} fill="currentColor" className="shrink-0 text-[var(--nx-warning)]" aria-label="Favorita" />}
+            {chat.silenciada && <VolumeX size={11} className="shrink-0 text-[var(--nx-text-3)]" aria-label="Silenciada" />}
+            <span className={`min-w-0 flex-1 truncate text-[12.5px] ${unread > 0 ? "text-[var(--nx-text)]" : "text-[var(--nx-text-2)]"}`}>{chat.ultimoTexto || "Sem mensagens recentes"}</span>
+            {unread > 0 && <span className="nx-conv-count">{unread > 99 ? "99+" : unread}</span>}
           </div>
         </div>
-        {unread > 0 && <span className="absolute bottom-2.5 right-10 grid h-5 min-w-5 place-items-center rounded-full bg-[var(--primary)] px-1.5 text-[10px] font-extrabold text-white">{unread > 99 ? "99+" : unread}</span>}
 
-        <div className="relative" data-chat-menu-root>
-          <Button variant="ghost" size="sm" iconOnly aria-label={`Acoes de ${displayName}`} onClick={(event) => { event.stopPropagation(); setMenuAbertoId(menuAbertoId === chat.id ? null : chat.id); }} className="text-[var(--text-secondary)] opacity-40 transition group-hover/chat:opacity-100">
+        <div className="relative -mr-2" data-chat-menu-root>
+          <button type="button" aria-label={`Acoes de ${displayName}`} title="Mais ações" onClick={(event) => { event.stopPropagation(); setMenuAbertoId(menuAbertoId === chat.id ? null : chat.id); }} className="nx-conv-iconbtn h-7 w-7 opacity-40 transition group-hover/chat:opacity-100 focus:opacity-100">
             <MoreVertical size={16} />
-          </Button>
+          </button>
           {menuAbertoId === chat.id && (
-            <div className="absolute right-0 top-9 z-50 w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] py-1 text-xs font-semibold text-[var(--text)] shadow-2xl">
-              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "favorita", !chat.favorita); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)]"><Star size={13} /> {chat.favorita ? "Remover dos favoritos" : "Adicionar aos favoritos"}</button>
-              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "fixada", !chat.fixada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)]"><Pin size={13} /> {chat.fixada ? "Desfixar" : "Fixar"}</button>
-              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "silenciada", !chat.silenciada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)]"><VolumeX size={13} /> {chat.silenciada ? "Reativar som" : "Silenciar"}</button>
-              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "arquivada", !chat.arquivada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)]"><Archive size={13} /> {chat.arquivada ? "Desarquivar" : "Arquivar"}</button>
-              <div className="my-1 h-px bg-[var(--border)]" />
-              <button onClick={(e) => { onExcluir(chat.id, e); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-500 hover:bg-[var(--surface-hover)]"><Trash2 size={13} /> Excluir</button>
+            <div className="nx-conv-menu absolute right-0 top-8 z-50 w-52 overflow-hidden py-1">
+              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "favorita", !chat.favorita); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left"><Star size={14} /> {chat.favorita ? "Remover dos favoritos" : "Adicionar aos favoritos"}</button>
+              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "fixada", !chat.fixada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left"><Pin size={14} /> {chat.fixada ? "Desfixar" : "Fixar"}</button>
+              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "silenciada", !chat.silenciada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left"><VolumeX size={14} /> {chat.silenciada ? "Reativar som" : "Silenciar"}</button>
+              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "arquivada", !chat.arquivada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left"><Archive size={14} /> {chat.arquivada ? "Desarquivar" : "Arquivar"}</button>
+              <div className="my-1 h-px bg-[var(--nx-border)]" />
+              <button onClick={(e) => { onExcluir(chat.id, e); setMenuAbertoId(null); }} className="is-danger flex w-full items-center gap-2 px-3 py-2 text-left"><Trash2 size={14} /> Excluir</button>
             </div>
           )}
         </div>
@@ -162,38 +163,38 @@ export default function SidebarEsquerda({
 
   const filters: Array<[Filter, string, number | null]> = [
     ["todos", "Tudo", null],
-    ["nao-lidas", "Nao lidas", counts.unread],
+    ["nao-lidas", "Não lidas", counts.unread],
     ["favoritos", "Favoritos", counts.favorites],
     ["grupos", "Grupos", counts.groups],
     ["arquivados", "Arquivadas", counts.archived],
   ];
 
   return (
-    <aside className="norium-chat-sidebar flex h-full min-h-0 w-[380px] min-w-[320px] select-none flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)]">
+    <aside className="norium-chat-sidebar flex h-full min-h-0 w-[300px] min-w-[280px] select-none flex-col overflow-hidden border-r border-[var(--nx-border)] bg-[var(--nx-surface)]">
       <div className="module-sidebar-mobile-header">
         <span><MessageSquare size={18} /> Conversas</span>
         <button type="button" onClick={onClose} aria-label="Fechar lista de conversas"><X size={19} /></button>
       </div>
-      <div className="shrink-0 space-y-3 border-b border-[var(--border)] px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
+      <div className="shrink-0 space-y-3 p-4">
+        <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--text)]">Norium WhatsApp</h2>
-            <p className="text-[11px] font-medium text-[var(--text-secondary)]">{conversas.length} conversas em cache seguro</p>
+            <h2 className="truncate text-[15px] font-semibold text-[var(--nx-text)]">WhatsApp</h2>
+            <p className="truncate text-xs text-[var(--nx-text-3)]">{conversas.length} conversas em cache seguro</p>
           </div>
-          <div className="flex items-center gap-0.5 text-[var(--text)]">
-            <Button variant="ghost" size="sm" iconOnly onClick={onAtualizar} disabled={sincronizando} title="Sincronizar agora" aria-label="Sincronizar agora"><RefreshCw size={17} className={sincronizando ? "animate-spin" : ""} /></Button>
-            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirModalContatos} title="Novo chat" aria-label="Novo chat"><PlusCircle size={18} /></Button>
-            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirModalCriarGrupo} title="Criar grupo" aria-label="Criar grupo"><Users size={18} /></Button>
-            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirConfigPropria} title="Configuracoes" aria-label="Configuracoes"><Settings size={18} /></Button>
+          <div className="flex items-center gap-0.5">
+            <button type="button" className="nx-conv-iconbtn" onClick={onAtualizar} disabled={sincronizando} title="Sincronizar agora" aria-label="Sincronizar agora"><RefreshCw size={16} className={sincronizando ? "animate-spin" : ""} /></button>
+            <button type="button" className="nx-conv-iconbtn" onClick={onAbrirModalContatos} title="Novo chat" aria-label="Novo chat"><SquarePen size={16} /></button>
+            <button type="button" className="nx-conv-iconbtn" onClick={onAbrirModalCriarGrupo} title="Criar grupo" aria-label="Criar grupo"><Users size={16} /></button>
+            <button type="button" className="nx-conv-iconbtn" onClick={onAbrirConfigPropria} title="Configurações" aria-label="Configuracoes"><Settings size={16} /></button>
           </div>
         </div>
-        <div className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 focus-within:border-[var(--primary)]">
-          <Search size={15} className="text-[var(--text-secondary)]" />
-          <input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Pesquisar ou iniciar conversa" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-secondary)]" />
-        </div>
-        <div className="scrollbar-hide flex gap-1 overflow-x-auto text-xs font-semibold">
+        <label className="nx-conv-search">
+          <Search size={16} />
+          <input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar conversa" aria-label="Buscar conversa" />
+        </label>
+        <div className="nx-conv-seg" role="group" aria-label="Filtrar conversas">
           {filters.map(([value, label, count]) => (
-            <button key={value} onClick={() => setFiltroTipo(value)} className={`h-8 whitespace-nowrap rounded-full border px-3 transition ${filtroTipo === value ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_18%,transparent)] text-[var(--primary)]" : "border-[var(--border)] text-[var(--text)] hover:bg-[var(--surface-hover)]"}`}>
+            <button key={value} type="button" aria-pressed={filtroTipo === value} onClick={() => setFiltroTipo(value)}>
               {label}{count ? ` ${count}` : ""}
             </button>
           ))}
@@ -201,9 +202,9 @@ export default function SidebarEsquerda({
       </div>
 
       {syncProgress?.requiresPro && (
-        <div className="shrink-0 border-b border-amber-400/25 bg-amber-400/10 px-4 py-3 text-amber-100" role="alert">
-          <p className="text-[11px] font-extrabold">A agenda completa exige uma instância W-API PRO.</p>
-          <p className="mt-1 text-[10px] font-medium leading-4 text-amber-100/80">
+        <div className="nx-conv-alert shrink-0" role="alert">
+          <p className="text-[12.5px] font-semibold">A agenda completa exige uma instância W-API PRO.</p>
+          <p className="mt-1 text-xs leading-5 opacity-90">
             {syncProgress.reconnectRequired
               ? "Abra as configurações, desconecte e conecte o WhatsApp novamente para o Norium criar a instância PRO."
               : "Reconecte a integração com uma instância PRO para liberar todos os nomes e contatos."}
@@ -211,7 +212,6 @@ export default function SidebarEsquerda({
           <button
             type="button"
             onClick={onAbrirConfigPropria}
-            className="mt-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-1.5 text-[10px] font-extrabold text-amber-100 transition hover:bg-amber-300/20"
           >
             Abrir configurações para reconectar
           </button>
@@ -219,7 +219,7 @@ export default function SidebarEsquerda({
             <button
               type="button"
               onClick={onAtualizar}
-              className="ml-2 mt-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-1.5 text-[10px] font-extrabold text-amber-100 transition hover:bg-amber-300/20"
+              className="ml-2"
             >
               Atualizar novamente
             </button>
@@ -228,20 +228,19 @@ export default function SidebarEsquerda({
       )}
 
       {syncProgress?.status === "partial" && !syncProgress.requiresPro && (
-        <div className="shrink-0 border-b border-amber-400/25 bg-amber-400/10 px-4 py-3 text-amber-100" role="alert">
-          <p className="text-[11px] font-extrabold">Sincronização parcial do WhatsApp</p>
-          <p className="mt-1 text-[10px] font-medium leading-4 text-amber-100/80">
+        <div className="nx-conv-alert shrink-0" role="alert">
+          <p className="text-[12.5px] font-semibold">Sincronização parcial do WhatsApp</p>
+          <p className="mt-1 text-xs leading-5 opacity-90">
             {syncProgress.message || "O Norium carregou o cache disponível, mas parte do catálogo ainda precisa ser atualizada."}
           </p>
           {Boolean(syncProgress.catalogWarnings?.length) && (
-            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-amber-100/75">
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs opacity-90">
               {syncProgress.catalogWarnings?.slice(0, 3).map((warning) => <li key={warning}>{warning}</li>)}
             </ul>
           )}
           <button
             type="button"
             onClick={onAtualizar}
-            className="mt-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-1.5 text-[10px] font-extrabold text-amber-100 transition hover:bg-amber-300/20"
           >
             Atualizar novamente
           </button>
@@ -249,13 +248,13 @@ export default function SidebarEsquerda({
       )}
 
       {syncProgress && !syncProgress.requiresPro && syncProgress.status !== "idle" && (sincronizando || syncProgress.status === "error") && (
-        <div className={`shrink-0 border-b px-4 py-2.5 ${syncProgress.status === "error" ? "border-red-500/25 bg-red-500/10" : "border-[var(--primary)]/20 bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]"}`} role="status" aria-live="polite">
-          <div className="flex items-center justify-between gap-3 text-[10px] font-bold">
-            <span className="truncate text-[var(--text)]">{syncProgress.message || syncProgress.phase || "Sincronizando contatos e fotos"}</span>
-            <span className="shrink-0 text-[var(--primary)]">{Math.round(Math.max(0, Math.min(100, syncProgress.progress || 0)))}%</span>
+        <div className={`shrink-0 border-t border-[var(--nx-border)] px-4 py-2.5 ${syncProgress.status === "error" ? "bg-[var(--nx-danger-soft)]" : "bg-[var(--nx-surface-2)]"}`} role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className={`truncate ${syncProgress.status === "error" ? "text-[var(--nx-danger)]" : "text-[var(--nx-text-2)]"}`}>{syncProgress.message || syncProgress.phase || "Sincronizando contatos e fotos"}</span>
+            <span className="shrink-0 font-medium text-[var(--nx-primary-text)]">{Math.round(Math.max(0, Math.min(100, syncProgress.progress || 0)))}%</span>
           </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-black/50">
-            <div className="h-full rounded-full bg-[var(--primary)] transition-[width] duration-300" style={{ width: `${Math.max(0, Math.min(100, syncProgress.progress || 0))}%` }} />
+          <div className="nx-conv-progress mt-1.5">
+            <i style={{ width: `${Math.max(0, Math.min(100, syncProgress.progress || 0))}%` }} />
           </div>
         </div>
       )}
@@ -263,11 +262,11 @@ export default function SidebarEsquerda({
       <div className="norium-chat-list min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {sections.map((section) => (
           <div key={section.label || filtroTipo}>
-            {section.label && <div className="sticky top-0 z-10 border-b border-[var(--border)]/60 bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-4 py-2 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--text-secondary)] backdrop-blur">{section.label} · {section.items.length}</div>}
+            {section.label && <div className="sticky top-0 z-10 border-t border-[var(--nx-border)] bg-[var(--nx-surface)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--nx-text-3)]">{section.label} · {section.items.length}</div>}
             {section.items.map(renderChat)}
           </div>
         ))}
-        {filtradas.length === 0 && <div className="p-8 text-center text-sm font-medium text-[var(--text-secondary)]">Nenhuma conversa encontrada.</div>}
+        {filtradas.length === 0 && <div className="border-t border-[var(--nx-border)] p-8 text-center text-[13px] text-[var(--nx-text-3)]">Nenhuma conversa encontrada.</div>}
       </div>
     </aside>
   );

@@ -1,5 +1,6 @@
 import IdeaCard, { type IdeaComment, type IdeaData, type IdeaNode, type IdeaVariant } from "./StudioIdeaNode";
-import WorkspaceHeader from "../shared/WorkspaceHeader";
+import "../../styles/screens/trabalho-comum.css";
+import "../../styles/screens/estudio.css";
 import { NoraMarkdown } from "../nora/NoraResponseContent";
 import "@xyflow/react/dist/style.css";
 
@@ -32,14 +33,13 @@ import {
   FolderOpen,
   Frame,
   LayoutGrid,
-  PanelsTopLeft,
   Lightbulb,
   ListChecks,
   LockKeyhole,
   Loader2,
   MessageSquareText,
   MousePointer2,
-  PanelLeftClose,
+  PanelRight,
   Plus,
   Save,
   Search,
@@ -50,6 +50,7 @@ import {
   StickyNote,
   TextCursorInput,
   ThumbsUp,
+  Timer,
   Trash2,
   UsersRound,
   X,
@@ -59,7 +60,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AuthSession, NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../../utils/api";
 import { showConfirm } from "../shared/AppDialogProvider";
-import Button from "../shared/Button";
 import StudioTemplates, { type StudioSessionForm } from "./StudioTemplates";
 import { STUDIO_TEMPLATES, studioTemplateTitle } from "./studioTemplateCatalog";
 
@@ -89,7 +89,8 @@ type BrainstormSession = {
 
 type Presence = { id: string; name: string; photoUrl?: string };
 
-const NOTE_COLORS = ["#FDE68A", "#BAE6FD", "#BBF7D0", "#FBCFE8", "#DDD6FE", "#FED7AA"];
+const NOTE_COLORS = ["#fef3c7", "#dbeafe", "#dcfce7", "#fce7f3", "#ede9fe", "#ffedd5"];
+const EDGE_COLOR = "#8b909b";
 const API = apiBaseUrl();
 
 function formatDate(value: string) {
@@ -161,7 +162,6 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   const [noraResult, setNoraResult] = useState("");
   const [noraLoading, setNoraLoading] = useState(false);
   const [inspectorMode, setInspectorMode] = useState<BrainstormPanel>("session");
-  const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
   const [timerNow, setTimerNow] = useState(Date.now());
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(() => window.innerWidth >= 1280);
   const [endAlertOpen, setEndAlertOpen] = useState(false);
@@ -257,7 +257,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   const persistBoard = useCallback(async (nextNodes: IdeaNode[], nextEdges: Edge[], detail = "Quadro atualizado") => {
     if (remoteUpdateRef.current) return;
     if (boardLocked) {
-      setError("O tempo terminou. Esta sessao esta em modo somente leitura.");
+      setError("O tempo terminou. Esta sessão está em modo somente leitura.");
       return;
     }
     setSaving(true);
@@ -295,7 +295,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   const onConnect = useCallback((connection: Connection) => {
     if (boardLocked) return;
     setEdges((current) => {
-      const next = addEdge({ ...connection, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#38BDF8", strokeWidth: 2 } }, current);
+      const next = addEdge({ ...connection, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: EDGE_COLOR, strokeWidth: 1.5 } }, current);
       void persistBoard(nodes, next, "Conexão criada");
       return next;
     });
@@ -444,7 +444,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   async function importFiles(files: FileList | null) {
     if (!files?.length || boardLocked) return;
     const accepted = Array.from(files).filter((file) => file.size <= 2 * 1024 * 1024).slice(0, 5);
-    if (accepted.length !== files.length) setError("Cada arquivo do Estúdio deve ter no maximo 2 MB; ate cinco arquivos sao aceitos por vez.");
+    if (accepted.length !== files.length) setError("Cada arquivo do Estúdio deve ter no máximo 2 MB; até cinco arquivos são aceitos por vez.");
     const created = await Promise.all(accepted.map(async (file, index): Promise<IdeaNode> => ({
       id: `idea_${crypto.randomUUID()}`,
       type: "idea",
@@ -452,7 +452,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
       data: {
         label: file.name,
         description: `${file.type || "Arquivo"} · ${(file.size / 1024).toFixed(1)} KB`,
-        color: "#BAE6FD",
+        color: "#dbeafe",
         variant: "sticky",
         category: "arquivo",
         tags: ["anexo"],
@@ -510,7 +510,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
       method: "PATCH",
       body: JSON.stringify({ status: "encerrado", timer: endedTimer }),
     }).then(setSession).catch((requestError) => {
-      setError(requestError instanceof Error ? requestError.message : "Falha ao encerrar a sessao.");
+      setError(requestError instanceof Error ? requestError.message : "Falha ao encerrar a sessão.");
       void loadSession();
     });
   }, [loadSession, remainingSeconds, session?.timer, sessionId]);
@@ -522,77 +522,61 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   }, [nodes, search]);
 
   if (!session) {
-    return <div className="grid h-full place-items-center bg-[var(--background)] text-[var(--text)]">{error || <Loader2 className="animate-spin" />}</div>;
+    return <div className="nxw-screen nxs-loading">{error ? <div className="nxw-alert is-error"><span>{error}</span></div> : <Loader2 className="nxw-spin" />}</div>;
   }
 
+  const panelModes: Array<[BrainstormPanel, string]> = [
+    ["ideas", "Ideias"],
+    ["session", "Sessão"],
+    ["notes", "Notas"],
+    ["participants", "Pessoas"],
+    ["files", "Arquivos"],
+    ["templates", "Modelos"],
+    ["reports", "Relatórios"],
+    ["settings", "Configurações"],
+  ];
+  const rankedIdeas = nodes.filter((node) => node.data.variant !== "frame").slice().sort((a, b) => (b.data.votes?.length || 0) - (a.data.votes?.length || 0));
+  const statusLabel = boardLocked ? (session.status === "arquivado" ? "Sessão arquivada" : "Sessão encerrada") : "Sessão ativa";
+
   return (
-    <div className="clean-workspace studio-editor flex h-full min-h-0 flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]">
-      <header className="flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <Button iconOnly onClick={onBack} title="Voltar às sessões" aria-label="Voltar às sessões"><ArrowLeft size={19} /></Button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2"><span className="text-xs font-bold uppercase text-cyan-300">Estúdio colaborativo</span>{saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} className="text-emerald-400" />}</div>
-            <h1 className="truncate text-lg font-black">{session.title}</h1>
-            <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">Responsável: {session.responsibleName}{savedAt ? ` · salvo ${formatDate(savedAt)}` : ""}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="hidden items-center -space-x-2 sm:flex">
-            {Object.values(presence).slice(0, 5).map((person) => person.photoUrl ? <img key={person.id} src={person.photoUrl} title={`${person.name} online`} className="h-9 w-9 rounded-full border-2 border-blue-950 object-cover" /> : <span key={person.id} title={`${person.name} online`} className="grid h-9 w-9 place-items-center rounded-full border-2 border-blue-950 bg-cyan-600 text-xs font-bold text-white">{avatarFallback(person.name)}</span>)}
-          </div>
-          <button disabled={boardLocked} onClick={toggleTimer} className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-70 ${boardLocked ? "border-red-300/35 bg-red-400/10 text-red-200" : session.timer?.running ? "border-amber-300/40 bg-amber-300/10 text-amber-200" : "border-[var(--border)]"}`}>
-            {boardLocked ? <LockKeyhole size={16} /> : <Clock3 size={16} />} {boardLocked ? "Encerrado" : remainingSeconds === null ? `${session.timer?.durationMinutes || 15} min` : `${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}`}
-          </button>
-          <Button variant="primary" disabled={boardLocked} onClick={() => void persistBoard(nodes, edges)} className="hover:brightness-110disabled:cursor-not-allowed"><Save size={16} /> Salvar</Button>
-        </div>
-      </header>
+    <div className="nxw-screen nxs-editor">
+      {error && <div className="nxw-alert is-error nxs-editor-alert"><span>{error}</span></div>}
+      {boardLocked && <div className="nxw-alert is-warning nxs-editor-alert"><LockKeyhole size={16} /><span>Sessão encerrada. O quadro está bloqueado para novas ideias, votos, comentários e alterações.</span></div>}
 
-      {error && <div className="shrink-0 border-b border-red-400/25 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-200">{error}</div>}
-      {boardLocked && <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-300/25 bg-amber-300/10 px-4 py-3 text-center text-xs font-bold text-amber-100"><LockKeyhole size={16} /> Sessao encerrada. O quadro esta bloqueado para novas ideias, votos, comentarios e alteracoes.</div>}
-
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <aside className={`brainstorm-toolbar flex shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] py-2 transition-[width] ${toolbarCollapsed ? "w-[56px]" : "w-[82px]"}`}>
+      <div className="nxs-body">
+        <section className="nxs-canvas">
           <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => { void importFiles(event.target.files); event.currentTarget.value = ""; }} />
-          {([
-            ["ideas", "Ideias", Lightbulb],
-            ["session", "Sessão", Boxes],
-            ["notes", "Notas", StickyNote],
-            ["participants", "Participantes", UsersRound],
-            ["files", "Arquivos", FolderOpen],
-            ["templates", "Modelos", BookOpen],
-            ["reports", "Relatórios", BarChart3],
-            ["settings", "Configurações", Settings2],
-          ] as Array<[BrainstormPanel, string, typeof Lightbulb]>).map(([mode, label, Icon]) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => openInspector(mode)}
-              className={`brainstorm-nav-tool ${inspectorMode === mode && !selectedNode ? "active" : ""} ${toolbarCollapsed ? "collapsed" : ""}`}
-              title={label}
-              aria-label={label}
-            >
-              <Icon size={19} />
-              {!toolbarCollapsed && <span>{label}</span>}
-            </button>
-          ))}
-          <button type="button" onClick={() => setToolbarCollapsed((value) => !value)} className={`brainstorm-nav-tool mt-auto ${toolbarCollapsed ? "collapsed" : ""}`} title={toolbarCollapsed ? "Expandir barra" : "Recolher barra"} aria-label={toolbarCollapsed ? "Expandir barra" : "Recolher barra"}>
-            <PanelLeftClose size={19} className={toolbarCollapsed ? "rotate-180" : ""} />
-            {!toolbarCollapsed && <span>Recolher</span>}
-          </button>
-        </aside>
-
-        <section className="relative min-w-0 flex-1 bg-[#07142f]">
-          <div className="pointer-events-none absolute left-4 top-4 z-10 flex max-w-[min(620px,calc(100%-2rem))] gap-2">
-            <label className="pointer-events-auto flex h-10 min-w-0 items-center gap-2 rounded-lg border border-white/15 bg-blue-950/85 px-3 shadow-xl backdrop-blur-xl">
-              <Search size={15} className="text-cyan-300" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ideia, categoria ou tag" className="min-w-0 bg-transparent text-xs font-semibold text-white outline-none placeholder:text-white/45" />
-            </label>
-            <span className="pointer-events-auto hidden items-center rounded-lg border border-white/15 bg-blue-950/85 px-3 text-xs font-bold text-white/70 sm:flex">{nodes.length} itens · {edges.length} conexões</span>
-            <div className="pointer-events-auto hidden items-center gap-1 rounded-lg border border-white/15 bg-blue-950/85 p-1 shadow-xl backdrop-blur-xl md:flex">
-              <button disabled={boardLocked} onClick={() => addIdea("sticky")} className="brainstorm-canvas-tool" title="Adicionar post-it" aria-label="Adicionar post-it"><StickyNote size={15} /></button>
-              <button disabled={boardLocked} onClick={() => addIdea("text")} className="brainstorm-canvas-tool" title="Adicionar texto" aria-label="Adicionar texto"><TextCursorInput size={15} /></button>
-              <button disabled={boardLocked} onClick={() => addIdea("shape")} className="brainstorm-canvas-tool" title="Adicionar bloco" aria-label="Adicionar bloco"><Shapes size={15} /></button>
-              <button disabled={boardLocked} onClick={() => addIdea("frame")} className="brainstorm-canvas-tool" title="Adicionar seção" aria-label="Adicionar seção"><Frame size={15} /></button>
-              <button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-canvas-tool" title="Agrupar por categoria" aria-label="Agrupar por categoria"><LayoutGrid size={15} /></button>
+          <div className="nxs-floatbar">
+            <div className="nxs-floatbar-row">
+              <button type="button" className="nxw-icon-btn" onClick={onBack} title="Voltar às sessões" aria-label="Voltar às sessões"><ArrowLeft size={16} /></button>
+              <div className="nxs-title">
+                <h1>{session.title}</h1>
+                <p>Responsável: {session.responsibleName}{savedAt ? ` · salvo ${formatDate(savedAt)}` : ""}</p>
+              </div>
+              <span className={`nx-badge ${boardLocked ? "is-amber" : "is-green"}`}>{statusLabel}</span>
+              <button type="button" disabled={boardLocked} onClick={toggleTimer} className={`nx-badge nxs-timer ${session.timer?.running && !boardLocked ? "is-amber" : ""}`} title={session.timer?.running ? "Pausar timer" : "Iniciar timer"}>
+                {boardLocked ? <LockKeyhole size={12} /> : <Timer size={12} />} {boardLocked ? "Encerrado" : remainingSeconds === null ? `${session.timer?.durationMinutes || 15} min` : `${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}`}
+              </button>
+              <span className="nxs-saving" title={saving ? "Salvando" : "Salvo"}>{saving ? <Loader2 size={13} className="nxw-spin" /> : <Save size={13} />}</span>
+              <div className="nxs-presence">
+                {Object.values(presence).slice(0, 5).map((person) => person.photoUrl ? <img key={person.id} src={person.photoUrl} title={`${person.name} online`} alt="" /> : <span key={person.id} title={`${person.name} online`}>{avatarFallback(person.name)}</span>)}
+              </div>
+              <span className="nxs-floatbar-tools">
+                <button type="button" disabled={boardLocked} onClick={() => addIdea("sticky")} className="nxw-icon-btn" title="Adicionar post-it" aria-label="Adicionar post-it"><StickyNote size={16} /></button>
+                <button type="button" disabled={boardLocked} onClick={() => addIdea("text")} className="nxw-icon-btn" title="Adicionar texto" aria-label="Adicionar texto"><TextCursorInput size={16} /></button>
+                <button type="button" disabled={boardLocked} onClick={() => addIdea("shape")} className="nxw-icon-btn" title="Adicionar bloco" aria-label="Adicionar bloco"><Shapes size={16} /></button>
+                <button type="button" disabled={boardLocked} onClick={() => addIdea("frame")} className="nxw-icon-btn" title="Adicionar seção" aria-label="Adicionar seção"><Frame size={16} /></button>
+                <button type="button" disabled={boardLocked} onClick={clusterIdeas} className="nxw-icon-btn" title="Agrupar por categoria" aria-label="Agrupar por categoria"><LayoutGrid size={16} /></button>
+              </span>
+              <button type="button" className="nx-btn is-sm" disabled={boardLocked} onClick={() => void persistBoard(nodes, edges)}><Save size={14} /> Salvar</button>
+              <button type="button" className="nx-btn is-sm is-primary" onClick={() => { openInspector("ideas"); void askNora("gerar_ideias"); }}><Sparkles size={14} /> Sugerir ideias</button>
+              {!mobileInspectorOpen && <button type="button" className="nxw-icon-btn" onClick={() => setMobileInspectorOpen(true)} title="Abrir painel" aria-label="Abrir painel"><PanelRight size={16} /></button>}
+            </div>
+            <div className="nxs-floatbar-row">
+              <label className="nx-input nxs-search">
+                <Search size={14} className="nx-faint" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ideia, categoria ou tag" />
+              </label>
+              <span className="nx-badge">{nodes.length} itens · {edges.length} conexões</span>
             </div>
           </div>
           <ReactFlow<IdeaNode, Edge>
@@ -617,65 +601,76 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
             minZoom={0.15}
             maxZoom={2.5}
             deleteKeyCode={null}
-            defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#38BDF8", strokeWidth: 2 } }}
+            defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: EDGE_COLOR, strokeWidth: 1.5 } }}
           >
-            <Background variant={BackgroundVariant.Dots} color="rgba(125,211,252,.28)" gap={24} size={1.2} />
-            <Controls className="!border-white/15 !bg-blue-950/90 !text-white" />
-            <MiniMap pannable zoomable className="!border !border-white/15 !bg-blue-950/90" nodeColor={(node) => String((node.data as IdeaData)?.color || "#38BDF8")} />
+            <Background variant={BackgroundVariant.Dots} color="var(--nx-border-strong)" gap={22} size={1.2} />
+            <Controls className="nxs-controls" />
+            <MiniMap pannable zoomable className="nxs-minimap" nodeColor={(node) => String((node.data as IdeaData)?.color || "#dbeafe")} />
           </ReactFlow>
         </section>
 
-        {mobileInspectorOpen && <button type="button" aria-label="Fechar propriedades" onClick={() => setMobileInspectorOpen(false)} className="absolute inset-0 z-20 bg-blue-950/55 backdrop-blur-[2px] xl:hidden" />}
-        <aside className={`brainstorm-inspector absolute inset-y-0 right-0 z-30 w-[min(340px,calc(100vw-72px))] shrink-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl transition-transform xl:shadow-none ${mobileInspectorOpen ? "translate-x-0 xl:relative xl:block xl:w-[330px] xl:translate-x-0" : "translate-x-full xl:hidden"}`}>
-          <button type="button" onClick={() => setMobileInspectorOpen(false)} className="brainstorm-icon-button absolute right-3 top-3 xl:hidden" title="Fechar propriedades" aria-label="Fechar propriedades"><X size={16} /></button>
+        {mobileInspectorOpen && <button type="button" aria-label="Fechar propriedades" onClick={() => setMobileInspectorOpen(false)} className="nxs-panel-backdrop" />}
+        <aside className={`nxs-panel ${mobileInspectorOpen ? "is-open" : ""}`}>
+          <button type="button" onClick={() => setMobileInspectorOpen(false)} className="nxw-icon-btn is-sm is-plain nxs-panel-close" title="Fechar propriedades" aria-label="Fechar propriedades"><X size={16} /></button>
+          <nav className="nx-tabs nxs-panel-tabs" aria-label="Painéis do quadro">
+            {panelModes.map(([mode, label]) => (
+              <button key={mode} type="button" onClick={() => openInspector(mode)} className={`nx-tab ${inspectorMode === mode && !selectedNode ? "is-active" : ""}`} title={label} aria-label={label}>{label}</button>
+            ))}
+          </nav>
           {selectedNode ? (
-            <fieldset disabled={boardLocked} className="space-y-5 disabled:opacity-60">
-              <header className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase text-cyan-300">Item selecionado</p><h2 className="font-black">Editar ideia</h2></div><div className="flex gap-1"><button onClick={duplicateSelected} className="brainstorm-icon-button" title="Duplicar" aria-label="Duplicar"><Copy size={15} /></button><button onClick={deleteSelected} className="brainstorm-icon-button text-red-300" title="Excluir" aria-label="Excluir"><Trash2 size={15} /></button></div></header>
-              <label className="brainstorm-field"><span>Título</span><textarea value={selectedNode.data.label} onChange={(event) => updateSelected({ label: event.target.value })} onBlur={() => void persistBoard(nodes, edges, "Texto da ideia editado")} rows={3} /></label>
-              <label className="brainstorm-field"><span>Descrição</span><textarea value={selectedNode.data.description || ""} onChange={(event) => updateSelected({ description: event.target.value })} onBlur={() => void persistBoard(nodes, edges, "Descrição editada")} rows={3} /></label>
-              <div><p className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Cor</p><div className="flex flex-wrap gap-2">{NOTE_COLORS.map((color) => <button key={color} onClick={() => updateSelected({ color }, true)} className={`h-8 w-8 rounded-full border-2 ${selectedNode.data.color === color ? "border-white" : "border-transparent"}`} style={{ background: color }} title={color}  aria-label={color} />)}</div></div>
-              <label className="brainstorm-field"><span>Categoria</span><input value={selectedNode.data.category || ""} onChange={(event) => updateSelected({ category: event.target.value })} onBlur={() => void persistBoard(nodes, edges, "Categoria editada")} placeholder="Ex.: produto, marketing" /></label>
-              <label className="brainstorm-field"><span>Responsável</span><select value={selectedNode.data.responsibleId || ""} onChange={(event) => { const member = members.find((item) => item.id === event.target.value); updateSelected({ responsibleId: member?.id || "", responsibleName: member?.nome || "" }, true); }}><option value="">A definir</option>{members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}</select></label>
-              <label className="brainstorm-field"><span>Prazo</span><input type="date" value={selectedNode.data.dueDate || ""} onChange={(event) => updateSelected({ dueDate: event.target.value }, true)} /></label>
-              <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(selectedNode.data.completed)} onChange={(event) => updateSelected({ completed: event.target.checked }, true)} /> Item concluído</label>
-              {selectedNode.data.file && <a href={selectedNode.data.file.dataUrl} download={selectedNode.data.file.name} className="brainstorm-secondary-button"><FolderOpen size={15} /> Baixar {selectedNode.data.file.name}</a>}
-              <div className="grid grid-cols-2 gap-2"><button onClick={toggleVote} className="brainstorm-secondary-button"><ThumbsUp size={15} /> Votar ({selectedNode.data.votes?.length || 0})</button><button onClick={() => void convertTask()} className="brainstorm-secondary-button"><ListChecks size={15} /> Virar tarefa</button></div>
-              <section className="border-t border-[var(--border)] pt-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><MessageSquareText size={16} /> Comentários</h3><div className="space-y-2">{(selectedNode.data.comments || []).map((item) => <article key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="flex justify-between gap-2 text-xs font-bold"><span>{item.authorName}</span><time className="text-[var(--text-secondary)]">{formatDate(item.timestamp)}</time></div><p className="mt-1 whitespace-pre-wrap break-words text-xs font-semibold text-[var(--text-secondary)]">{item.text}</p></article>)}</div><div className="mt-2 flex gap-2"><input value={comment} onChange={(event) => setComment(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addComment(); }} placeholder="Comentar..." className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs outline-none" /><Button variant="primary" iconOnly onClick={addComment}><Plus size={16} /></Button></div></section>
+            <fieldset disabled={boardLocked} className="nxs-stack nxs-fieldset">
+              <header className="nxs-panel-h"><div className="nx-grow"><p className="nxs-eyebrow">Item selecionado</p><h2>Editar ideia</h2></div><button type="button" onClick={duplicateSelected} className="nxw-icon-btn is-sm" title="Duplicar" aria-label="Duplicar"><Copy size={15} /></button><button type="button" onClick={deleteSelected} className="nxw-icon-btn is-sm nxs-danger" title="Excluir" aria-label="Excluir"><Trash2 size={15} /></button></header>
+              <label className="nxw-label"><span>Título</span><textarea className="nxw-field" value={selectedNode.data.label} onChange={(event) => updateSelected({ label: event.target.value })} onBlur={() => void persistBoard(nodes, edges, "Texto da ideia editado")} rows={3} /></label>
+              <label className="nxw-label"><span>Descrição</span><textarea className="nxw-field" value={selectedNode.data.description || ""} onChange={(event) => updateSelected({ description: event.target.value })} onBlur={() => void persistBoard(nodes, edges, "Descrição editada")} rows={3} /></label>
+              <div><p className="nxw-label" style={{ marginBottom: 8 }}>Cor</p><div className="nxs-colors">{NOTE_COLORS.map((color) => <button type="button" key={color} onClick={() => updateSelected({ color }, true)} className={selectedNode.data.color === color ? "is-active" : ""} style={{ background: color }} title={color} aria-label={color} />)}</div></div>
+              <label className="nxw-label"><span>Categoria</span><input className="nxw-field" value={selectedNode.data.category || ""} onChange={(event) => updateSelected({ category: event.target.value })} onBlur={() => void persistBoard(nodes, edges, "Categoria editada")} placeholder="Ex.: produto, marketing" /></label>
+              <label className="nxw-label"><span>Responsável</span><select className="nxw-field" value={selectedNode.data.responsibleId || ""} onChange={(event) => { const member = members.find((item) => item.id === event.target.value); updateSelected({ responsibleId: member?.id || "", responsibleName: member?.nome || "" }, true); }}><option value="">A definir</option>{members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}</select></label>
+              <label className="nxw-label"><span>Prazo</span><input className="nxw-field" type="date" value={selectedNode.data.dueDate || ""} onChange={(event) => updateSelected({ dueDate: event.target.value }, true)} /></label>
+              <label className="nxs-check"><input type="checkbox" checked={Boolean(selectedNode.data.completed)} onChange={(event) => updateSelected({ completed: event.target.checked }, true)} /> Item concluído</label>
+              {selectedNode.data.file && <a href={selectedNode.data.file.dataUrl} download={selectedNode.data.file.name} className="nx-btn is-sm"><FolderOpen size={14} /> Baixar {selectedNode.data.file.name}</a>}
+              <div className="nxs-grid-2"><button type="button" onClick={toggleVote} className="nx-btn is-sm"><ThumbsUp size={14} /> Votar ({selectedNode.data.votes?.length || 0})</button><button type="button" onClick={() => void convertTask()} className="nx-btn is-sm"><ListChecks size={14} /> Virar tarefa</button></div>
+              <section className="nxs-section"><h3><MessageSquareText size={15} /> Comentários</h3><div className="nxs-stack-sm">{(selectedNode.data.comments || []).map((item) => <article key={item.id} className="nxw-action"><div className="nxs-comment-h"><span>{item.authorName}</span><time>{formatDate(item.timestamp)}</time></div><p>{item.text}</p></article>)}</div><div className="nxs-comment-form"><input className="nxw-field" value={comment} onChange={(event) => setComment(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addComment(); }} placeholder="Comentar..." /><button type="button" className="nxw-icon-btn nxs-primary-icon" onClick={addComment} aria-label="Adicionar comentário"><Plus size={16} /></button></div></section>
             </fieldset>
           ) : (
-            <div className="space-y-5">
-              {(inspectorMode === "session" || inspectorMode === "ideas") && <div><p className="text-xs font-bold uppercase text-cyan-300">Sessão</p><h2 className="text-lg font-black">{session.title}</h2><p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{session.objective || "Sem objetivo descrito."}</p></div>}
+            <div className="nxs-stack">
+              {(inspectorMode === "session" || inspectorMode === "ideas") && <div><p className="nxs-eyebrow">Sessão</p><h2 className="nxs-h2">{session.title}</h2><p className="nxs-text">{session.objective || "Sem objetivo descrito."}</p></div>}
 
-              {inspectorMode === "ideas" && <section><h3 className="text-sm font-black">Ferramentas de ideias</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Adicione, conecte e organize elementos no quadro.</p><div className="mt-3 grid grid-cols-2 gap-2"><button disabled={boardLocked} onClick={() => addIdea("sticky")} className="brainstorm-secondary-button"><StickyNote size={15} /> Post-it</button><button disabled={boardLocked} onClick={() => addIdea("text")} className="brainstorm-secondary-button"><TextCursorInput size={15} /> Texto</button><button disabled={boardLocked} onClick={() => addIdea("shape")} className="brainstorm-secondary-button"><Shapes size={15} /> Bloco</button><button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-secondary-button"><LayoutGrid size={15} /> Agrupar</button></div></section>}
+              {inspectorMode === "ideas" && <section className="nxs-stack-sm">
+                {rankedIdeas.length === 0 && <p className="nxs-text">Nenhuma ideia no quadro ainda.</p>}
+                {rankedIdeas.slice(0, 12).map((node) => <button type="button" key={node.id} onClick={() => setSelectedId(node.id)} className="nxw-action nxs-idea-row"><span className="nx-grow nx-ell">{node.data.label || "Nova ideia"}</span><span className="nx-badge is-blue"><ThumbsUp size={11} />{node.data.votes?.length || 0}</span></button>)}
+                {rankedIdeas.length > 12 && <p className="nx-faint nx-small" style={{ margin: 0 }}>Mais {rankedIdeas.length - 12} ideia(s) no quadro.</p>}
+              </section>}
 
-              {inspectorMode === "notes" && <section><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase text-cyan-300">Notas</p><h2 className="text-lg font-black">{nodes.filter((node) => node.data.variant === "sticky").length} post-its</h2></div><Button variant="primary" size="sm" disabled={boardLocked} onClick={() => addIdea("sticky")}><Plus size={15} /> Nova</Button></div><div className="mt-4 space-y-2">{nodes.filter((node) => node.data.variant === "sticky").slice(0, 20).map((node) => <button key={node.id} onClick={() => { setSelectedId(node.id); setInspectorMode("notes"); }} className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left"><strong className="block truncate text-xs">{node.data.label}</strong><small className="mt-1 block text-[var(--text-secondary)]">{node.data.category || "geral"}</small></button>)}</div></section>}
+              {inspectorMode === "ideas" && <section><h3 className="nxs-h3">Ferramentas de ideias</h3><p className="nxs-text">Adicione, conecte e organize elementos no quadro.</p><div className="nxs-grid-2" style={{ marginTop: 10 }}><button type="button" disabled={boardLocked} onClick={() => addIdea("sticky")} className="nx-btn is-sm"><StickyNote size={14} /> Post-it</button><button type="button" disabled={boardLocked} onClick={() => addIdea("text")} className="nx-btn is-sm"><TextCursorInput size={14} /> Texto</button><button type="button" disabled={boardLocked} onClick={() => addIdea("shape")} className="nx-btn is-sm"><Shapes size={14} /> Bloco</button><button type="button" disabled={boardLocked} onClick={clusterIdeas} className="nx-btn is-sm"><LayoutGrid size={14} /> Agrupar</button></div></section>}
 
-              {inspectorMode === "participants" && <section><p className="text-xs font-bold uppercase text-cyan-300">Participantes</p><h2 className="mt-1 text-lg font-black">Equipe da sessão</h2><div className="mt-4 space-y-2">{members.map((member) => { const online = Boolean(presence[member.id]); return <article key={member.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">{member.fotoUrl ? <img src={member.fotoUrl} className="h-9 w-9 rounded-full object-cover" /> : <span className="grid h-9 w-9 place-items-center rounded-full bg-cyan-600 text-xs font-black text-white">{avatarFallback(member.nome)}</span>}<span className="min-w-0"><strong className="block truncate text-xs">{member.nome}</strong><small className={online ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{online ? "Online no quadro" : "Offline"}</small></span></article>; })}</div></section>}
+              {inspectorMode === "notes" && <section><div className="nxs-panel-h"><div className="nx-grow"><p className="nxs-eyebrow">Notas</p><h2 className="nxs-h2">{nodes.filter((node) => node.data.variant === "sticky").length} post-its</h2></div><button type="button" className="nx-btn is-sm is-primary" disabled={boardLocked} onClick={() => addIdea("sticky")}><Plus size={14} /> Nova</button></div><div className="nxs-stack-sm" style={{ marginTop: 12 }}>{nodes.filter((node) => node.data.variant === "sticky").slice(0, 20).map((node) => <button type="button" key={node.id} onClick={() => { setSelectedId(node.id); setInspectorMode("notes"); }} className="nxw-action nxs-list-btn"><strong className="nx-ell">{node.data.label}</strong><small>{node.data.category || "geral"}</small></button>)}</div></section>}
 
-              {inspectorMode === "files" && <section><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase text-cyan-300">Arquivos</p><h2 className="text-lg font-black">Anexos do quadro</h2></div><Button variant="primary" size="sm" disabled={boardLocked} onClick={() => fileInputRef.current?.click()}><Plus size={15} /> Anexar</Button></div><p className="mt-2 text-xs font-semibold text-[var(--text-secondary)]">Até 2 MB por arquivo. Os anexos ficam vinculados à sessão.</p><div className="mt-4 space-y-2">{nodes.filter((node) => node.data.file).map((node) => <button key={node.id} onClick={() => setSelectedId(node.id)} className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left"><FileText size={18} className="shrink-0 text-cyan-300" /><span className="min-w-0"><strong className="block truncate text-xs">{node.data.file?.name}</strong><small className="text-[var(--text-secondary)]">{((node.data.file?.size || 0) / 1024).toFixed(1)} KB</small></span></button>)}</div></section>}
+              {inspectorMode === "participants" && <section><p className="nxs-eyebrow">Pessoas</p><h2 className="nxs-h2">Equipe da sessão</h2><div className="nxs-stack-sm" style={{ marginTop: 12 }}>{members.map((member) => { const online = Boolean(presence[member.id]); return <article key={member.id} className="nxw-action nxs-person">{member.fotoUrl ? <img src={member.fotoUrl} alt="" /> : <span className="nx-av" style={{ width: 32, height: 32, background: "#2563eb" }}>{avatarFallback(member.nome)}</span>}<span className="nx-grow"><strong className="nx-ell" style={{ display: "block" }}>{member.nome}</strong><small className={online ? "nxs-online" : "nx-faint"}>{online ? "Online no quadro" : "Offline"}</small></span></article>; })}</div></section>}
 
-              {inspectorMode === "templates" && <section><p className="text-xs font-bold uppercase text-cyan-300">Modelos</p><h2 className="mt-1 text-lg font-black">Estruturas prontas</h2><p className="mt-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">Adicione uma estrutura sem apagar as ideias existentes.</p><div className="mt-4 grid gap-2">{([['mapa-mental', 'Mapa mental'], ['swot', 'Análise SWOT'], ['jornada', 'Jornada'], ['retrospectiva', 'Retrospectiva']] as const).map(([id, label]) => <button key={id} disabled={boardLocked} onClick={() => addTemplate(id)} className="brainstorm-secondary-button"><BookOpen size={15} /> {label}</button>)}</div></section>}
+              {inspectorMode === "files" && <section><div className="nxs-panel-h"><div className="nx-grow"><p className="nxs-eyebrow">Arquivos</p><h2 className="nxs-h2">Anexos do quadro</h2></div><button type="button" className="nx-btn is-sm is-primary" disabled={boardLocked} onClick={() => fileInputRef.current?.click()}><Plus size={14} /> Anexar</button></div><p className="nxs-text">Até 2 MB por arquivo. Os anexos ficam vinculados à sessão.</p><div className="nxs-stack-sm" style={{ marginTop: 12 }}>{nodes.filter((node) => node.data.file).map((node) => <button type="button" key={node.id} onClick={() => setSelectedId(node.id)} className="nxw-action nxs-person"><span className="nxw-icon is-sm"><FileText size={16} /></span><span className="nx-grow"><strong className="nx-ell" style={{ display: "block" }}>{node.data.file?.name}</strong><small className="nx-faint">{((node.data.file?.size || 0) / 1024).toFixed(1).replace(".", ",")} KB</small></span></button>)}</div></section>}
 
-              {inspectorMode === "reports" && <section><p className="text-xs font-bold uppercase text-cyan-300">Relatórios</p><h2 className="mt-1 text-lg font-black">Resultado da sessão</h2><div className="mt-4 grid grid-cols-2 gap-2">{[["Ideias", nodes.length], ["Conexões", edges.length], ["Votos", nodes.reduce((total, node) => total + (node.data.votes?.length || 0), 0)], ["Comentários", nodes.reduce((total, node) => total + (node.data.comments?.length || 0), 0)]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><small className="font-bold text-[var(--text-secondary)]">{label}</small><strong className="mt-1 block text-xl">{value}</strong></div>)}</div><Button variant="secondary" className="mt-4 w-full" onClick={downloadBoardReport}><BarChart3 size={15} /> Exportar relatório JSON</Button></section>}
+              {inspectorMode === "templates" && <section><p className="nxs-eyebrow">Modelos</p><h2 className="nxs-h2">Estruturas prontas</h2><p className="nxs-text">Adicione uma estrutura sem apagar as ideias existentes.</p><div className="nxs-stack-sm" style={{ marginTop: 12 }}>{([['mapa-mental', 'Mapa mental'], ['swot', 'Análise SWOT'], ['jornada', 'Jornada'], ['retrospectiva', 'Retrospectiva']] as const).map(([id, label]) => <button type="button" key={id} disabled={boardLocked} onClick={() => addTemplate(id)} className="nx-btn is-sm nxs-full"><BookOpen size={14} /> {label}</button>)}</div></section>}
 
-              {inspectorMode === "settings" && <section><p className="text-xs font-bold uppercase text-cyan-300">Configurações</p><h2 className="mt-1 text-lg font-black">Quadro e sessão</h2><div className="mt-4 grid gap-2"><button disabled={boardLocked} onClick={toggleTimer} className="brainstorm-secondary-button"><Clock3 size={15} /> {session.timer?.running ? "Pausar timer" : "Iniciar timer"}</button><button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-secondary-button"><LayoutGrid size={15} /> Agrupar por categoria</button><button disabled={boardLocked} onClick={() => void persistBoard(nodes, edges)} className="brainstorm-secondary-button"><Save size={15} /> Salvar agora</button></div><div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold text-[var(--text-secondary)]">Status: <strong className="text-[var(--text)]">{session.status}</strong><br />Modelo: <strong className="text-[var(--text)]">{studioTemplateTitle(session.template)}</strong><br />Responsável: <strong className="text-[var(--text)]">{session.responsibleName}</strong></div></section>}
+              {inspectorMode === "reports" && <section><p className="nxs-eyebrow">Relatórios</p><h2 className="nxs-h2">Resultado da sessão</h2><div className="nxs-grid-2" style={{ marginTop: 12 }}>{[["Ideias", nodes.length], ["Conexões", edges.length], ["Votos", nodes.reduce((total, node) => total + (node.data.votes?.length || 0), 0)], ["Comentários", nodes.reduce((total, node) => total + (node.data.comments?.length || 0), 0)]].map(([label, value]) => <div key={String(label)} className="nxw-action"><small className="nx-muted nx-small">{label}</small><strong className="nxs-stat">{value}</strong></div>)}</div><button type="button" className="nx-btn is-sm nxs-full" style={{ marginTop: 12 }} onClick={downloadBoardReport}><BarChart3 size={14} /> Exportar relatório JSON</button></section>}
 
-              <section className="rounded-lg border border-cyan-300/20 bg-cyan-400/5 p-4"><h3 className="flex items-center gap-2 font-black"><Sparkles size={17} className="text-cyan-300" /> Nora no quadro</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Usa somente o conteúdo real da sessão para apoiar a decisão.</p><div className="mt-3 grid gap-2"><button onClick={() => void askNora("resumir")} className="brainstorm-secondary-button"><Bot size={15} /> Resumir ideias</button><button onClick={() => void askNora("gerar_ideias")} className="brainstorm-secondary-button"><Lightbulb size={15} /> Sugerir ideias</button><button onClick={() => void askNora("proximos_passos")} className="brainstorm-secondary-button"><ListChecks size={15} /> Próximos passos</button><button onClick={() => void askNora("analisar_impacto")} className="brainstorm-secondary-button"><BarChart3 size={15} /> Analisar impacto</button></div>{noraLoading && <Loader2 className="mx-auto mt-4 animate-spin text-cyan-300" />}{noraResult && <div className="mt-4 break-words rounded-lg bg-[var(--background)] p-3 text-xs font-semibold leading-5 select-text"><NoraMarkdown text={noraResult} /></div>}</section>
+              {inspectorMode === "settings" && <section><p className="nxs-eyebrow">Configurações</p><h2 className="nxs-h2">Quadro e sessão</h2><div className="nxs-stack-sm" style={{ marginTop: 12 }}><button type="button" disabled={boardLocked} onClick={toggleTimer} className="nx-btn is-sm nxs-full"><Clock3 size={14} /> {session.timer?.running ? "Pausar timer" : "Iniciar timer"}</button><button type="button" disabled={boardLocked} onClick={clusterIdeas} className="nx-btn is-sm nxs-full"><LayoutGrid size={14} /> Agrupar por categoria</button><button type="button" disabled={boardLocked} onClick={() => void persistBoard(nodes, edges)} className="nx-btn is-sm nxs-full"><Save size={14} /> Salvar agora</button></div><div className="nxw-action nxs-text" style={{ marginTop: 12 }}>Status: <strong>{session.status}</strong><br />Modelo: <strong>{studioTemplateTitle(session.template)}</strong><br />Responsável: <strong>{session.responsibleName}</strong></div></section>}
 
-              {inspectorMode === "session" && <section><h3 className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Histórico</h3><div className="space-y-2">{(session.history || []).slice().reverse().slice(0, 8).map((item) => <div key={item.id} className="rounded-lg border border-[var(--border)] p-3"><p className="text-xs font-bold">{item.detail}</p><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{item.actorName} · {formatDate(item.timestamp)}</p></div>)}</div></section>}
+              <section className="nx-card nxs-nora"><div className="nxs-nora-h"><span className="nxw-icon is-sm"><Sparkles size={15} /></span><b>Nora no quadro</b></div><p className="nxs-text">Usa somente o conteúdo real da sessão para apoiar a decisão.</p><div className="nxs-nora-actions"><button type="button" onClick={() => void askNora("resumir")} className="nx-btn is-sm"><Bot size={14} /> Resumir</button><button type="button" onClick={() => void askNora("gerar_ideias")} className="nx-btn is-sm"><Lightbulb size={14} /> Sugerir ideias</button><button type="button" onClick={() => void askNora("proximos_passos")} className="nx-btn is-sm"><ListChecks size={14} /> Próximos passos</button><button type="button" onClick={() => void askNora("analisar_impacto")} className="nx-btn is-sm"><BarChart3 size={14} /> Analisar impacto</button></div>{noraLoading && <Loader2 className="nxw-spin nxs-nora-loader" />}{noraResult && <div className="nxs-nora-result"><NoraMarkdown text={noraResult} /></div>}</section>
+
+              {inspectorMode === "session" && <section><h3 className="nxs-h3">Histórico</h3><div className="nxs-stack-sm" style={{ marginTop: 8 }}>{(session.history || []).slice().reverse().slice(0, 8).map((item) => <div key={item.id} className="nxw-action"><p className="nxs-hist-t">{item.detail}</p><p className="nx-faint nx-small" style={{ margin: "2px 0 0" }}>{item.actorName} · {formatDate(item.timestamp)}</p></div>)}</div></section>}
             </div>
           )}
         </aside>
       </div>
 
       {endAlertOpen && (
-        <div className="fixed inset-0 z-[140] grid place-items-center bg-blue-950/80 p-4 backdrop-blur-md">
-          <section role="alertdialog" aria-modal="true" aria-labelledby="brainstorm-ended-title" className="w-full max-w-lg rounded-xl border border-amber-200/35 bg-[#071a46] p-7 text-center text-white shadow-2xl shadow-black/45">
-            <span className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-amber-200/35 bg-amber-300/15 text-amber-200"><AlertTriangle size={30} /></span>
-            <p className="mt-5 text-xs font-bold uppercase tracking-wide text-amber-200">Tempo esgotado</p>
-            <h2 id="brainstorm-ended-title" className="mt-2 text-2xl font-black">Sessão encerrada</h2>
-            <p className="mx-auto mt-3 max-w-md text-sm font-semibold leading-6 text-white/75">O prazo desta sessao terminou. Para preservar o resultado da equipe, o quadro agora esta em modo somente leitura e nenhuma nova alteracao sera aceita.</p>
-            <Button variant="ghost" size="lg" onClick={() => setEndAlertOpen(false)} className="mt-6 bg-amber-300 text-blue-950 hover:bg-amber-200"><LockKeyhole size={17} /> Ver resultado final</Button>
+        <div className="nxs-modal-backdrop">
+          <section role="alertdialog" aria-modal="true" aria-labelledby="brainstorm-ended-title" className="nx-card nxs-ended">
+            <span className="nxw-icon is-amber nxs-ended-icon"><AlertTriangle size={22} /></span>
+            <p className="nxs-eyebrow" style={{ color: "var(--nx-warning)", marginTop: 14 }}>Tempo esgotado</p>
+            <h2 id="brainstorm-ended-title" className="nxs-h2" style={{ fontSize: 20 }}>Sessão encerrada</h2>
+            <p className="nxs-text">O prazo desta sessão terminou. Para preservar o resultado da equipe, o quadro agora está em modo somente leitura e nenhuma nova alteração será aceita.</p>
+            <button type="button" className="nx-btn is-primary" style={{ marginTop: 18 }} onClick={() => setEndAlertOpen(false)}><LockKeyhole size={16} /> Ver resultado final</button>
           </section>
         </div>
       )}
@@ -738,8 +733,8 @@ export default function BrainstormDashboard({
   async function deleteSession(item: BrainstormSession) {
     const confirmed = await showConfirm({
       title: "Excluir sessão?",
-      description: `A sessao "${item.title}" e todos os seus itens serao removidos. Esta acao nao pode ser desfeita.`,
-      confirmLabel: "Excluir sessao",
+      description: `A sessão "${item.title}" e todos os seus itens serão removidos. Esta ação não pode ser desfeita.`,
+      confirmLabel: "Excluir sessão",
       tone: "danger",
     });
     if (!confirmed) return false;
@@ -765,7 +760,7 @@ export default function BrainstormDashboard({
       if (navigator.share) await navigator.share(shareData);
       else await navigator.clipboard.writeText(`${shareData.title}\n${shareData.text}\n${shareData.url}`);
     } catch (shareError) {
-      if ((shareError as DOMException)?.name !== "AbortError") setError("Nao foi possivel compartilhar esta sessao.");
+      if ((shareError as DOMException)?.name !== "AbortError") setError("Não foi possível compartilhar esta sessão.");
     }
   }
 
@@ -832,116 +827,94 @@ export default function BrainstormDashboard({
   if (selectedSessionId) return <BoardEditor sessionId={selectedSessionId} authSession={session} onBack={() => { setSelectedSessionId(null); void load(); }} />;
 
   return (
-    <div className="clean-workspace studio-workspace h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-[1500px]">
-        <WorkspaceHeader title="Estúdio" description="Um espaço para organizar ideias e transformar decisões em entregas." icon={PanelsTopLeft}>
-<Button variant="primary" className="workspace-primary" onClick={() => setCreating(true)}><Plus size={16} />Nova sessão</Button>
-</WorkspaceHeader>
+    <div className="nx-page nxw-screen nxs-page h-full overflow-y-auto">
+      <header className="nx-ph">
+        <div><h1>Estúdio</h1><p>Um espaço para organizar ideias e transformar decisões em entregas</p></div>
+        <div className="nx-ph-actions"><button type="button" className="nx-btn is-primary" onClick={() => setCreating(true)}><Plus size={16} />Nova sessão</button></div>
+      </header>
 
-        {error && <div className="mt-5 rounded-lg border border-red-400/25 bg-red-500/10 p-3 text-sm font-bold text-red-200">{error}</div>}
+      {error && <div className="nxw-alert is-error"><span>{error}</span></div>}
 
-        <section className="workspace-metrics mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
-          {[
-            ["Sessoes", sessionStats.total, "Todos os quadros", "blue"],
-            ["Ativas", sessionStats.active, "Colaboracao em andamento", "emerald"],
-            ["Encerradas", sessionStats.finished, "Resultados bloqueados", "violet"],
-            ["Ideias", sessionStats.ideas, "Itens registrados", "amber"],
-          ].map(([label, value, detail, tone]) => (
-            <article key={String(label)} className="workspace-metric" data-metric-tone={tone}>
-              <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</p>
-              <p className="metric-value mt-2 text-2xl font-black">{value}</p>
-              <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{detail}</p>
-            </article>
+      <section className="nx-kpis" aria-label="Resumo do Estúdio">
+        {[
+          ["Sessões", sessionStats.total, "Todos os quadros"],
+          ["Ativas", sessionStats.active, "Colaboração em andamento"],
+          ["Encerradas", sessionStats.finished, "Resultados bloqueados"],
+          ["Ideias", sessionStats.ideas, "Itens registrados"],
+        ].map(([label, value, detail]) => (
+          <article key={String(label)} className="nx-card nx-kpi">
+            <div className="nx-kpi-l">{label}</div>
+            <div className="nx-kpi-v">{value}</div>
+            <div className="nx-kpi-s">{detail}</div>
+          </article>
+        ))}
+      </section>
+
+      <section className="nxs-toolbar">
+        <label className="nx-input nxs-list-search">
+          <Search size={16} className="nx-faint" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar sessões" placeholder="Buscar sessões..." />
+        </label>
+        <div className="nx-seg" aria-label="Filtrar sessões">
+          {([
+            ["todos", "Todas"],
+            ["ativo", "Ativas"],
+            ["encerrado", "Encerradas"],
+            ["arquivado", "Arquivadas"],
+          ] as Array<[typeof statusFilter, string]>).map(([status, label]) => (
+            <button key={status} type="button" aria-pressed={statusFilter === status} onClick={() => setStatusFilter(status)} className={statusFilter === status ? "is-active" : ""}>{label}</button>
           ))}
-        </section>
+        </div>
+      </section>
 
-        <section className="workspace-toolbar mt-6 flex flex-col gap-3 lg:flex-row lg:items-center">
-          <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3">
-            <Search size={16} className="shrink-0 text-[var(--text-secondary)]" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              aria-label="Buscar sessões" placeholder="Buscar sessões..."
-              className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
-            />
-          </label>
-          <div className="workspace-tabs" aria-label="Filtrar sessões">
-            {([
-              ["todos", "Todas"],
-              ["ativo", "Ativas"],
-              ["encerrado", "Encerradas"],
-              ["arquivado", "Arquivadas"],
-            ] as Array<[typeof statusFilter, string]>).map(([status, label]) => (
-              <button
-                key={status}
-                aria-pressed={statusFilter === status}
-                onClick={() => setStatusFilter(status)}
-                className={`h-10 shrink-0 rounded-lg px-4 text-xs font-bold transition ${
-                  statusFilter === status
-                    ? "bg-[var(--primary)] text-white"
-                    : "border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <div className="workspace-section-title"><h2>Seus quadros</h2><span>{filteredSessions.length} sessão(ões)</span></div>
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {loading ? <div className="col-span-full grid min-h-64 place-items-center"><Loader2 className="animate-spin text-cyan-300" /></div> : filteredSessions.map((item) => (
-            <article key={item.id} className="workspace-card studio-session-card group flex flex-col p-5 transition">
-              <div className="flex items-start justify-between gap-3"><span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/15 text-cyan-300"><Boxes size={21} /></span><span className={`rounded-full border px-2 py-1 text-xs font-bold uppercase ${item.status === "ativo" ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300" : "border-white/15 text-[var(--text-secondary)]"}`}>{item.status}</span></div>
-              <h2 className="mt-4 break-words text-lg font-black">{item.title}</h2><p className="mt-2 line-clamp-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{item.objective || "Sessão livre para organizar novas ideias."}</p>
-              <div className="mt-auto grid grid-cols-2 gap-2 pt-5 text-xs font-bold text-[var(--text-secondary)]"><span className="inline-flex items-center gap-2"><UsersRound size={14} /> {item.responsibleName}</span><span className="inline-flex items-center justify-end gap-2"><StickyNote size={14} /> {item.nodeCount || 0} itens</span><span className="col-span-2 inline-flex items-center gap-2"><Clock3 size={14} /> Atualizado em {formatDate(item.updatedAt)}</span></div>
-              <div className="mt-4 grid grid-cols-[minmax(0,1fr)_40px_40px] gap-2">
-                <Button onClick={() => setSelectedSessionId(item.id)} className="min-w-0"><MousePointer2 size={15} /> Abrir quadro</Button>
-                <Button iconOnly onClick={() => void shareSession(item)} className="text-cyan-200 hover:bg-cyan-400/10" title="Compartilhar" aria-label="Compartilhar"><Share2 size={16} /></Button>
-                <Button variant="danger" iconOnly onClick={() => void deleteSession(item)} className="border-red-400/20 text-red-300 hover:bg-red-500/10" title="Excluir sessao" aria-label="Excluir sessao"><Trash2 size={16} /></Button>
-                {item.status === "encerrado" ? (
-                  <Button onClick={() => setSelectedSessionId(item.id)} className="col-span-2 border-violet-400/25 bg-violet-400/10 text-violet-200 hover:bg-violet-400/15"><BarChart3 size={15} /> Ver resultado final</Button>
-                ) : (
-                  <Button onClick={() => createProposalFromSession(item)} className="col-span-2 border-cyan-400/25 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15"><FileSignature size={15} /> Criar proposta desta sessão</Button>
-                )}
-                <Button iconOnly onClick={() => openSessionProperties(item)} className="text-cyan-200 hover:bg-cyan-400/10" title="Editar propriedades" aria-label="Editar propriedades"><Settings2 size={16} /></Button>
-              </div>
-            </article>
-          ))}
-          {!loading && sessions.length === 0 && <div className="col-span-full grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] p-8 text-center"><div><Lightbulb size={36} className="mx-auto text-cyan-300" /><h2 className="mt-4 text-lg font-black">A primeira ideia começa aqui</h2><p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">Crie uma sessão, escolha um responsável e convide a equipe para o quadro.</p></div></div>}
-          {!loading && sessions.length > 0 && filteredSessions.length === 0 && (
-            <div className="col-span-full grid min-h-56 place-items-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] p-8 text-center">
-              <div>
-                <Search size={32} className="mx-auto text-cyan-300" />
-                <h2 className="mt-4 text-base font-black">Nenhuma sessao encontrada</h2>
-                <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">Ajuste o texto da busca ou o filtro de status.</p>
-              </div>
+      <div className="nxs-section-title"><h2>Seus quadros</h2><span>{filteredSessions.length} sessão(ões)</span></div>
+      <section className="nxs-cards">
+        {loading ? <div className="nxw-empty" style={{ gridColumn: "1 / -1" }}><Loader2 className="nxw-spin" /></div> : filteredSessions.map((item) => (
+          <article key={item.id} className="nx-card nxs-card">
+            <div className="nxs-card-top"><span className="nxw-icon"><Boxes size={16} /></span><span className={`nx-badge ${item.status === "ativo" ? "is-green" : item.status === "encerrado" ? "is-violet" : ""}`}>{item.status === "ativo" ? "Ativa" : item.status === "encerrado" ? "Encerrada" : "Arquivada"}</span></div>
+            <h2 className="nxs-card-title">{item.title}</h2>
+            <p className="nxs-text nxs-clamp-3">{item.objective || "Sessão livre para organizar novas ideias."}</p>
+            <div className="nxs-card-meta"><span><UsersRound size={14} /> {item.responsibleName}</span><span><StickyNote size={14} /> {item.nodeCount || 0} itens</span><span className="nxs-span-2"><Clock3 size={14} /> Atualizado em {formatDate(item.updatedAt)}</span></div>
+            <div className="nxs-card-actions">
+              <button type="button" className="nx-btn is-sm is-primary" onClick={() => setSelectedSessionId(item.id)}><MousePointer2 size={14} /> Abrir quadro</button>
+              <button type="button" className="nxw-icon-btn is-sm" onClick={() => void shareSession(item)} title="Compartilhar" aria-label="Compartilhar"><Share2 size={15} /></button>
+              <button type="button" className="nxw-icon-btn is-sm nxs-danger" onClick={() => void deleteSession(item)} title="Excluir sessão" aria-label="Excluir sessao"><Trash2 size={15} /></button>
+              {item.status === "encerrado" ? (
+                <button type="button" className="nx-btn is-sm nxs-span-2" onClick={() => setSelectedSessionId(item.id)}><BarChart3 size={14} /> Ver resultado final</button>
+              ) : (
+                <button type="button" className="nx-btn is-sm nxs-span-2" onClick={() => createProposalFromSession(item)}><FileSignature size={14} /> Criar proposta desta sessão</button>
+              )}
+              <button type="button" className="nxw-icon-btn is-sm" onClick={() => openSessionProperties(item)} title="Editar propriedades" aria-label="Editar propriedades"><Settings2 size={15} /></button>
             </div>
-          )}
-        </section>
-      </div>
+          </article>
+        ))}
+        {!loading && sessions.length === 0 && <div className="nx-card nxw-empty nxs-dashed"><span className="nxw-icon"><Lightbulb size={18} /></span><strong>A primeira ideia começa aqui</strong><span>Crie uma sessão, escolha um responsável e convide a equipe para o quadro.</span></div>}
+        {!loading && sessions.length > 0 && filteredSessions.length === 0 && (
+          <div className="nx-card nxw-empty nxs-dashed"><span className="nxw-icon is-gray"><Search size={18} /></span><strong>Nenhuma sessão encontrada</strong><span>Ajuste o texto da busca ou o filtro de status.</span></div>
+        )}
+      </section>
 
       {editing && (
-        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/70 p-4 backdrop-blur-sm">
-          <section className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
-            <header className="flex items-center justify-between gap-4 border-b border-[var(--border)] p-5">
-              <div><p className="text-xs font-bold uppercase text-cyan-300">Configuracao da sessao</p><h2 className="text-lg font-black">Editar brainstorm</h2></div>
-              <Button variant="ghost" size="sm" iconOnly onClick={() => setEditing(null)} aria-label="Fechar propriedades"><X size={18} /></Button>
+        <div className="nxs-modal-backdrop">
+          <section className="nx-card nxs-modal" role="dialog" aria-modal="true" aria-label="Editar brainstorm">
+            <header className="nxs-modal-h">
+              <div className="nx-grow"><p className="nxs-eyebrow">Configuração da sessão</p><h2 className="nxs-h2">Editar brainstorm</h2></div>
+              <button type="button" className="nxw-icon-btn is-sm is-plain" onClick={() => setEditing(null)} aria-label="Fechar propriedades"><X size={18} /></button>
             </header>
-            <div className="grid gap-4 p-5">
-              <label className="brainstorm-field"><span>Titulo da sessao</span><input autoFocus value={editForm.title} onChange={(event) => setEditForm((current) => ({ ...current, title: event.target.value }))} /></label>
-              <label className="brainstorm-field"><span>Objetivo</span><textarea value={editForm.objective} onChange={(event) => setEditForm((current) => ({ ...current, objective: event.target.value }))} rows={4} /></label>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="brainstorm-field"><span>Responsavel</span><select value={editForm.responsibleId} onChange={(event) => setEditForm((current) => ({ ...current, responsibleId: event.target.value }))}>{members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}</select></label>
-                <label className="brainstorm-field"><span>Modelo</span><select value={editForm.template} onChange={(event) => setEditForm((current) => ({ ...current, template: event.target.value }))}><option value="livre">Quadro livre</option>{STUDIO_TEMPLATES.filter((item) => item.id !== "retrospectiva").map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}<option value="mapa-mental">Mapa mental</option><option value="swot">SWOT</option><option value="jornada">Jornada</option><option value="retrospectiva">Retrospectiva</option></select></label>
-                <label className="brainstorm-field"><span>Duracao do timer (minutos)</span><input type="number" min={1} max={240} value={editForm.durationMinutes} onChange={(event) => setEditForm((current) => ({ ...current, durationMinutes: Number(event.target.value) }))} /></label>
-                <label className="brainstorm-field"><span>Status</span><select disabled={Boolean(editing.timer?.finishedAt)} value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as BrainstormSession["status"] }))}><option value="ativo">Ativo</option><option value="encerrado">Encerrado</option><option value="arquivado">Arquivado</option></select></label>
+            <div className="nxs-modal-b">
+              <label className="nxw-label"><span>Título da sessão</span><input className="nxw-field" autoFocus value={editForm.title} onChange={(event) => setEditForm((current) => ({ ...current, title: event.target.value }))} /></label>
+              <label className="nxw-label"><span>Objetivo</span><textarea className="nxw-field" value={editForm.objective} onChange={(event) => setEditForm((current) => ({ ...current, objective: event.target.value }))} rows={4} /></label>
+              <div className="nxs-grid-2">
+                <label className="nxw-label"><span>Responsável</span><select className="nxw-field" value={editForm.responsibleId} onChange={(event) => setEditForm((current) => ({ ...current, responsibleId: event.target.value }))}>{members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}</select></label>
+                <label className="nxw-label"><span>Modelo</span><select className="nxw-field" value={editForm.template} onChange={(event) => setEditForm((current) => ({ ...current, template: event.target.value }))}><option value="livre">Quadro livre</option>{STUDIO_TEMPLATES.filter((item) => item.id !== "retrospectiva").map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}<option value="mapa-mental">Mapa mental</option><option value="swot">SWOT</option><option value="jornada">Jornada</option><option value="retrospectiva">Retrospectiva</option></select></label>
+                <label className="nxw-label"><span>Duração do timer (minutos)</span><input className="nxw-field" type="number" min={1} max={240} value={editForm.durationMinutes} onChange={(event) => setEditForm((current) => ({ ...current, durationMinutes: Number(event.target.value) }))} /></label>
+                <label className="nxw-label"><span>Status</span><select className="nxw-field" disabled={Boolean(editing.timer?.finishedAt)} value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as BrainstormSession["status"] }))}><option value="ativo">Ativo</option><option value="encerrado">Encerrado</option><option value="arquivado">Arquivado</option></select></label>
               </div>
-              {editing.timer?.finishedAt && <div className="flex items-center gap-2 rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs font-bold text-amber-100"><LockKeyhole size={16} /> Esta sessao foi encerrada pelo timer e permanece bloqueada.</div>}
+              {editing.timer?.finishedAt && <div className="nxw-alert is-warning"><LockKeyhole size={16} /><span>Esta sessão foi encerrada pelo timer e permanece bloqueada.</span></div>}
             </div>
-            <footer className="flex flex-wrap justify-between gap-2 border-t border-[var(--border)] p-5">
-              <Button variant="danger" onClick={() => { void deleteSession(editing).then((deleted) => { if (deleted) setEditing(null); }); }} className="border-red-400/25 text-red-300 hover:bg-red-500/10"><Trash2 size={16} /> Excluir</Button>
-              <div className="flex gap-2"><Button onClick={() => setEditing(null)}>Cancelar</Button><Button variant="primary" disabled={savingProperties || !editForm.title.trim()} onClick={() => void saveSessionProperties()}>{savingProperties ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Salvar alteracoes</Button></div>
+            <footer className="nxs-modal-f">
+              <button type="button" className="nx-btn nxs-danger-btn" onClick={() => { void deleteSession(editing).then((deleted) => { if (deleted) setEditing(null); }); }}><Trash2 size={16} /> Excluir</button>
+              <div style={{ display: "flex", gap: 8 }}><button type="button" className="nx-btn" onClick={() => setEditing(null)}>Cancelar</button><button type="button" className="nx-btn is-primary" disabled={savingProperties || !editForm.title.trim()} onClick={() => void saveSessionProperties()}>{savingProperties ? <Loader2 size={16} className="nxw-spin" /> : <Save size={16} />} Salvar alterações</button></div>
             </footer>
           </section>
         </div>

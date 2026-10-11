@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CheckCircle2,
   CircleDollarSign,
+  FlaskConical,
   Gauge,
   KeyRound,
   Network,
@@ -10,7 +11,6 @@ import {
   RefreshCw,
   Route,
   ShieldCheck,
-  Sparkles,
   TestTube2,
 } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
@@ -19,6 +19,7 @@ import openAiLogo from "../../assets/ai-providers/openai.webp";
 import geminiLogo from "../../assets/ai-providers/gemini.webp";
 import groqLogo from "../../assets/ai-providers/groq.png";
 import claudeLogo from "../../assets/ai-providers/claude.webp";
+import "../../styles/screens/inteligencia-equipe-conta.css";
 
 type Provider = {
   id: string;
@@ -50,6 +51,8 @@ const providerOptions = [
   { id: "openai-compatible", name: "Compatível" },
 ];
 
+const usd = (value: number, digits: number) => `US$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+
 function ProviderLogo({ provider, size = 46 }: { provider: string; size?: number }) {
   const key = provider.toLowerCase();
   const asset = key.includes("google") || key.includes("gemini") ? geminiLogo
@@ -57,8 +60,8 @@ function ProviderLogo({ provider, size = 46 }: { provider: string; size?: number
       : key.includes("anthropic") || key.includes("claude") ? claudeLogo
         : key.includes("openai") && !key.includes("compatible") ? openAiLogo
           : null;
-  if (asset) return <span className={`ai-provider-logo is-image is-${key.includes("google") || key.includes("gemini") ? "gemini" : key.includes("groq") ? "groq" : key.includes("anthropic") || key.includes("claude") ? "anthropic" : "openai"}`} style={{ width: size, height: size }} aria-hidden="true"><img src={asset} alt="" /></span>;
-  return <span className="ai-provider-logo is-compatible" style={{ width: size, height: size }} aria-hidden="true"><Network size={Math.round(size * .48)} /></span>;
+  if (asset) return <span className={`nxi-provider-logo ai-provider-logo is-image is-${key.includes("google") || key.includes("gemini") ? "gemini" : key.includes("groq") ? "groq" : key.includes("anthropic") || key.includes("claude") ? "anthropic" : "openai"}`} style={{ width: size, height: size }} aria-hidden="true"><img src={asset} alt="" /></span>;
+  return <span className="nxi-provider-logo ai-provider-logo is-compatible" style={{ width: size, height: size }} aria-hidden="true"><Network size={Math.round(size * .48)} /></span>;
 }
 
 export default function ModelsDashboardV2() {
@@ -124,66 +127,71 @@ export default function ModelsDashboardV2() {
   }
 
   const selected = routeResult?.selected as Provider | null | undefined;
+  const totalTokens = data.usage.inputTokens + data.usage.outputTokens;
   return (
-    <main className="models-page mx-auto w-full max-w-[1720px] space-y-5 p-4 text-[var(--text)] sm:p-6">
-      <header className="models-hero">
-        <div><span>Inteligência conectada</span><h1>IA e Modelos</h1><p>Escolha os melhores modelos para cada trabalho, acompanhe disponibilidade, privacidade e custo em uma visão clara.</p></div>
-        <div className="models-brand-row" aria-label="Provedores compatíveis">
-          {providerOptions.slice(0, 4).map((item) => <span key={item.id}><ProviderLogo provider={item.id} size={40} /><small>{item.name}</small></span>)}
+    <main className="nx-page nxi-screen">
+      <header className="nx-ph">
+        <div><h1>IA e modelos</h1><p>Quais modelos a Nora usa e como escolhe entre eles</p></div>
+        <div className="nx-ph-actions">
+          <button type="button" className="nx-btn" onClick={() => void simulateRoute()} disabled={busy}><FlaskConical size={16} /> Simular</button>
+          <button type="button" className="nx-btn is-primary" aria-expanded={setupOpen} onClick={() => setSetupOpen((current) => !current)}><Plus size={16} /> Conectar provedor</button>
         </div>
-        <Button variant="primary" onClick={() => setSetupOpen((current) => !current)}><Plus size={16} /> Conectar provedor</Button>
       </header>
 
-      <section className="models-metrics">
-        <article><Network size={18}/><div><strong>{data.providers.length}</strong><span>provedores</span></div><small>{data.providers.filter((item) => item.configured).length} configurados</small></article>
-        <article><Route size={18}/><div><strong>{data.policies.length}</strong><span>políticas</span></div><small>roteamento controlado</small></article>
-        <article><Gauge size={18}/><div><strong>{data.usage.requests}</strong><span>requisições</span></div><small>{data.usage.inputTokens + data.usage.outputTokens} tokens medidos</small></article>
-        <article><CircleDollarSign size={18}/><div><strong>US$ {data.usage.estimatedCost.toFixed(4)}</strong><span>custo estimado</span></div><small>conforme tarifas cadastradas</small></article>
+      <section className="nx-kpis">
+        <article className="nx-card nx-kpi"><div className="nx-kpi-l"><Network size={16} /> Provedores</div><div className="nx-kpi-v">{data.providers.length}</div><div className="nx-kpi-s">{data.providers.filter((item) => item.configured).length} configurados</div></article>
+        <article className="nx-card nx-kpi"><div className="nx-kpi-l"><Route size={16} /> Políticas</div><div className="nx-kpi-v">{data.policies.length}</div><div className="nx-kpi-s">roteamento controlado</div></article>
+        <article className="nx-card nx-kpi"><div className="nx-kpi-l"><Gauge size={16} /> Requisições</div><div className="nx-kpi-v">{data.usage.requests.toLocaleString("pt-BR")}</div><div className="nx-kpi-s">{totalTokens.toLocaleString("pt-BR")} tokens medidos</div></article>
+        <article className="nx-card nx-kpi"><div className="nx-kpi-l"><CircleDollarSign size={16} /> Custo estimado</div><div className="nx-kpi-v">{usd(data.usage.estimatedCost, 4)}</div><div className="nx-kpi-s">conforme tarifas cadastradas</div></article>
       </section>
 
-      {error && <div role="alert" className="models-notice is-error">{error}</div>}
-      {message && <div role="status" className="models-notice">{message}</div>}
+      {error && <div role="alert" className="nxi-alert is-error">{error}</div>}
+      {message && <div role="status" className="nxi-alert is-success">{message}</div>}
 
-      {setupOpen && <form onSubmit={saveProvider} className="models-setup">
-        <div className="models-section-heading"><div><span><KeyRound size={15}/> Nova conexão</span><h2>Conectar um provedor</h2><p>A credencial é criptografada e nunca volta pela API.</p></div></div>
-        <div className="models-provider-picker">
-          {providerOptions.map((option) => <button key={option.id} type="button" className={providerForm.provider === option.id ? "is-selected" : ""} onClick={() => setProviderForm({ ...providerForm, provider: option.id })}><ProviderLogo provider={option.id} size={38}/><span>{option.name}</span></button>)}
+      {setupOpen && <form onSubmit={saveProvider} className="nx-card nxi-card-pad nxi-stack">
+        <div><h2 className="nxi-card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}><KeyRound size={15} /> Conectar um provedor</h2><p className="nxi-card-sub">A credencial é criptografada e nunca volta pela API.</p></div>
+        <div className="nxi-picker" role="group" aria-label="Provedor">
+          {providerOptions.map((option) => <button key={option.id} type="button" aria-pressed={providerForm.provider === option.id} className={providerForm.provider === option.id ? "is-selected" : ""} onClick={() => setProviderForm({ ...providerForm, provider: option.id })}><ProviderLogo provider={option.id} size={30} /><span>{option.name}</span></button>)}
         </div>
-        <div className="models-form-grid">
-          <label><span>Nome interno</span><input required value={providerForm.name} onChange={(event) => setProviderForm({ ...providerForm, name: event.target.value })} placeholder="Ex.: Produção principal" /></label>
-          <label><span>ID do modelo</span><input required value={providerForm.model} onChange={(event) => setProviderForm({ ...providerForm, model: event.target.value })} placeholder="Ex.: gpt-5.2" /></label>
-          <label><span>URL base opcional</span><input value={providerForm.baseUrl} onChange={(event) => setProviderForm({ ...providerForm, baseUrl: event.target.value })} placeholder="Preenchida automaticamente nos oficiais" /></label>
-          <label><span>Chave secreta</span><input required type="password" autoComplete="new-password" value={providerForm.secret} onChange={(event) => setProviderForm({ ...providerForm, secret: event.target.value })} placeholder="••••••••••••" /></label>
+        <div className="nxi-cols">
+          <label className="nxi-label">Nome interno<input className="nxi-field" required value={providerForm.name} onChange={(event) => setProviderForm({ ...providerForm, name: event.target.value })} placeholder="Ex.: Produção principal" /></label>
+          <label className="nxi-label">ID do modelo<input className="nxi-field" required value={providerForm.model} onChange={(event) => setProviderForm({ ...providerForm, model: event.target.value })} placeholder="Ex.: gpt-5.2" /></label>
+          <label className="nxi-label">URL base opcional<input className="nxi-field" value={providerForm.baseUrl} onChange={(event) => setProviderForm({ ...providerForm, baseUrl: event.target.value })} placeholder="Preenchida automaticamente nos oficiais" /></label>
+          <label className="nxi-label">Chave secreta<input className="nxi-field" required type="password" autoComplete="new-password" value={providerForm.secret} onChange={(event) => setProviderForm({ ...providerForm, secret: event.target.value })} placeholder="••••••••••••" /></label>
         </div>
-        <label className="models-enable"><span><strong>Habilitar depois de salvar</strong><small>O modelo poderá ser selecionado pela Nora e pelas automações.</small></span><input type="checkbox" checked={providerForm.enabled} onChange={(event) => setProviderForm({ ...providerForm, enabled: event.target.checked })}/></label>
-        <div className="models-form-actions"><Button onClick={() => setSetupOpen(false)}>Cancelar</Button><Button type="submit" variant="primary" disabled={busy}><ShieldCheck size={16}/> Salvar conexão segura</Button></div>
+        <label className="nxi-swrow"><span className="nx-grow"><span className="nxi-swrow-t">Habilitar depois de salvar</span><span className="nxi-swrow-d">O modelo poderá ser selecionado pela Nora e pelas automações.</span></span><input type="checkbox" className="nxi-switch" checked={providerForm.enabled} onChange={(event) => setProviderForm({ ...providerForm, enabled: event.target.checked })} /></label>
+        <div className="nxi-actions is-end"><Button onClick={() => setSetupOpen(false)}>Cancelar</Button><Button type="submit" variant="primary" disabled={busy}><ShieldCheck size={16} /> Salvar conexão segura</Button></div>
       </form>}
 
-      <section className="models-registry">
-        <div className="models-section-heading"><div><span><Sparkles size={15}/> Modelos conectados</span><h2>Seu stack de inteligência</h2><p>Status, capacidade e política de dados sem esconder detalhes importantes.</p></div><Button iconOnly onClick={() => void load()} aria-label="Atualizar modelos"><RefreshCw size={16}/></Button></div>
-        <div className="models-provider-grid">
-          {data.providers.map((provider) => <article key={provider.id} className={provider.enabled && provider.configured ? "is-ready" : ""}>
-            <div className="models-provider-card-top"><ProviderLogo provider={provider.provider} /><span className={provider.enabled && provider.configured ? "is-ready" : ""}>{provider.enabled && provider.configured ? <><CheckCircle2 size={13}/> Disponível</> : "Configuração pendente"}</span></div>
-            <p>{provider.provider} · {provider.dataPolicy}</p><h3>{provider.name}</h3><code>{provider.model}</code>
-            <div className="models-capabilities">{provider.capabilities.map((capability) => <span key={capability}>{capability}</span>)}</div>
-            <dl><div><dt>Contexto</dt><dd>{provider.contextWindow ? `${Math.round(provider.contextWindow / 1000)}k` : "—"}</dd></div><div><dt>Entrada / 1M</dt><dd>{provider.inputCostPerMillion != null ? `US$ ${provider.inputCostPerMillion}` : "—"}</dd></div></dl>
-            <Button disabled={busy || (!provider.configured && !provider.managed)} onClick={() => void testProvider(provider)}><TestTube2 size={14}/> Testar configuração</Button>
-          </article>)}
-          {!data.providers.length && <div className="models-empty">Nenhum provedor cadastrado.</div>}
+      <section className="nxi-split is-380">
+        <div className="nx-card" style={{ overflow: "hidden" }}>
+          <div className="nx-card-h"><h2>Modelos conectados</h2><span className="nx-faint nx-small">Status, capacidade e política de dados</span><Button iconOnly size="sm" variant="ghost" className="ml-auto" onClick={() => void load()} aria-label="Atualizar modelos"><RefreshCw size={15} /></Button></div>
+          <div className="nxi-table-wrap"><table className="nx-table"><thead><tr><th>Modelo</th><th>Uso</th><th>Contexto</th><th>Entrada / 1M</th><th>Status</th><th><span className="sr-only">Ações</span></th></tr></thead><tbody>
+            {data.providers.map((provider) => { const ready = provider.enabled && provider.configured; return <tr key={provider.id}>
+              <td><div style={{ display: "flex", alignItems: "center", gap: 10 }}><ProviderLogo provider={provider.provider} size={32} /><div className="nx-grow"><div style={{ fontWeight: 500 }}>{provider.name}</div><div className="nxi-code">{provider.model}</div><div className="nx-faint nx-small">{provider.provider} · {provider.dataPolicy}</div></div></div></td>
+              <td className="nx-muted">{provider.capabilities.join(", ") || "—"}</td>
+              <td className="nx-muted">{provider.contextWindow ? `${Math.round(provider.contextWindow / 1000)}k` : "—"}</td>
+              <td className="nx-muted">{provider.inputCostPerMillion != null ? usd(provider.inputCostPerMillion, 2) : "—"}</td>
+              <td><span className={`nx-badge ${ready ? "is-green" : "is-amber"}`}>{ready ? <><CheckCircle2 size={12} /> Disponível</> : "Configuração pendente"}</span></td>
+              <td><button type="button" className="nx-btn is-sm" disabled={busy || (!provider.configured && !provider.managed)} onClick={() => void testProvider(provider)}><TestTube2 size={13} /> Testar configuração</button></td>
+            </tr>; })}
+          </tbody></table></div>
+          {!data.providers.length && <p className="nxi-empty">Nenhum provedor cadastrado.</p>}
+          <div className="nx-faint nx-small" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, borderTop: "1px solid var(--nx-border)", padding: "12px 18px" }} aria-label="Provedores compatíveis">
+            Compatível com {providerOptions.slice(0, 4).map((item) => <span key={item.id} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><ProviderLogo provider={item.id} size={22} />{item.name}</span>)}
+          </div>
         </div>
-      </section>
 
-      <section className="models-routing">
-        <div className="models-section-heading"><div><span><Route size={15}/> Controle de rota</span><h2>Política principal</h2><p>Defina preferência, privacidade e teto de custo antes de usar.</p></div></div>
-        <form onSubmit={savePolicy}>
-          <label><span>Nome</span><input required value={policyForm.name} onChange={(event) => setPolicyForm({ ...policyForm, name: event.target.value })}/></label>
-          <label><span>Seleção</span><select value={policyForm.mode} onChange={(event) => setPolicyForm({ ...policyForm, mode: event.target.value })}><option value="automatic">Automática</option><option value="manual">Manual</option></select></label>
-          <label><span>Preferência</span><select value={policyForm.preferredProviderId} onChange={(event) => setPolicyForm({ ...policyForm, preferredProviderId: event.target.value })}><option value="">Menor custo elegível</option>{data.providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} / {provider.model}</option>)}</select></label>
-          <label><span>Privacidade</span><select value={policyForm.privacy} onChange={(event) => setPolicyForm({ ...policyForm, privacy: event.target.value })}><option value="any">Qualquer permitido</option><option value="private">Privado ou local</option><option value="local">Somente local</option></select></label>
-          <label><span>Custo máx. entrada / 1M</span><input type="number" min="0" step="0.01" value={policyForm.maxInputCostPerMillion} onChange={(event) => setPolicyForm({ ...policyForm, maxInputCostPerMillion: event.target.value })} placeholder="Sem limite"/></label>
-          <div className="models-routing-actions"><Button type="button" onClick={() => void simulateRoute()} disabled={busy}><Gauge size={15}/> Simular</Button><Button type="submit" variant="primary" disabled={busy}>Salvar política <ArrowRight size={15}/></Button></div>
+        <form onSubmit={savePolicy} className="nx-card nxi-card-pad is-sm nxi-stack is-sm">
+          <div><h2 className="nxi-card-title">Política de escolha</h2><p className="nxi-card-sub">Vale para toda a empresa · preferência, privacidade e teto de custo</p></div>
+          <label className="nxi-label">Nome<input className="nxi-field" required value={policyForm.name} onChange={(event) => setPolicyForm({ ...policyForm, name: event.target.value })} /></label>
+          <label className="nxi-label">Seleção<select className="nxi-field" value={policyForm.mode} onChange={(event) => setPolicyForm({ ...policyForm, mode: event.target.value })}><option value="automatic">Automática</option><option value="manual">Manual</option></select></label>
+          <label className="nxi-label">Preferência<select className="nxi-field" value={policyForm.preferredProviderId} onChange={(event) => setPolicyForm({ ...policyForm, preferredProviderId: event.target.value })}><option value="">Menor custo elegível</option>{data.providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} / {provider.model}</option>)}</select></label>
+          <label className="nxi-label">Privacidade<select className="nxi-field" value={policyForm.privacy} onChange={(event) => setPolicyForm({ ...policyForm, privacy: event.target.value })}><option value="any">Qualquer permitido</option><option value="private">Privado ou local</option><option value="local">Somente local</option></select></label>
+          <label className="nxi-label">Custo máx. entrada / 1M<input className="nxi-field" type="number" min="0" step="0.01" value={policyForm.maxInputCostPerMillion} onChange={(event) => setPolicyForm({ ...policyForm, maxInputCostPerMillion: event.target.value })} placeholder="Sem limite" /></label>
+          <div className="nxi-actions is-end"><Button type="button" onClick={() => void simulateRoute()} disabled={busy}><Gauge size={15} /> Simular rota</Button><Button type="submit" variant="primary" disabled={busy}>Salvar política <ArrowRight size={15} /></Button></div>
+          {routeResult && <div className={`nxi-alert ${selected ? "is-success" : "is-warning"}`}>{selected ? <span>Rota selecionada: <strong>{selected.name} / {selected.model}</strong>. Custo estimado {usd(Number(routeResult.estimatedCost || 0), 6)}.</span> : <span>{String(routeResult.reason || "Nenhum provedor atende à política.")}</span>}</div>}
         </form>
-        {routeResult && <div className={`models-route-result ${selected ? "is-success" : ""}`}>{selected ? <>Rota selecionada: <strong>{selected.name} / {selected.model}</strong>. Custo estimado US$ {Number(routeResult.estimatedCost || 0).toFixed(6)}.</> : String(routeResult.reason || "Nenhum provedor atende à política.")}</div>}
       </section>
     </main>
   );

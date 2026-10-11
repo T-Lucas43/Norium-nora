@@ -23,10 +23,10 @@ describe("IntelligenceHubDashboard", () => {
   });
 
   it.each([
-    ["browser", "Agente Navegador", "/api/navegador"],
+    ["browser", "Agente navegador", "/api/navegador"],
     ["knowledge", "Conhecimento", "/api/conhecimento"],
-    ["marketplace", "Marketplace interno", "/api/marketplace"],
-    ["models", "IA e Modelos", "/api/modelos-ia"],
+    ["marketplace", "Marketplace", "/api/marketplace"],
+    ["models", "IA e modelos", "/api/modelos-ia"],
   ] as const)("renderiza a tela %s e carrega seu contrato", async (mode, title, endpoint) => {
     render(<IntelligenceHubDashboard mode={mode} onOpenNora={vi.fn()} />);
     expect(screen.getByRole("heading", { name: title, level: 1 })).toBeInTheDocument();

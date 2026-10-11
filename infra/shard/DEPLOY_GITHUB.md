@@ -2,6 +2,14 @@
 
 ## Estado em 11/10/2026
 
+O responsável integrou o PR #53 em main e orientou depois usar o próprio painel
+Shard para esta publicação. Push em main preserva a imagem auditada por cinco
+dias; para refazer por dispatch, usar `export_image=true` e
+`deploy_homologacao=false`. Aguardar todos os gates e usar o artifact
+`shard-deploy-image-<sha>` da mesma revisão. A imagem é carregada
+na VPS sem rebuild; configuração, dados e contêiner anterior devem ser preservados,
+com aceite remoto antes de concluir. A exportação isolada não usa secrets SSH.
+
 O workflow existente fazia CI e pacote de fonte. Esta proposta acrescenta exportação
 da **mesma imagem auditada** e transporte SSH por GitHub Actions. O console Shard
 foi usado somente para leitura. A VPS segue no release `1878aa7`.

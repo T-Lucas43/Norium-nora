@@ -234,6 +234,21 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(download["with"]["name"], "shard-deploy-image-${{ github.sha }}")
         self.assertEqual(len(download["uses"].split("@")[1]), 40)
 
+    def test_manual_shard_export_does_not_enable_ssh_deployment(self):
+        workflow = self.workflow()
+        events = workflow.get("on", workflow.get(True))
+        self.assertFalse(events["workflow_dispatch"]["inputs"]["export_image"]["default"])
+        image_job = workflow["jobs"]["shard-image-security"]
+        export_steps = [step for step in image_job["steps"] if step.get("name") in (
+            "Export the exact audited image for the homologation deployment",
+            "Preserve the exact audited image without rebuilding on the VPS",
+        )]
+        self.assertEqual(len(export_steps), 2)
+        for step in export_steps:
+            self.assertEqual(step["if"], "github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.deploy_homologacao || inputs.export_image)))")
+        self.assertNotIn("secrets.SHARD_VPS", str(image_job))
+        self.assertNotIn("inputs.export_image", workflow["jobs"]["deploy-homologacao"]["if"])
+
 
 if __name__ == "__main__":
     unittest.main()

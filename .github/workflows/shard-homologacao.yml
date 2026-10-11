@@ -7,6 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      export_image:
+        description: Exportar a imagem auditada para deploy manual no painel Shard
+        type: boolean
+        required: true
+        default: false
       deploy_homologacao:
         description: Publicar na VPS de homologacao depois dos gates e da revisao tecnica
         type: boolean
@@ -376,7 +381,7 @@ jobs:
           retention-days: 90
 
       - name: Export the exact audited image for the homologation deployment
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_homologacao
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.deploy_homologacao || inputs.export_image)))
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/shard-deploy-image"
@@ -388,7 +393,7 @@ jobs:
           sha256sum image.tar.gz > image.tar.gz.sha256
 
       - name: Preserve the exact audited image without rebuilding on the VPS
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_homologacao
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.deploy_homologacao || inputs.export_image)))
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: shard-deploy-image-${{ github.sha }}

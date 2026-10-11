@@ -4,6 +4,7 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 
 ## [Não publicado] — branch `feat/fase1-seguranca-voz`
 
+- ci(shard): opção separada para exportar a mesma imagem auditada ao painel Shard, sem iniciar deploy SSH; orientação atual do responsável é publicação manual pela Shard.
 - fix(imagem): exclui o binário opcional Pebble herdado da base, sem uso pelo comando Uvicorn, após três HIGH de Go 1.26.7 no CI; mantém FFmpeg, Chrome, metadados e gates sem supressões.
 - ci(shard): transporte de homologação pelo GitHub Actions, com dispatch explícito em main, todos os gates, mesma imagem auditada, verificação SSH estrita e recibo sanitizado; provisionamento do executor VPS e revisão técnica permanecem pendentes.
 - fix(financeiro): aprovações exatas conferem dono, empresa, conteúdo e permissão vigente antes de excluir ou alterar dados; rejeitam ausência de digest e prévia de outra conta.

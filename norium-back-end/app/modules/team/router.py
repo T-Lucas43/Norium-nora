@@ -101,6 +101,8 @@ MAX_ATTACHMENTS_PER_MESSAGE = 8
 MESSAGE_HISTORY_LIMIT = 300
 MEETING_REMINDER_MINUTES = 10
 CALL_RECONCILE_INTERVAL_SECONDS = 5
+# Abaixo do tempo limite de presença na chamada (30 s).
+CALL_IDLE_RECONCILE_INTERVAL_SECONDS = 25
 RECORDING_MAINTENANCE_INTERVAL_SECONDS = max(
     5, _positive_env_int("TEAM_RECORDING_MAINTENANCE_INTERVAL_SECONDS", 60),
 )
@@ -2141,7 +2143,6 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                     timeout=min(5, max(0.01, next_reconcile - time.monotonic())),
                 )
             except asyncio.TimeoutError:
-                next_reconcile = time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS
                 await emit_due_meeting_reminders(team_id)
                 live_directory = await read_user_store()
                 live_user = next((item for item in live_directory.get("users", []) if str(item.get("id")) == user_id), None)
@@ -2164,6 +2165,9 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                     "type": "CALLS_STATE",
                     "calls": calls,
                 })
+                # Sem chamada ativa, a reconciliação espaça para poupar banco e CPU;
+                # convites e revogações continuam chegando na hora por broadcast.
+                next_reconcile = time.monotonic() + (CALL_RECONCILE_INTERVAL_SECONDS if calls else CALL_IDLE_RECONCILE_INTERVAL_SECONDS)
                 continue
             if not raw:
                 continue
@@ -2191,6 +2195,9 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             except json.JSONDecodeError:
                 payload = {}
             event_type = str(payload.get("type") or "") if isinstance(payload, dict) else ""
+            if event_type.startswith("CALL_"):
+                # Atividade de chamada volta a reconciliação ao ritmo curto imediatamente.
+                next_reconcile = min(next_reconcile, time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS)
             if event_type == "CALL_TELEMETRY":
                 try:
                     if (not telemetry_budget.take()

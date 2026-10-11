@@ -82,8 +82,9 @@
 .nxi-screen button[data-variant="primary"]:hover:not(:disabled) { background-color: color-mix(in srgb, var(--nx-primary) 88%, #000); }
 .nxi-screen button[data-variant="ghost"] { color: var(--nx-text-2); }
 .nxi-screen button[data-variant="ghost"]:hover:not(:disabled) { background-color: var(--nx-hover); color: var(--nx-text); }
-.nxi-screen button[data-variant="danger"] { border: 1px solid var(--nx-border-strong); background-color: var(--nx-surface); color: var(--nx-danger); }
-.nxi-screen button[data-variant="danger"]:hover:not(:disabled) { background-color: var(--nx-danger-soft); }
+.nxi-screen.nxi-screen button[data-variant="danger"] { border: 1px solid var(--nx-border-strong) !important; background: var(--nx-surface) !important; color: var(--nx-danger) !important; }
+.nxi-screen.nxi-screen button[data-variant="danger"]:hover:not(:disabled) { background: var(--nx-danger-soft) !important; }
+.nxi-screen.nxi-screen button[data-variant="danger"] svg { color: inherit !important; }
 .nxi-screen button[data-variant]:disabled { opacity: 0.55; }
 
 .nxi-screen .nx-btn.is-on { border-color: var(--nx-primary); background: var(--nx-primary-soft); color: var(--nx-primary-text); }
@@ -526,9 +527,12 @@ textarea.nxi-field { height: auto; min-height: 88px; padding: 10px 12px; line-he
 .nxi-theme-opt.is-active .nxi-theme-prev { border-color: var(--nx-primary); }
 .nxi-theme-opt > strong { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; font-weight: 400; }
 .nxi-theme-opt.is-active > strong { font-weight: 600; }
+.nxi-avatar { display: inline-grid; flex: none; place-items: center; overflow: hidden; border-radius: 50%; background: var(--nx-primary); color: #fff; font-weight: 600; line-height: 1; user-select: none; }
+.nxi-avatar > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.nxi-avatar-btn .nxi-avatar { background: var(--nx-primary-soft); color: var(--nx-primary-text); }
 .nxi-avatar-btn { position: relative; display: grid; width: 88px; height: 88px; flex: none; place-items: center; border: 0; border-radius: 50%; background: var(--nx-primary-soft); padding: 0; color: var(--nx-primary-text); font-size: 28px; font-weight: 600; cursor: pointer; }
 .nxi-avatar-btn > img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
-.nxi-avatar-btn > span { position: absolute; right: 0; bottom: 0; display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--nx-border); border-radius: 50%; background: var(--nx-surface); color: var(--nx-text); }
+.nxi-avatar-btn > .nxi-avatar-cam { position: absolute; right: 0; bottom: 0; display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--nx-border); border-radius: 50%; background: var(--nx-surface); color: var(--nx-text); }
 .nxi-danger-card { border-color: color-mix(in srgb, var(--nx-danger) 55%, var(--nx-border)); }
 
 /* ----- Ajuda ----- */
@@ -552,6 +556,46 @@ textarea.nxi-field { height: auto; min-height: 88px; padding: 10px 12px; line-he
 .nxi-res-card .nxi-res-open { margin-top: auto; color: var(--nx-primary-text); font-size: 12.5px; font-weight: 500; }
 
 .nxi-screen .nx-card-h { flex-wrap: wrap; }
+.nxi-screen [hidden] { display: none !important; }
+
+/* ----- Configurações: menu lateral + seção (mockup cfgNav/cfgPage) ----- */
+.nxi-cfg { display: grid; grid-template-columns: 240px minmax(0, 1fr); align-items: start; gap: 28px; }
+.nxi-cfg-side { position: sticky; top: 0; min-width: 0; padding-top: 4px; }
+.nxi-cfg-title { margin: 0 0 16px; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.nxi-cfg-nav { display: flex; flex-direction: column; gap: 2px; }
+.nxi-cfg-item {
+  display: flex;
+  height: 34px;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0 10px;
+  color: var(--nx-text-2);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.nxi-cfg-item span { overflow: hidden; text-overflow: ellipsis; }
+.nxi-cfg-item:hover { background: var(--nx-hover); color: var(--nx-text); }
+.nxi-cfg-item.is-active { background: var(--nx-primary-soft); color: var(--nx-primary-text); }
+.nxi-cfg-main { display: flex; min-width: 0; flex-direction: column; gap: 16px; }
+.nxi-cfg-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.nxi-cfg-head > div:first-child { min-width: 0; flex: 1 1 260px; }
+
+@media (max-width: 900px) {
+  .nxi-cfg { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .nxi-cfg-side { position: static; padding-top: 0; }
+  .nxi-cfg-title { margin-bottom: 10px; }
+  .nxi-cfg-nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .nxi-cfg-item { flex: none; }
+}
 
 /* Foco por teclado visível */
 .nxi-screen :is(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--nx-primary); outline-offset: 2px; }

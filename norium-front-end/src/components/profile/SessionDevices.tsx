@@ -10,7 +10,7 @@ interface DeviceSession {
 }
 const date = (seconds: number) => new Date(seconds * 1000).toLocaleString("pt-BR");
 
-export default function SessionDevices() {
+export default function SessionDevices({ email }: { email?: string } = {}) {
   const [devices, setDevices] = useState<DeviceSession[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [password, setPassword] = useState("");
@@ -80,7 +80,10 @@ export default function SessionDevices() {
     </ul>
     <div className="nx-card flex flex-wrap items-center gap-3" style={{ padding: "18px 22px" }}>
       <div className="min-w-0 flex-1" style={{ flexBasis: 240 }}><b style={{ fontWeight: 600 }}>Encerrar todas as outras sessões</b><div className="nx-faint nx-small">Você continuará conectado só neste navegador. Pedimos sua senha para confirmar.</div></div>
-      <input type="password" aria-label="Senha atual para encerrar sessões" autoComplete="current-password" maxLength={180} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Senha atual" className="nxi-field" style={{ width: 200 }} />
+      <form autoComplete="off" onSubmit={(event) => event.preventDefault()} style={{ display: "contents" }}>
+        <input type="text" name="username" autoComplete="username" value={email || ""} readOnly hidden aria-hidden="true" tabIndex={-1} />
+        <input type="password" aria-label="Senha atual para encerrar sessões" autoComplete="current-password" maxLength={180} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Senha atual" className="nxi-field" style={{ width: 200 }} />
+      </form>
       <Button variant="danger" disabled={busy} onClick={() => revokeMany(false)}>Encerrar outras sessões</Button>
       <Button variant="danger" disabled={busy} onClick={() => revokeMany(true)}>Sair de todos os dispositivos</Button>
     </div>

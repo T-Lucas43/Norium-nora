@@ -9,7 +9,7 @@ import type {
 } from "../../types/omnichannel";
 import ModuleCoach, { type GuidedModule } from "../../components/shared/ModuleCoach";
 import PanelTabs from "./PanelTabs";
-import { INTELLIGENCE_TABS, SETTINGS_TABS } from "../navigation/navigationGroups";
+import { INTELLIGENCE_TABS } from "../navigation/navigationGroups";
 
 const NoraWorkspace = lazy(() => import("../../components/nora/NoraWorkspace"));
 const AgendaDashboard = lazy(() => import("../../components/agenda/AgendaDashboard"));
@@ -100,9 +100,7 @@ export default function AppPanels({
   const coach = (module: GuidedModule, compact = false) => profile?.interface_preferences?.showGuides === false ? null : (
     <ModuleCoach module={module} onAskNora={onOpenNora} compact={compact} />
   );
-  const settingsTab = activeTab === "Configuracoes" ? "Configurações" : activeTab;
   const intelligenceTabs = <PanelTabs label="Inteligência" tabs={INTELLIGENCE_TABS} activeTab={activeTab} allowedTabs={allowedTabs} onNavigate={onNavigate} />;
-  const settingsTabs = <PanelTabs label="Configurações" tabs={SETTINGS_TABS} activeTab={settingsTab} allowedTabs={allowedTabs} onNavigate={onNavigate} />;
 
   return (
     <Suspense fallback={<PanelLoading />}>
@@ -240,19 +238,19 @@ export default function AppPanels({
       )}
       {isPanelMounted("Perfil") && (
         <section className={activePanelClass("Perfil")}>
-          {settingsTabs}
           {coach("Perfil")}
           <ProfileSettings
             userId={currentUser.id}
             currentUser={currentUser}
             onSaved={onProfileSaved}
             onLogout={onLogout}
+            onOpenAdmin={onOpenAdmin}
+            onNavigate={onNavigate}
           />
         </section>
       )}
       {isPanelMounted("Configuracoes", "Configurações") && (
         <section className={activePanelClass("Configuracoes", "Configurações")}>
-          {settingsTabs}
           {coach("Configuracoes")}
           <SettingsDashboard
             userId={currentUser.id}
@@ -260,6 +258,7 @@ export default function AppPanels({
             onSaved={onProfileSaved}
             onOpenAdmin={onOpenAdmin}
             onLogout={onLogout}
+            onNavigate={onNavigate}
           />
         </section>
       )}

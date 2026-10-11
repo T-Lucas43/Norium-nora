@@ -292,7 +292,7 @@ function CompaniesArea({
                   className="grid h-10 w-10 place-items-center rounded-lg font-black"
                   style={{ backgroundColor: `${company.primaryColor || "#1677ff"}22`, color: company.primaryColor || "#1677ff" }}
                 >
-                  {company.logoUrl ? <img src={company.logoUrl} className="h-8 w-8 object-contain" alt="" /> : company.name[0]}
+                  <CompanyLogo src={company.logoUrl} name={company.name} />
                 </span>
                 <div className="min-w-0">
                   <strong className="block truncate">{company.name}</strong>
@@ -696,6 +696,13 @@ function Panel({
       {children}
     </section>
   );
+}
+
+function CompanyLogo({ src, name }: { src?: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  if (!src || failed) return <>{(name.trim()[0] || "N").toUpperCase()}</>;
+  return <img src={src} className="h-8 w-8 object-contain" alt="" onError={() => setFailed(true)} />;
 }
 
 function auditTime(value?: string) {

@@ -22,3 +22,5 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 - perf: imagens da Nora e dos provedores de IA em WebP (1,9 MB → 38 KB).
 - feat(layout): menu e topo no padrão do layout aprovado; Inteligência em um item com abas internas e Perfil como aba de Configurações, sem remover telas.
 - feat(layout): conteúdo de todas as telas no padrão do layout aprovado (claro e escuro), sem remover funções; Chat da equipe com minhas mensagens à direita; E-mails com leitura só ao abrir uma mensagem; Painel com colunas de altura fixa.
+- feat(layout): Configurações com menu de seções e uma seção por vez; Perfil dentro de Configurações; avatares mostram iniciais quando a foto falha; busca do topo fora do preenchimento automático.
+- perf: Chat da equipe sem chamada ativa reconcilia a cada 25 s (antes 5 s por aba); frontend local pré-processa as telas ao iniciar.

@@ -26,6 +26,7 @@ import {
 import Button from "../shared/Button";
 import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import "../../styles/screens/inteligencia-equipe-conta.css";
+import SettingsNav, { readSettingsSection, storeSettingsSection, type SettingsSection } from "./SettingsNav";
 
 type SettingsDashboardProps = {
   userId?: string;
@@ -33,6 +34,15 @@ type SettingsDashboardProps = {
   onSaved: (profile: PerfilOperador) => void;
   onOpenAdmin?: () => void;
   onLogout?: () => void;
+  onNavigate?: (tab: string) => void;
+};
+
+const sectionHeads: Record<Exclude<SettingsSection, "perfil">, { title: string; subtitle: string }> = {
+  nora: { title: "Nora e IA", subtitle: "Personalidade da sua assistente." },
+  aparencia: { title: "Aparência e acessibilidade", subtitle: "Ajuste o Norium ao seu jeito de trabalhar. O tema é aplicado imediatamente em todo o Norium." },
+  notificacoes: { title: "Notificações", subtitle: "Alertas visuais e atualizações em tempo real." },
+  privacidade: { title: "Seus dados e privacidade", subtitle: "Baixe uma cópia portátil dos dados pessoais da conta. A exclusão revoga as sessões, elimina o diretório pessoal e anonimiza o cadastro e a auditoria." },
+  admin: { title: "Painel administrativo", subtitle: "Gerencie usuários, planos, equipes e permissões sem sair da sua sessão atual." },
 };
 
 const colorGroups: Array<{
@@ -78,7 +88,21 @@ export default function SettingsDashboard({
   onSaved,
   onOpenAdmin,
   onLogout,
+  onNavigate,
 }: SettingsDashboardProps) {
+  const showAdmin = Boolean(currentUser?.systemAdmin && onOpenAdmin);
+  const showPrivacy = Boolean(currentUser);
+  const [storedSection, setSection] = useState<SettingsSection>(() => readSettingsSection() || "aparencia");
+  const section: Exclude<SettingsSection, "perfil"> = storedSection === "perfil" || (storedSection === "admin" && !showAdmin) || (storedSection === "privacidade" && !showPrivacy) ? "aparencia" : storedSection;
+  function selectSection(next: SettingsSection) {
+    storeSettingsSection(next);
+    if (next === "perfil") {
+      if (onNavigate) onNavigate("Perfil");
+      return;
+    }
+    setSection(next);
+  }
+  const head = sectionHeads[section];
   const [profile, setProfile] = useState<PerfilOperador>(createDefaultProfile);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -205,25 +229,25 @@ export default function SettingsDashboard({
 
   return (
     <section className="nx-page nxi-screen">
-      <header className="nx-ph">
-        <div>
-          <h1>Configurações</h1>
-          <p>Aparência, leitura e acessibilidade, notificações, Nora e privacidade</p>
-        </div>
-        <div className="nx-ph-actions">
-          <Button variant="primary"
-            onClick={() => void save()}
-            disabled={saving || loading}
-          >
-            <Save size={16} />
-            {saving ? "Salvando..." : "Salvar configurações"}
-          </Button>
-        </div>
-      </header>
+      <div className="nxi-cfg">
+        <SettingsNav active={section} onSelect={selectSection} showPrivacy={showPrivacy} showAdmin={showAdmin} />
+        <div className="nxi-cfg-main" style={{ maxWidth: 1080 }}>
+          <header className="nxi-cfg-head">
+            <div><h2 className="nxi-h2">{head.title}</h2><p>{head.subtitle}</p></div>
+            <Button variant="primary"
+              onClick={() => void save()}
+              disabled={saving || loading}
+            >
+              <Save size={16} />
+              {saving ? "Salvando..." : "Salvar configurações"}
+            </Button>
+          </header>
 
-        <div className="nxi-stack" style={{ maxWidth: 1080 }}>
-          {currentUser?.systemAdmin && onOpenAdmin && (
-            <section className="nx-card nxi-card-pad flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          {error && <p role="alert" className="nxi-alert is-error">{error}</p>}
+          {message && <p role="status" className="nxi-alert is-success">{message}</p>}
+
+          {showAdmin && (
+            <section hidden={section !== "admin"} className="nx-card nxi-card-pad flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
                 <span className="nxi-tile is-blue">
                   <ShieldCheck size={19} />
@@ -241,8 +265,7 @@ export default function SettingsDashboard({
             </section>
           )}
 
-          <div><h2 className="nxi-h2">Aparência e acessibilidade</h2><p>Ajuste o Norium ao seu jeito de trabalhar. O tema é aplicado imediatamente em todo o Norium.</p></div>
-
+          <div className="nxi-stack" hidden={section !== "aparencia"}>
           <section className="nx-card nxi-card-pad">
             <h3 className="nxi-card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}><Palette size={16} /> Tema</h3>
             <div className="flex flex-wrap gap-4" style={{ marginTop: 14 }} role="group" aria-label="Tema do sistema">
@@ -369,14 +392,14 @@ export default function SettingsDashboard({
               <Button size="sm" onClick={() => setProfile(current => ({ ...current, interface_preferences: { ...defaultInterfacePreferences } }))}><RotateCcw size={14} /> Restaurar preferências de interface</Button>
             </div>
           </section>
+          </div>
 
-          <div className="nxi-cols">
-            <section className="nx-card nxi-card-pad">
+            <section className="nx-card nxi-card-pad" hidden={section !== "nora"}>
               <div className="mb-4 flex items-center gap-3">
                 <span className="nxi-tile is-sm is-blue"><Bot size={17} /></span>
                 <div>
-                  <h2 className="nxi-card-title">Nora</h2>
-                  <p className="nxi-card-sub">Personalidade da sua assistente.</p>
+                  <h3 className="nxi-card-title">Nora</h3>
+                  <p className="nxi-card-sub">Tom das respostas da sua assistente.</p>
                 </div>
               </div>
               <label className="space-y-3">
@@ -402,12 +425,13 @@ export default function SettingsDashboard({
               </label>
             </section>
 
+            <div className="nxi-stack" hidden={section !== "notificacoes"}>
             <section className="nx-card nxi-card-pad" style={{ paddingBottom: 8 }}>
               <div className="mb-2 flex items-center gap-3">
                 <span className="nxi-tile is-sm is-blue"><Bell size={17} /></span>
                 <div>
-                  <h2 className="nxi-card-title">Notificações</h2>
-                  <p className="nxi-card-sub">Alertas visuais e atualizações em tempo real.</p>
+                  <h3 className="nxi-card-title">Alertas no Norium</h3>
+                  <p className="nxi-card-sub">Avisos flutuantes sobre as telas.</p>
                 </div>
               </div>
               <PreferenceToggle label="Alertas flutuantes" hint="Exibe novos avisos sobre as telas. O histórico continua disponível na central." checked={preferences.showToasts} onChange={value => updatePreference("showToasts", value)} />
@@ -419,23 +443,22 @@ export default function SettingsDashboard({
                 </select>
               </label>
             </section>
-          </div>
 
           <section className="nx-card nxi-card-pad is-sm">
             <div className="flex items-center gap-3">
               <SlidersHorizontal size={17} style={{ color: "var(--nx-primary)" }} />
               <div>
-                <h2 className="nxi-card-title">Escopo global</h2>
+                <h3 className="nxi-card-title">Escopo global</h3>
                 <p className="nxi-card-sub">
                   Preferências pessoais salvas no seu perfil. Alertas flutuantes não alteram o histórico da central nem as permissões de acesso.
                 </p>
               </div>
             </div>
           </section>
+          </div>
 
           {currentUser && (
-            <section className="nxi-stack is-sm" aria-labelledby="privacy-rights-title">
-              <div><h2 id="privacy-rights-title" className="nxi-h2">Seus dados e privacidade</h2><p>Baixe uma cópia portátil dos dados pessoais da conta. A exclusão revoga as sessões, elimina o diretório pessoal e anonimiza o cadastro e a auditoria.</p></div>
+            <section className="nxi-stack is-sm" hidden={section !== "privacidade"} aria-label="Seus dados e privacidade">
               <div className="nx-card nxi-card-pad flex flex-wrap items-center gap-3">
                 <div className="nx-grow"><h3 className="nxi-card-title">Exportar meus dados</h3><p className="nxi-card-sub">Arquivo compactado com seus dados pessoais e manifesto de integridade.</p></div>
                 <Button onClick={() => void exportPersonalData()} disabled={exportingData}>
@@ -445,14 +468,15 @@ export default function SettingsDashboard({
               <div className="nx-card nxi-card-pad nxi-danger-card">
                 <h3 className="nxi-card-title" style={{ color: "var(--nx-danger)" }}>Excluir minha conta</h3>
                 <p className="nxi-card-sub">Ação permanente. Para confirmar, informe sua senha e digite EXCLUIR MINHA CONTA.</p>
-                <div className="nxi-cols" style={{ marginTop: 14 }}>
+                <form className="nxi-cols" style={{ marginTop: 14 }} autoComplete="off" onSubmit={event => event.preventDefault()}>
+                  <input type="text" name="username" autoComplete="username" value={currentUser.email || ""} readOnly hidden aria-hidden="true" tabIndex={-1} />
                   <label className="nxi-label">Senha atual
-                    <input type="password" autoComplete="current-password" className="nxi-field" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} />
+                    <input type="password" name="current-password" autoComplete="current-password" className="nxi-field" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} />
                   </label>
                   <label className="nxi-label">Digite EXCLUIR MINHA CONTA
-                    <input className="nxi-field" value={deletionConfirmation} onChange={event => setDeletionConfirmation(event.target.value)} />
+                    <input className="nxi-field" name="delete-confirmation" autoComplete="off" value={deletionConfirmation} onChange={event => setDeletionConfirmation(event.target.value)} />
                   </label>
-                </div>
+                </form>
                 <div className="nxi-actions is-end" style={{ marginTop: 14 }}>
                   <Button
                     variant="danger"
@@ -465,10 +489,8 @@ export default function SettingsDashboard({
               </div>
             </section>
           )}
-
-          {error && <p role="alert" className="nxi-alert is-error">{error}</p>}
-          {message && <p role="status" className="nxi-alert is-success">{message}</p>}
         </div>
+      </div>
     </section>
   );
 }

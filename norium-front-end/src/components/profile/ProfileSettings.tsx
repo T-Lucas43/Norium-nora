@@ -19,25 +19,26 @@ import {
 import Button from "../shared/Button";
 import EmailPreferences from "./EmailPreferences";
 import SessionDevices from "./SessionDevices";
+import AvatarImage from "./AvatarImage";
 import "../../styles/screens/inteligencia-equipe-conta.css";
+import SettingsNav, { storeSettingsSection } from "../settings/SettingsNav";
 
 type ProfileSettingsProps = {
   userId?: string;
   currentUser?: NoriumUser | null;
   onSaved: (profile: PerfilOperador) => void;
   onLogout?: () => void;
+  onOpenAdmin?: () => void;
+  onNavigate?: (tab: string) => void;
 };
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  return `${parts[0]?.[0] || "N"}${parts[1]?.[0] || ""}`.toUpperCase();
-}
 
 export default function ProfileSettings({
   userId = "primary",
   currentUser,
   onSaved,
   onLogout,
+  onOpenAdmin,
+  onNavigate,
 }: ProfileSettingsProps) {
   const [profile, setProfile] = useState<PerfilOperador>(createDefaultProfile);
   const [loading, setLoading] = useState(true);
@@ -106,12 +107,20 @@ export default function ProfileSettings({
 
   return (
     <section className="nx-page nxi-screen">
-      <header className="nx-ph">
+      <div className="nxi-cfg">
+      <SettingsNav
+        active="perfil"
+        showPrivacy={Boolean(currentUser)}
+        showAdmin={Boolean(currentUser?.systemAdmin && onOpenAdmin)}
+        onSelect={(next) => { if (next === "perfil") return; storeSettingsSection(next); onNavigate?.("Configurações"); }}
+      />
+      <div className="nxi-cfg-main">
+      <header className="nxi-cfg-head">
         <div>
-          <h1>Meu perfil</h1>
+          <h2 className="nxi-h2">Meu perfil</h2>
           <p>Como você aparece para a equipe e para os clientes.</p>
         </div>
-        <div className="nx-ph-actions">
+        <div className="nxi-actions">
           {onLogout && (
             <Button variant="danger" onClick={onLogout}>
               <LogOut size={16} />
@@ -141,12 +150,8 @@ export default function ProfileSettings({
             title="Escolher foto da galeria"
             aria-label="Escolher foto da galeria"
           >
-            {profile.fotoUrl ? (
-              <img src={profile.fotoUrl} alt="Foto do perfil" />
-            ) : (
-              initials(profile.nome)
-            )}
-            <span><Camera size={15} /></span>
+            <AvatarImage src={profile.fotoUrl} name={profile.nome} size={88} />
+            <span className="nxi-avatar-cam"><Camera size={15} /></span>
           </button>
           <div className="min-w-0 flex-1">
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, overflowWrap: "anywhere" }}>{profile.nome}</h2>
@@ -159,7 +164,7 @@ export default function ProfileSettings({
             <Button variant="primary" size="sm" onClick={() => photoInputRef.current?.click()}>
               Alterar foto
             </Button>
-            {profile.fotoUrl && (
+            {Boolean(profile.fotoUrl?.trim()) && (
               <Button size="sm" onClick={() => setProfile((current) => ({ ...current, fotoUrl: "" }))}>
                 Remover
               </Button>
@@ -175,6 +180,8 @@ export default function ProfileSettings({
               <input
                 value={profile.nome}
                 onChange={(event) => setProfile((current) => ({ ...current, nome: event.target.value }))}
+                name="nome"
+                autoComplete="name"
                 className="nxi-field"
               />
             </label>
@@ -209,6 +216,8 @@ export default function ProfileSettings({
                   value={profile.cep}
                   onChange={(event) => setProfile((current) => ({ ...current, cep: event.target.value }))}
                   placeholder="00000-000"
+                  name="cep"
+                  autoComplete="postal-code"
                 />
               </span>
             </label>
@@ -219,6 +228,9 @@ export default function ProfileSettings({
                 value={profile.fotoUrl}
                 onChange={(event) => setProfile((current) => ({ ...current, fotoUrl: event.target.value }))}
                 placeholder="https://... ou use Alterar foto"
+                type="url"
+                name="foto-url"
+                autoComplete="off"
                 className="nxi-field"
               />
             </label>
@@ -236,7 +248,9 @@ export default function ProfileSettings({
         {message && <p className="nxi-alert is-success">{message}</p>}
 
         <EmailPreferences key={userId} />
-        <SessionDevices key={`sessions:${userId}`} />
+        <SessionDevices key={`sessions:${userId}`} email={currentUser?.email} />
+      </div>
+      </div>
       </div>
     </section>
   );

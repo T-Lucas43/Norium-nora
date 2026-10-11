@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Eye, Lock, MessageCircle, Plus, RefreshCw, ShieldCheck, Target, Trash2, UserPlus } from "lucide-react";
 import "../../styles/screens/inteligencia-equipe-conta.css";
+import AvatarImage from "../profile/AvatarImage";
 import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
@@ -291,12 +292,12 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
               <span className="nxi-tile is-sm is-blue"><UserPlus size={16} /></span>
               <span><span className="block" style={{ color: "var(--nx-text)", fontWeight: 600, fontSize: 14 }}>Novo membro</span><span className="block nx-faint nx-small" style={{ fontWeight: 400 }}>Clique para cadastrar e liberar acessos.</span></span>
             </summary>
-            <div className="nxi-cols" style={{ marginTop: 16 }}>
-              <input value={form.nome} onChange={(event) => setForm({ ...form, nome: event.target.value })} placeholder="Nome" aria-label="Nome do novo membro" className="nxi-field" />
+            <form className="nxi-cols" style={{ marginTop: 16 }} autoComplete="off" onSubmit={(event) => event.preventDefault()}>
+              <input value={form.nome} onChange={(event) => setForm({ ...form, nome: event.target.value })} placeholder="Nome" aria-label="Nome do novo membro" autoComplete="off" className="nxi-field" />
               <select aria-label="Cargo do novo membro" value={form.jobRoleId} onChange={event=>{ const role=roles.find(r=>r.id===event.target.value); setForm({...form,jobRoleId:role?.id || '',jobTitle:role?.name || 'Membro',permissions:role ? {...role.permissions} : {...defaultMemberPermissions}}); }} className="nxi-field"><option value="">Acessos personalizados</option>{roles.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select>
-              <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="E-mail" aria-label="E-mail do novo membro" className="nxi-field" />
-              <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Senha inicial" aria-label="Senha inicial" className="nxi-field" />
-            </div>
+              <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="E-mail" aria-label="E-mail do novo membro" name="new-member-email" autoComplete="off" className="nxi-field" />
+              <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Senha inicial" aria-label="Senha inicial" name="new-member-password" autoComplete="new-password" className="nxi-field" />
+            </form>
             <MiniPermissionEditor permissions={form.permissions} onToggle={toggleFormPermission} full />
             <div className="nxi-actions is-end" style={{ marginTop: 16 }}>
               <button type="button" onClick={() => void createMember()} disabled={saving === "create"} className="nx-btn is-primary">
@@ -426,12 +427,7 @@ function TeamGoals({ storageKey }: { storageKey: string }) {
 }
 
 function MemberAvatar({ user, large = false }: { user: Pick<NoriumUser, "nome" | "fotoUrl">; large?: boolean }) {
-  const size = large ? "h-16 w-16 text-lg" : "h-8 w-8 text-xs";
-  if (user.fotoUrl) {
-    return <img src={user.fotoUrl} alt={`Foto de ${user.nome}`} className={`${size} shrink-0 rounded-full object-cover`} />;
-  }
-  const initials = user.nome.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "N";
-  return <span aria-label={`Foto de ${user.nome}`} className={`grid ${size} shrink-0 place-items-center rounded-full font-semibold`} style={{ background: "var(--nx-primary)", color: "#fff" }}>{initials}</span>;
+  return <AvatarImage src={user.fotoUrl} name={user.nome} size={large ? 64 : 32} />;
 }
 
 function Info({ label, value }: { label: string; value: string }) {

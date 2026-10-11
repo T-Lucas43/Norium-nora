@@ -242,8 +242,14 @@ export default function Header({
           <input
             ref={inputRef}
             type="search"
+            name="norium-busca"
             value={query}
             autoComplete="off"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            readOnly={!searchOpen}
+            onPointerDown={() => setSearchOpen(true)}
             aria-label="Buscar no Norium"
             placeholder="Buscar ou pedir algo à Nora…"
             onFocus={() => setSearchOpen(true)}

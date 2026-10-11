@@ -27,7 +27,7 @@ export default function ProfilePopover({
       <div className="nx-mail-popover-h">
         <div className="nx-mail-popover-av">
           {status?.picture ? (
-            <img src={status.picture} alt="Foto do perfil" />
+            <img src={status.picture} alt="Foto do perfil" onError={(event) => { event.currentTarget.style.display = "none"; }} />
           ) : (
             <span>{accountInitials(status)}</span>
           )}

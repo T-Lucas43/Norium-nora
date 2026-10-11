@@ -34,6 +34,28 @@ beforeEach(() => {
 });
 
 describe("openMessage", () => {
+  it("ignora a mensagem anterior quando uma leitura mais recente termina primeiro", async () => {
+    let resolveA!: (value: unknown) => void;
+    apiJson.mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve; }));
+    apiJson.mockResolvedValueOnce({ message: msg("b", { subject: "mais recente" }) });
+    const { hook } = setup();
+    let pendingA!: Promise<void>;
+    act(() => { pendingA = hook.result.current.openMessage(msg("a")); });
+    await act(async () => { await hook.result.current.openMessage(msg("b")); });
+    await act(async () => { resolveA({ message: msg("a") }); await pendingA; });
+    expect(hook.result.current.selectedMessage?.id).toBe("b");
+  });
+
+  it("fechar o leitor descarta a resposta ainda pendente", async () => {
+    let resolve!: (value: unknown) => void;
+    apiJson.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const { hook } = setup();
+    let pending!: Promise<void>;
+    act(() => { pending = hook.result.current.openMessage(msg("a")); });
+    act(() => { hook.result.current.setSelectedMessage(null); });
+    await act(async () => { resolve({ message: msg("a") }); await pending; });
+    expect(hook.result.current.selectedMessage).toBeNull();
+  });
   it("mostra a mensagem da lista antes da resposta e troca pela completa", async () => {
     apiJson.mockResolvedValue({ message: msg("a", { subject: "completo" }) });
     const { hook } = setup();

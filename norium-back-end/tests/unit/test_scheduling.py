@@ -49,6 +49,29 @@ class SchedulingTests(unittest.TestCase):
         self.assertIn(8, hours); self.assertIn(14, hours)
         self.assertNotIn(12, hours); self.assertNotIn(13, hours)
 
+    def test_custom_public_texts_are_validated_persisted_and_updated(self):
+        scope = ("tenant-a", "primary", "user-a")
+        item = self.scheduling.create_service(scope, ServicePayload(name="Manutenção", durations=[45]))
+        page = self.scheduling.create_page(scope, PagePayload(serviceId=item["id"], title="Agende seu serviço",
+            theme={"introTitle": "Agende a manutenção.", "serviceLabel": "Seu serviço", "closingNote": ""}))
+        public = self.scheduling.public_page(page["public_id"])
+        self.assertEqual(public["page"]["theme"]["introTitle"], "Agende a manutenção.")
+        self.assertEqual(public["service"]["durations"], [45])
+        self.scheduling.update_page(scope, page["id"], PagePayload(serviceId=item["id"], title="Agende seu serviço",
+            theme={"introTitle": "Novo título", "closingNote": "Até breve."}))
+        self.assertEqual(self.scheduling.public_page(page["public_id"])["page"]["theme"]["closingNote"], "Até breve.")
+        for invalid in ({"introTitle": "x" * 161}, {"closingNote": ["texto"]}, {"primary": "azul"}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                PagePayload(serviceId=item["id"], title="Serviço", theme=invalid)
+
+    def test_fixed_service_duration_cannot_be_changed_by_public_client(self):
+        scope = ("tenant-a", "primary", "user-a")
+        item = self.scheduling.create_service(scope, ServicePayload(name="Serviço fixo", durations=[45]))
+        page = self.scheduling.create_page(scope, PagePayload(serviceId=item["id"], title="Serviço fixo"))
+        with self.assertRaises(HTTPException) as error:
+            self.scheduling.available_slots(page["public_id"], self.next_monday_at(8).date(), 30)
+        self.assertEqual(error.exception.status_code, 422)
+
     def test_tenant_and_user_ownership_is_enforced(self):
         item, _page = self.configured()
         with self.assertRaises(HTTPException) as error:

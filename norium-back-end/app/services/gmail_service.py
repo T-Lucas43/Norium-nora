@@ -35,6 +35,7 @@ from app.core.tenant import (
 from app.core.credentials import CredentialConfigurationError, CredentialRecoveryError
 from app.services import oauth_credentials
 from app.services.oauth_state import active_oauth_attempts, find_oauth_attempt, oauth_attempts_payload
+from app.services.gmail_read_limits import execute_read, raise_if_throttled, reserve_read
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -281,7 +282,7 @@ class GmailService:
         if page_token:
             params["pageToken"] = page_token
 
-        result = service.users().messages().list(**params).execute()
+        result = execute_read(self.user_id, service.users().messages().list(**params), 5)
         items = result.get("messages", [])
         message_details = self._execute_batch(
             service,
@@ -323,15 +324,15 @@ class GmailService:
             params["q"] = " ".join(query_parts)
         if page_token:
             params["pageToken"] = page_token
-        return self._service().users().messages().list(**params).execute()
+        return execute_read(self.user_id, self._service().users().messages().list(**params), 5)
 
     def get_message(self, message_id: str) -> dict[str, Any]:
-        message = self._service().users().messages().get(userId="me", id=message_id, format="full").execute()
+        message = execute_read(self.user_id, self._service().users().messages().get(userId="me", id=message_id, format="full"))
         return {"message": self._normalize_message(message, detail=True)}
 
     def get_message_for_analysis(self, message_id: str, *, include_body: bool = False) -> dict[str, Any]:
         """Read bounded text without fetching attachment IDs or rendering remote HTML."""
-        raw = self._service().users().messages().get(userId="me", id=message_id, format="full" if include_body else "metadata").execute()
+        raw = execute_read(self.user_id, self._service().users().messages().get(userId="me", id=message_id, format="full" if include_body else "metadata"))
         message = self._normalize_message(raw)
         plain, fallback_html = [], []
         def visit(part):
@@ -546,17 +547,29 @@ class GmailService:
             return []
 
         responses: dict[int, dict[str, Any]] = {}
+        failures: list[Exception] = []
 
         def callback(request_id: str, response: dict[str, Any] | None, exception: Exception | None) -> None:
             if exception is None and response:
                 responses[int(request_id)] = response
+            elif exception is not None:
+                failures.append(exception)
 
         try:
-            batch = service.new_batch_http_request(callback=callback)
-            for index, item in enumerate(items):
-                batch.add(request_factory(item), request_id=str(index))
-            batch.execute()
-        except Exception:
+            for start in range(0, len(items), 20):
+                chunk = items[start:start + 20]
+                reserve_read(self.user_id, 20 * len(chunk), background=True)
+                batch = service.new_batch_http_request(callback=callback)
+                for index, item in enumerate(chunk, start):
+                    batch.add(request_factory(item), request_id=str(index))
+                batch.execute()
+                for failure in failures:
+                    raise_if_throttled(self.user_id, failure)
+        except Exception as error:
+            from app.services.gmail_read_limits import GmailRateLimitError
+            if isinstance(error, GmailRateLimitError):
+                raise
+            raise_if_throttled(self.user_id, error)
             responses.clear()
 
         # Uma falha pontual no lote nao deve esvaziar a caixa inteira.
@@ -564,8 +577,12 @@ class GmailService:
             if index in responses:
                 continue
             try:
-                responses[index] = request_factory(item).execute()
-            except Exception:
+                responses[index] = execute_read(self.user_id, request_factory(item))
+            except Exception as error:
+                from app.services.gmail_read_limits import GmailRateLimitError
+                if isinstance(error, GmailRateLimitError):
+                    raise
+                raise_if_throttled(self.user_id, error)
                 continue
 
         return [responses[index] for index in range(len(items)) if index in responses]

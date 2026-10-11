@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import PublicSchedulingPage from "./PublicSchedulingPage";
+import PublicSchedulingPage, { localDateKey } from "./PublicSchedulingPage";
 import { schedulingApi, type SlotsResponse } from "../../features/scheduling/api";
 
 vi.mock("../../features/scheduling/api", () => ({
@@ -26,6 +26,57 @@ describe("PublicSchedulingPage", () => {
     vi.clearAllMocks();
     vi.mocked(schedulingApi.publicPage).mockResolvedValue({ page, service });
     vi.mocked(schedulingApi.slotsCached).mockResolvedValue({ slots: [slotA], calendarVerified: true });
+  });
+
+  it("mostra os textos personalizados e permite ocultar a mensagem complementar", async () => {
+    vi.mocked(schedulingApi.publicPage).mockResolvedValue({ page: { ...page,
+      title: "Manutenção preventiva", description: "Atendimento especializado.",
+      theme: { introEyebrow: "Cuide do seu equipamento", introTitle: "Agende a manutenção.",
+        introDescription: "Escolha uma data disponível.", serviceLabel: "Serviço contratado", closingNote: "" } }, service });
+    render(<PublicSchedulingPage identifier="public-1"/>);
+    expect(await screen.findByRole("heading", { name: "Agende a manutenção." })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Manutenção preventiva" })).toBeInTheDocument();
+    expect(screen.getByText("Serviço contratado")).toBeInTheDocument();
+    expect(screen.getByText("Escolha uma data disponível.")).toBeInTheDocument();
+    expect(document.querySelector(".booking-service-note")).toBeNull();
+  });
+
+  it("usa a duração fixa cadastrada no serviço sem oferecer outra duração", async () => {
+    vi.mocked(schedulingApi.publicPage).mockResolvedValue({ page, service: { ...service, durations: [45] } });
+    const fixedSlot = { ...slotA, endAt: "2026-10-01T12:45:00+00:00" };
+    vi.mocked(schedulingApi.slotsCached).mockResolvedValue({ slots: [fixedSlot], calendarVerified: true });
+    vi.mocked(schedulingApi.book).mockResolvedValue({ booking: { public_id: "bk-fixed", status: "CONFIRMED" }, cancelToken: "c", rescheduleToken: "r" });
+    const user = userEvent.setup();
+    render(<PublicSchedulingPage identifier="public-1"/>);
+    expect(await screen.findByText("Duração do serviço: 45 minutos")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "30 min" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "60 min" })).not.toBeInTheDocument();
+    await waitFor(() => expect(schedulingApi.slotsCached).toHaveBeenCalledWith("public-1", expect.any(String), 45, expect.anything(), "", "service-1"));
+    await user.click(await screen.findByRole("button", { name: /09:00|12:00/ }));
+    await user.type(screen.getByLabelText(/Nome completo/), "Cliente sintético");
+    await user.type(screen.getByLabelText(/E-mail/), "cliente@example.invalid");
+    await user.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    await waitFor(() => expect(schedulingApi.book).toHaveBeenCalledWith("public-1", expect.objectContaining({ duration: 45 })));
+  });
+
+  it("apresenta a identidade Norium e calendário com seleção acessível", async () => {
+    render(<PublicSchedulingPage identifier="public-1"/>);
+    expect(await screen.findByRole("group", { name: "Calendário de datas" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Etapas do agendamento" })).toBeInTheDocument();
+    expect(screen.getAllByAltText("Norium")).toHaveLength(2);
+    expect(screen.getByLabelText("Escolha a data")).toHaveAttribute("min", localDateKey(new Date()));
+  });
+
+  it("alterna tema sem alterar data e serviço", async () => {
+    const user = userEvent.setup();
+    render(<PublicSchedulingPage identifier="public-1"/>);
+    await screen.findByRole("group", { name: "Calendário de datas" });
+    const before = (screen.getByLabelText("Escolha a data") as HTMLInputElement).value;
+    await user.click(screen.getByRole("button", { name: "Usar tema escuro" }));
+    expect(screen.getByRole("main")).toHaveClass("booking-dark");
+    expect(screen.getByLabelText("Escolha a data")).toHaveValue(before);
+    await user.click(screen.getByRole("button", { name: "Usar tema claro" }));
+    expect(screen.getByRole("main")).not.toHaveClass("booking-dark");
   });
 
   it("shows a skeleton while loading slots, then the times", async () => {

@@ -4,6 +4,11 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 
 ## [Não publicado] — branch `feat/fase1-seguranca-voz`
 
+- fix(agendamentos): rota pública `/agendar/:slug` abre antes da sessão do painel e preserva links compartilhados, mesmo para quem já está conectado.
+- feat(agendamentos): nova página pública com calendário mensal, horários, resumo da reserva, logo oficial, temas claro/escuro, campos acessíveis e layout para celular.
+- feat(agendamentos): textos de boas-vindas e do serviço editáveis com prévia ao vivo; tempo fixo segue o cadastro do serviço, sem oferecer durações não cadastradas.
+- fix(gmail): paginação progressiva com intervalo e recuo em limite do Google; lotes pequenos e teto de leituras por conta impedem repetição em massa; leitor exibe nova tentativa sem confundir resumo com corpo completo.
+
 - ci(shard): transfere o arquivo original da imagem auditada em partes limitadas, com hashes e todos os gates conferidos; sem reconstrução ou acesso à VPS pelo workflow.
 - ci(shard): opção separada para exportar a mesma imagem auditada ao painel Shard, sem iniciar deploy SSH; orientação atual do responsável é publicação manual pela Shard.
 - fix(imagem): exclui o binário opcional Pebble herdado da base, sem uso pelo comando Uvicorn, após três HIGH de Go 1.26.7 no CI; mantém FFmpeg, Chrome, metadados e gates sem supressões.

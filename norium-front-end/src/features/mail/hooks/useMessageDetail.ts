@@ -1,4 +1,5 @@
-import { useCallback, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction, type MutableRefObject } from "react";
+import { requestScope } from "../../../core/api/sessionScope";
 import { mailApiRequest as apiJson } from "../api";
 import { clearMailboxCacheForUser } from "../mailboxCache";
 import type { GmailMessage, MailboxSnapshot } from "../types";
@@ -31,9 +32,20 @@ export function useMessageDetail({
   onRefreshLabels,
   onActionStart,
 }: UseMessageDetailOptions) {
-  const [selectedMessage, setSelectedMessage] = useState<GmailMessage | null>(null);
+  const [selectedMessage, setSelectedMessageState] = useState<GmailMessage | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const requestRevision = useRef(0);
+  const setSelectedMessage: Dispatch<SetStateAction<GmailMessage | null>> = useCallback((value) => {
+    requestRevision.current += 1;
+    setSelectedMessageState(value); setDetailError(""); setDetailLoading(false);
+  }, []);
+  useEffect(() => {
+    requestRevision.current += 1;
+    setSelectedMessageState(null); setDetailError(""); setDetailLoading(false);
+    return () => { requestRevision.current += 1; };
+  }, [userId, currentMailboxKey]);
 
   /** Marca como lida na lista, no cache e no servidor (sem bloquear a leitura). */
   const markReadLocally = useCallback((messageId: string) => {
@@ -52,17 +64,24 @@ export function useMessageDetail({
   }, [cacheRef, currentMailboxKey, setMessages, userId]);
 
   const openMessage = useCallback(async (message: GmailMessage) => {
-    setSelectedMessage(message);
+    const revision = ++requestRevision.current;
+    const scope = requestScope();
+    const current = () => revision === requestRevision.current && scope === requestScope();
+    setSelectedMessageState(message);
     setDetailLoading(true);
+    setDetailError("");
     onError("");
     try {
       const data = await apiJson<{ message: GmailMessage }>(`/api/emails/gmail/messages/${message.id}?user_id=${userId}`);
-      setSelectedMessage(data.message);
+      if (!current()) return;
+      setSelectedMessageState(data.message);
       if (message.unread) markReadLocally(message.id);
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Nao consegui abrir este e-mail.");
+      if (!current()) return;
+      const message = err instanceof Error ? err.message : "Não consegui abrir este e-mail.";
+      setDetailError(message); onError(message);
     } finally {
-      setDetailLoading(false);
+      if (current()) setDetailLoading(false);
     }
   }, [markReadLocally, onError, userId]);
 
@@ -74,11 +93,15 @@ export function useMessageDetail({
       return;
     }
 
-    setDetailLoading(true);
+    const revision = ++requestRevision.current;
+    const scope = requestScope();
+    const current = () => revision === requestRevision.current && scope === requestScope();
+    setSelectedMessageState(null); setDetailError(""); setDetailLoading(true);
     onError("");
     try {
       const data = await apiJson<{ message: GmailMessage }>(`/api/emails/gmail/messages/${messageId}?user_id=${userId}`);
-      setSelectedMessage(data.message);
+      if (!current()) return;
+      setSelectedMessageState(data.message);
       if (data.message?.unread) {
         void apiJson(`/api/emails/gmail/messages/${messageId}`, {
           method: "PATCH",
@@ -86,9 +109,11 @@ export function useMessageDetail({
         }).catch(() => undefined);
       }
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Nao consegui abrir este e-mail.");
+      if (!current()) return;
+      const message = err instanceof Error ? err.message : "Não consegui abrir este e-mail.";
+      setDetailError(message); onError(message);
     } finally {
-      setDetailLoading(false);
+      if (current()) setDetailLoading(false);
     }
   }, [messages, onError, openMessage, userId]);
 
@@ -104,15 +129,15 @@ export function useMessageDetail({
 
       if (REMOVING_ACTIONS.includes(action) || closeAfter) {
         setMessages((prev) => prev.filter((message) => message.id !== messageId));
-        setSelectedMessage((prev) => (prev?.id === messageId ? null : prev));
+        setSelectedMessageState((prev) => (prev?.id === messageId ? null : prev));
       } else if (action === "star" || action === "unstar") {
         const starred = action === "star";
         setMessages((prev) => prev.map((message) => (message.id === messageId ? { ...message, starred } : message)));
-        setSelectedMessage((prev) => (prev?.id === messageId ? { ...prev, starred } : prev));
+        setSelectedMessageState((prev) => (prev?.id === messageId ? { ...prev, starred } : prev));
       } else if (action === "important" || action === "unimportant") {
         const important = action === "important";
         setMessages((prev) => prev.map((message) => (message.id === messageId ? { ...message, important } : message)));
-        setSelectedMessage((prev) => (prev?.id === messageId ? { ...prev, important } : prev));
+        setSelectedMessageState((prev) => (prev?.id === messageId ? { ...prev, important } : prev));
       } else {
         onRefreshMessages();
       }
@@ -135,6 +160,7 @@ export function useMessageDetail({
     selectedIds,
     setSelectedIds,
     detailLoading,
+    detailError,
     openMessage,
     openMessageById,
     runMessageAction,

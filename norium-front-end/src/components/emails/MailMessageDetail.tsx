@@ -89,6 +89,8 @@ type MailMessageDetailProps = {
   message: GmailMessage;
   labelById: Map<string, GmailLabel>;
   loading: boolean;
+  error?: string;
+  onRetry?: () => void;
   fullscreen: boolean;
   menuOpen: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -106,6 +108,8 @@ export default function MailMessageDetail({
   message,
   labelById,
   loading,
+  error,
+  onRetry,
   fullscreen,
   menuOpen,
   scrollRef,
@@ -289,7 +293,7 @@ export default function MailMessageDetail({
               </div>
 
               <div className="nx-mail-content">
-                {message.bodyHtml ? (
+                {error ? <div className="nx-mail-state" role="alert"><p>{error}</p><button type="button" className="nx-btn is-sm" onClick={onRetry}>Tentar novamente</button></div> : message.bodyHtml ? (
                   <ResponsiveEmailFrame html={message.bodyHtml} />
                 ) : (
                   <div className="nx-mail-text">
@@ -321,7 +325,7 @@ export default function MailMessageDetail({
                 </div>
               )}
 
-              {replyBox}
+              {!error && replyBox}
             </>
           )}
         </div>

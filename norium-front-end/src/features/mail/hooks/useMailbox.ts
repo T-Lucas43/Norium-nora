@@ -2,19 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { mailApiRequest as apiJson } from "../api";
 import { mailboxCacheKey, mailboxSessionCache } from "../mailboxCache";
 import { requestScope } from "../../../core/api/sessionScope";
+import { MAIL_SYNC_PAGE_DELAY_MS, waitForMailRead as sleep } from "../readPacing";
 import { buildMessagesPath } from "../queryBuilder";
 import type { GmailMessage, MailQuickFilter, MailboxSnapshot, MailboxSyncState, MessageListResponse } from "../types";
 import { initialMailboxSyncState } from "../types";
 
-/** Pastas pre-carregadas em segundo plano para a troca de caixa parecer instantanea. */
-const PREFETCH_FOLDERS = ["sent", "drafts", "scheduled", "starred", "important", "spam", "trash"];
-const PREFETCH_DELAY_MS = 700;
 const AUTO_REFRESH_MS = 120_000;
 const SYNC_RETRY_DELAY_MS = 800;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function isQuotaError(err: unknown) {
   const status = (err as { status?: number } | null)?.status;
@@ -140,6 +134,7 @@ export function useMailbox({
 
         if (activeKeyRef.current === requestKey) {
           setMessages(snapshot.messages);
+          setLoading(false);
           setNextPageToken(snapshot.nextPageToken);
           setResultSize(snapshot.resultSize);
         }
@@ -165,19 +160,24 @@ export function useMailbox({
     if (shouldShowLoader) setLoading(true);
     setSyncState({ active: true, loaded: 0, estimated: 0, done: false, error: null });
     const collected = new Map<string, GmailMessage>();
-    let pageToken: string | null | undefined;
+    const partial = cacheRef.current.get(requestKey);
+    if (partial && !partial.complete) for (const message of partial.messages) collected.set(message.id, message);
+    let pageToken: string | null | undefined = partial && !partial.complete ? partial.nextPageToken : undefined;
     let estimated = 0;
     try {
       for (;;) {
         if (isStale()) return;
         let data: MessageListResponse;
-        try {
-          data = await fetchPage({ key: requestKey, folder, filter, query: searchQuery, pageToken });
-        } catch (err) {
-          if (isStale() || isQuotaError(err)) throw err;
-          await sleep(SYNC_RETRY_DELAY_MS);
-          if (isStale()) return;
-          data = await fetchPage({ key: requestKey, folder, filter, query: searchQuery, pageToken });
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            data = await fetchPage({ key: requestKey, folder, filter, query: searchQuery, pageToken });
+            break;
+          } catch (err) {
+            if (isStale() || attempt >= (isQuotaError(err) ? 2 : 1)) throw err;
+            // Leitura em segundo plano cede espaço ao e-mail aberto e à conta ativa.
+            await sleep(isQuotaError(err) ? 30_000 * 2 ** attempt : SYNC_RETRY_DELAY_MS);
+            if (isStale()) return;
+          }
         }
         if (isStale()) return;
         for (const message of data.messages || []) collected.set(message.id, message);
@@ -195,10 +195,12 @@ export function useMailbox({
           setNextPageToken(snapshot.nextPageToken);
           setResultSize(snapshot.resultSize);
           setSyncState({ active: true, loaded: collected.size, estimated, done: false, error: null });
+          setLoading(false);
         }
         onStatusPayloadRef.current(data);
         if (!data.nextPageToken) break;
         pageToken = data.nextPageToken;
+        await sleep(MAIL_SYNC_PAGE_DELAY_MS);
       }
       if (!isStale() && activeKeyRef.current === requestKey) {
         setSyncState({ active: false, loaded: collected.size, estimated, done: true, error: null });
@@ -261,23 +263,8 @@ export function useMailbox({
     }
   }, [fetchPage, userId]);
 
-  // Pre-carrega as demais pastas pouco depois de conectar.
-  useEffect(() => {
-    if (!connected) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        for (const target of PREFETCH_FOLDERS) {
-          if (cancelled) return;
-          await prefetchMailbox(target);
-        }
-      })();
-    }, PREFETCH_DELAY_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [connected, prefetchMailbox]);
+  // Pastas são carregadas quando abertas. Aquecer sete caixas em paralelo com
+  // a paginação gastava a cota necessária para abrir o corpo de uma mensagem.
 
   // Carrega a caixa atual com sincronização progressiva; caixas completas em
   // cache não refazem I/O. A atualização automática fica em efeito separado.
@@ -299,7 +286,7 @@ export function useMailbox({
       setResultSize(0);
     }
     void syncMailbox();
-    return undefined;
+    return () => { syncGenerationRef.current += 1; };
   }, [connected, currentMailboxKey, syncMailbox]);
 
   // Atualização automática barata: primeira página mesclada ao que está em

@@ -257,7 +257,10 @@ async def create_nora_memory(
     payload: NoraMemoryCreate,
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    return {"item": await save_nora_memory(user, payload)}
+    try:
+        return {"item": await save_nora_memory(user, payload)}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.delete("/memoria-nora/{memory_id}")

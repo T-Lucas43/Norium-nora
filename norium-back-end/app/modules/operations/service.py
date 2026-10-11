@@ -95,7 +95,16 @@ async def list_nora_memory(user: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(unique.values(), key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
 
 
+def can_write_team_memory(user: dict[str, Any]) -> bool:
+    """Memória da equipe entra no contexto de todos; só quem gerencia a equipe grava."""
+    from app.routers.auth_router import can_manage_team
+
+    return can_manage_team(user)
+
+
 async def save_nora_memory(user: dict[str, Any], payload: NoraMemoryCreate) -> dict[str, Any]:
+    if payload.scope == "team" and not can_write_team_memory(user):
+        raise PermissionError("Somente quem gerencia a equipe pode salvar preferências para a equipe. Salve como pessoal.")
     owner_id = _memory_owner_id(user, payload.scope)
     items = await list_items(owner_id, MEMORY_DB)
     normalized_key = _search_text(payload.key).strip()

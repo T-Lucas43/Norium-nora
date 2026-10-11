@@ -429,11 +429,11 @@
   color: #fff;
   box-shadow: 0 10px 26px rgba(37, 99, 235, .2);
 }
-.client-nora-card p { color: color-mix(in srgb, var(--primary) 82%, #06b6d4); font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
-.client-nora-card h3 { margin-top: 3px; font-size: 15px; font-weight: 900; }
+.client-nora-card p { color: color-mix(in srgb, var(--primary) 82%, #06b6d4); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.client-nora-card h3 { margin-top: 3px; font-size: 15px; font-weight: 700; }
 .client-nora-card small { display: block; margin-top: 3px; color: var(--text-secondary); font-size: 11px; font-weight: 650; line-height: 1.45; }
 .client-nora-card div > div { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
-.client-nora-card button { border: 1px solid var(--border); border-radius: 999px; padding: 6px 9px; background: var(--surface); color: var(--text); font-size: 10px; font-weight: 800; }
+.client-nora-card button { border: 1px solid var(--border); border-radius: 999px; padding: 6px 9px; background: var(--surface); color: var(--text); font-size: 10px; font-weight: 650; }
 .client-nora-card button:hover { border-color: color-mix(in srgb, var(--primary) 52%, var(--border)); background: var(--surface-hover); }
 .client-details-grid {
   display: grid;

@@ -1,0 +1,129 @@
+/*
+ * Layout v2 (Fases 3 e 4): estrutura do app no padrao do novo layout.
+ * So muda aparencia e espacamento; nenhuma tela, item ou acao e removida ou escondida.
+ */
+
+/* Menu lateral */
+.norium-sidebar {
+  width: 240px;
+  flex-basis: 240px;
+  background: var(--surface);
+}
+
+.dark .norium-sidebar {
+  background: var(--surface);
+}
+
+.norium-sidebar-brand {
+  min-height: 76px;
+  padding: 16px 16px 10px;
+}
+
+.norium-sidebar-navigation {
+  gap: 2px;
+  padding: 4px 10px 12px;
+}
+
+.norium-sidebar-item {
+  min-height: 36px;
+  gap: 10px;
+  border-radius: var(--norium-radius);
+  padding: 7px 10px;
+}
+
+.norium-sidebar-item-label {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.norium-sidebar-item.is-active {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--norium-accent) 12%, transparent);
+  box-shadow: none;
+  color: var(--norium-accent-strong);
+}
+
+.norium-sidebar-item.is-active .norium-sidebar-item-label {
+  font-weight: 600;
+}
+
+.norium-sidebar-group-toggle {
+  min-height: 36px;
+  border-radius: var(--norium-radius);
+  padding: 7px 10px;
+}
+
+.norium-sidebar-group-toggle:hover,
+.norium-sidebar-group-toggle[aria-expanded="true"] {
+  border-color: transparent;
+}
+
+.norium-sidebar-group-toggle > span:nth-child(2) {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.norium-sidebar-group-items {
+  gap: 1px;
+  margin: 0 0 4px 20px;
+}
+
+.norium-sidebar-group-items .norium-sidebar-item {
+  min-height: 32px;
+  padding-block: 6px;
+}
+
+.norium-sidebar-item.is-nora {
+  min-height: 40px;
+}
+
+.norium-sidebar-item.is-nora .norium-sidebar-item-icon {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+}
+
+.norium-sidebar-nora-avatar {
+  width: 26px;
+  height: 26px;
+}
+
+/* Ícones: traço mais fino em todo o app e tom suave (sem aparência de negrito) */
+svg.lucide {
+  stroke-width: 1.6;
+}
+
+.norium-sidebar-item-icon,
+.norium-sidebar-group-icon,
+.norium-sidebar-channel-icon {
+  color: color-mix(in srgb, var(--text-secondary) 85%, transparent);
+}
+
+:root:not(.dark) .norium-sidebar-item-icon,
+:root:not(.dark) .norium-sidebar-group-icon,
+:root:not(.dark) .norium-sidebar-channel-icon {
+  color: #8b909b;
+}
+
+.norium-sidebar-item.is-active .norium-sidebar-item-icon,
+.norium-sidebar-item.is-active .norium-sidebar-channel-icon,
+.norium-sidebar-group-toggle.has-active-item .norium-sidebar-group-icon {
+  color: var(--norium-accent);
+}
+
+/* Painel: botão principal sólido e legível nos dois temas */
+.norium-dashboard-hero-actions button {
+  min-height: 36px;
+  border-radius: var(--norium-radius);
+  font-weight: 500;
+}
+
+.norium-dashboard-hero-actions button.is-primary {
+  border-color: var(--norium-accent);
+  background: var(--norium-accent);
+  color: #fff;
+}
+
+.norium-dashboard-hero-actions button.is-primary:hover {
+  background: color-mix(in srgb, var(--norium-accent) 88%, #000);
+}

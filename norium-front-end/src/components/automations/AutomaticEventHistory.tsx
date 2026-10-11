@@ -16,11 +16,11 @@ export default function AutomaticEventHistory({ automations }: { automations: Au
       } catch { if (alive) setError("Não foi possível consultar os disparos automáticos."); }
     }
     void load();
-    const timer = window.setInterval(() => void load(), 10000);
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 30000);
     return () => { alive = false; window.clearInterval(timer); };
   }, [refresh]);
   return <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex items-center justify-between gap-3"><h2 className="font-bold">Disparos por eventos</h2><button className="text-xs text-[var(--primary)]" onClick={() => setRefresh(value => value + 1)}>Atualizar</button></div>
-    <p className="mt-2 text-xs text-[var(--text-secondary)]">Atualização a cada 10 segundos. Envios com falha ou interrupção não são repetidos automaticamente.</p>
+    <p className="mt-2 text-xs text-[var(--text-secondary)]">Atualização a cada 30 segundos. Envios com falha ou interrupção não são repetidos automaticamente.</p>
     {error && <p role="alert" className="mt-3 text-xs text-[var(--danger)]">{error}</p>}
     {!error && !jobs.length && <p className="mt-4 text-sm text-[var(--text-secondary)]">Nenhum evento disparou uma automação ainda.</p>}
     <div className="mt-3 max-h-80 space-y-2 overflow-auto">{jobs.map(job => <article key={job.id} className="rounded-lg border border-[var(--border)] p-3"><strong className="block text-sm">{automations.find(item => item.id === job.automation_id)?.name || "Automação removida"}</strong><span className="text-xs text-[var(--primary)]">{labels[job.status] || job.status}</span><p className="text-xs text-[var(--text-secondary)]">{new Date(job.created_at).toLocaleString("pt-BR")}</p>{job.error && <p className="mt-1 text-xs text-[var(--danger)]">{job.error}</p>}</article>)}</div>

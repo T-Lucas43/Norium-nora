@@ -74,22 +74,22 @@ describe("ReleaseBadge", () => {
     expect(screen.getByRole("status")).toHaveTextContent("abcdef0");
   });
 
-  it("consulta a cada minuto e pausa quando a aba está oculta", async () => {
+  it("consulta a cada 10 minutos e pausa quando a aba está oculta", async () => {
     vi.useFakeTimers();
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     const view = render(<ReleaseBadge />);
     await act(async () => { await Promise.resolve(); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await act(async () => { vi.advanceTimersByTime(60_000); });
+    await act(async () => { vi.advanceTimersByTime(600_000); });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     visibility.mockReturnValue("hidden");
-    await act(async () => { vi.advanceTimersByTime(60_000); });
+    await act(async () => { vi.advanceTimersByTime(600_000); });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     visibility.mockReturnValue("visible");
     await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     view.unmount();
-    await act(async () => { vi.advanceTimersByTime(60_000); });
+    await act(async () => { vi.advanceTimersByTime(600_000); });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     visibility.mockRestore();
   });

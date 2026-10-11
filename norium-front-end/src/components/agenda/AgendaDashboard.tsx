@@ -194,7 +194,8 @@ export default function AgendaDashboard({ userId = "primary" }: { userId?: strin
 
   useEffect(() => {
     void carregarEventos();
-    const timer = window.setInterval(() => void carregarEventos(true), 15000);
+    // Economia de banda e de cota do Google: atualiza a cada 90s e só com a aba visível.
+    const timer = window.setInterval(() => { if (!document.hidden) void carregarEventos(true); }, 90_000);
     return () => window.clearInterval(timer);
   }, [carregarEventos]);
 

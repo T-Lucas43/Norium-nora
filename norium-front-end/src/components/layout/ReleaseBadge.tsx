@@ -70,7 +70,8 @@ export default function ReleaseBadge() {
     }
 
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 60_000);
+    // A versão muda só em publicação: consulta a cada 10 min e ao voltar para a aba.
+    const interval = window.setInterval(() => void refresh(), 600_000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {

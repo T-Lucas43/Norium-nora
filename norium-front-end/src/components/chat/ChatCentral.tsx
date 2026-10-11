@@ -674,7 +674,8 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     }
 
     void checarAutenticacao();
-    const intervalo = window.setInterval(() => void checarAutenticacao(), 12_000);
+    // Economia de banda: a sessão muda raramente; não consulta com a aba oculta.
+    const intervalo = window.setInterval(() => { if (!document.hidden) void checarAutenticacao(); }, 30_000);
     return () => {
       active = false;
       window.clearInterval(intervalo);
@@ -723,7 +724,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     };
 
     void atualizarQrCode();
-    const interval = window.setInterval(() => void atualizarQrCode(), 3000);
+    const interval = window.setInterval(() => { if (!document.hidden) void atualizarQrCode(); }, 4000);
     return () => {
       active = false;
       window.clearInterval(interval);
@@ -737,7 +738,8 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         void carregarConversasDoBackend(true, false, false);
       }
     };
-    const intervaloChats = window.setInterval(atualizarSeVisivel, 3_000);
+    // Mensagens novas chegam pelo evento em tempo real (norium:whatsapp-event); isto é só a reserva.
+    const intervaloChats = window.setInterval(atualizarSeVisivel, 30_000);
     document.addEventListener("visibilitychange", atualizarSeVisivel);
     return () => {
       window.clearInterval(intervaloChats);
@@ -766,7 +768,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       if (!document.hidden) void carregarStatusDoBackend(false, true);
     };
     void atualizarStatusVisivel();
-    const interval = window.setInterval(atualizarStatusVisivel, 3_000);
+    const interval = window.setInterval(atualizarStatusVisivel, 30_000);
     return () => window.clearInterval(interval);
   }, [isActive, canaisStatus.whatsapp?.conectado, carregarStatusDoBackend, secaoWhatsApp]);
 

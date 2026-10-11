@@ -1,6 +1,8 @@
 import {
   BrainCircuit,
   BriefcaseBusiness,
+  CalendarDays,
+  ChartPie,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -10,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import BrandLogo from "./BrandLogo";
@@ -45,13 +47,29 @@ type SidebarProps = {
 const NORA_ENTRY = "Nora";
 const PRIMARY_ENTRIES = ["Dashboard", NORA_ENTRY];
 
+// Todas as telas continuam no menu, cada uma separada; só a organização dos grupos mudou.
 const NAVIGATION_GROUPS: NavigationGroup[] = [
-  { label: "Início", icon: House, items: ["Controle", "Central"] },
-  { label: "Comunicação", icon: MessagesSquare, items: ["E-mails", "Modelos de mensagens", "Agenda", "Agendamentos", "Chat", "Chat da Equipe"] },
-  { label: "Trabalho", icon: BriefcaseBusiness, items: ["Tarefas", "Financeiro", "Documentos", "PDF Studio", "Clientes"] },
-  { label: "Inteligência", icon: BrainCircuit, items: ["Automações", "Relatórios", "Agente Navegador", "Conhecimento", "Marketplace", "IA e Modelos"] },
-  { label: "Equipe", icon: UsersRound, items: ["Equipe", "Estúdio", "Governanca", "Mais"] },
+  { label: "Início", icon: House, items: ["Central", "Controle"] },
+  { label: "Comunicação", icon: MessagesSquare, items: ["Chat", "E-mails", "Modelos de mensagens", "Chat da Equipe"] },
+  { label: "Agenda", icon: CalendarDays, items: ["Agenda", "Agendamentos"] },
+  { label: "Trabalho", icon: BriefcaseBusiness, items: ["Tarefas", "Clientes", "Documentos", "PDF Studio", "Estúdio"] },
+  { label: "Gestão", icon: ChartPie, items: ["Financeiro", "Automações", "Relatórios"] },
+  { label: "Inteligência", icon: BrainCircuit, items: ["Conhecimento", "Agente Navegador", "Marketplace", "IA e Modelos"] },
+  { label: "Equipe", icon: UsersRound, items: ["Equipe", "Governanca", "Mais"] },
 ];
+
+// Rótulo exibido (a chave da tela continua a mesma para rotas e permissões).
+const DISPLAY_LABELS: Record<string, string> = {
+  Chat: "Conversas (WhatsApp)",
+  Governanca: "Governança",
+};
+
+function matchesTab(activeTab: string, title: string) {
+  return activeTab === title ||
+    (activeTab === "Inbox" && title === "Central") ||
+    (activeTab === "Automacoes" && title === "Automações") ||
+    (activeTab === "Relatorios" && title === "Relatórios");
+}
 
 function initials(name: string) {
   return name
@@ -75,7 +93,12 @@ export default function Sidebar({
   onToggleCollapsed,
   navigationStyle = "grouped",
 }: SidebarProps) {
-  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const activeGroup = NAVIGATION_GROUPS.find((group) => group.items.some((title) => matchesTab(activeTab, title)))?.label ?? null;
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(activeGroup);
+  // A tela aberta fica sempre visível no menu: o grupo dela abre ao navegar.
+  useEffect(() => {
+    if (activeGroup) setExpandedGroup(activeGroup);
+  }, [activeGroup]);
   const isAllowed = (title: string) => !allowedTabs || allowedTabs.includes(title);
   const compact = collapsed && !mobileOpen;
   const profileName = currentUser?.nome || profile?.nome || "Operador";
@@ -89,11 +112,8 @@ export default function Sidebar({
   }
 
   function renderItem(item: NavigationItem) {
-    const active =
-      activeTab === item.title ||
-      (activeTab === "Inbox" && item.title === "Central") ||
-      (activeTab === "Automacoes" && item.title === "Automações") ||
-      (activeTab === "Relatorios" && item.title === "Relatórios");
+    const active = matchesTab(activeTab, item.title);
+    const label = DISPLAY_LABELS[item.title] ?? item.title;
 
     return (
       <button
@@ -103,14 +123,14 @@ export default function Sidebar({
         onClick={() => navigate(item.title)}
         onPointerEnter={() => preloadPanel(item.title)}
         onFocus={() => preloadPanel(item.title)}
-        title={compact ? item.title : undefined}
+        title={compact ? label : undefined}
         aria-current={active ? "page" : undefined}
-       aria-label={compact ? item.title : undefined}>
+       aria-label={compact ? label : undefined}>
         <span className="norium-sidebar-item-icon" aria-hidden="true">
           {item.title === NORA_ENTRY ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" />
             : <IntegrationLogo name={item.title} size={20} className="norium-sidebar-channel-icon" monochrome />}
         </span>
-        {!compact && <span className="norium-sidebar-item-label">{item.title}</span>}
+        {!compact && <span className="norium-sidebar-item-label">{label}</span>}
       </button>
     );
   }
@@ -167,7 +187,7 @@ export default function Sidebar({
             }
             const Icon = group.icon;
             const expanded = expandedGroup === group.label;
-            const groupActive = visible.some((title) => activeTab === title || (activeTab === "Inbox" && title === "Central"));
+            const groupActive = visible.some((title) => matchesTab(activeTab, title));
             return (
               <div key={group.label} className={`norium-sidebar-group ${expanded ? "is-expanded" : ""}`}>
                 <button

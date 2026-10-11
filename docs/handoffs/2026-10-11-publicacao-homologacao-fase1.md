@@ -21,12 +21,20 @@ A execução agora exige usuário/dono coincidentes, workspace atual, digest obr
 
 ## Evidência local desta rodada
 
-- Gitleaks 8.24.3: 16 commits do incremento escaneados, zero segredos encontrados.
+- Gitleaks 8.24.3: 17 commits do incremento com a correção financeira escaneados, zero segredos encontrados.
 - Frontend: 837 testes e 136 arquivos de teste passaram com Node 24.19.0; TypeScript, Vite e orçamento do bundle passaram. Oxlint: zero erros, avisos existentes registrados no log.
 - npm audit após instalação do lockfile: zero vulnerabilidades reportadas.
 - Regressão financeira: 13 testes, zero falhas, erros ou skips. Antes da correção, dois casos reproduziram a falha.
 - `git diff --check` dos arquivos runtime passou. O patch arquivado contém espaços de contexto próprios do formato unified diff; não foi alterado para não corromper o artefato.
-- Suíte backend completa e CI da revisão final: em andamento, sem aceite antecipado.
+- Backend completo: 1.397 testes, zero falhas, erros ou skips; 573,625 s, fonte/dados temporários, sem dotenv ou sockets externos.
+- Workflow, empacotamento e transporte: 37 testes passaram (23,412 s); SSH/deploy são mocks. A limitação de acesso a temporários no sandbox exigiu rodar com diretório temporário da tarefa e autorização do ambiente.
+- CI GitHub da revisão final e aceite remoto: pendentes.
+
+## GitHub como padrão de deploy
+
+O responsável reiterou que o deploy deve usar GitHub Actions. O workflow anterior só validava e gerava ZIP. A proposta acrescenta dispatch explícito em main, com `deploy_homologacao`, depois de todos os gates, e transporte da mesma imagem Docker auditada (sem rebuild no host). A VPS é acessada via SSH com known_hosts previamente conferido; credenciais não entram no PR, recibo ou conversa.
+
+`infra/shard/DEPLOY_GITHUB.md` descreve a configuração e o protocolo separado do executor host. **O executor ainda precisa ser implementado/provisionado e revisado**, e os secrets/environment precisam ser confirmados. Nenhum deploy foi executado por este workflow, nem pelo console Shard nesta rodada. O transporte nega publicação sem preflight e recibo completos. Não tratar os mocks como prova de backup/restore, sandbox, login, WebSocket ou deploy remoto.
 
 ## Gates para homologação
 

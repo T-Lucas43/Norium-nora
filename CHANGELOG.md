@@ -4,6 +4,7 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 
 ## [Não publicado] — branch `feat/fase1-seguranca-voz`
 
+- ci(shard): transporte de homologação pelo GitHub Actions, com dispatch explícito em main, todos os gates, mesma imagem auditada, verificação SSH estrita e recibo sanitizado; provisionamento do executor VPS e revisão técnica permanecem pendentes.
 - fix(financeiro): aprovações exatas conferem dono, empresa, conteúdo e permissão vigente antes de excluir ou alterar dados; rejeitam ausência de digest e prévia de outra conta.
 - feat(nora): voz da Nora em tempo real pela ElevenLabs (voz Alice `Xb7hH8MSUJpSbSDYk0k2`, modelo `eleven_flash_v2_5`), com volta automática para a voz Edge se a ElevenLabs falhar.
 - feat(nora): `/api/nora/voz` com limite próprio (120/min) para a fala por frases não ser cortada; voz definida só pelo servidor.

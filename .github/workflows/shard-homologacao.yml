@@ -1,4 +1,4 @@
-name: Shard Cloud - validacao e pacote
+name: Shard Cloud - validacao e homologacao
 
 on:
   push:
@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_homologacao:
+        description: Publicar na VPS de homologacao depois dos gates e da revisao tecnica
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -52,7 +58,7 @@ jobs:
           python -m pip check
 
       - name: Validate release workflow and deterministic Shard packaging
-        run: python -m unittest scripts.test_release_workflow scripts.test_shard_release_package -v
+        run: python -m unittest scripts.test_release_workflow scripts.test_shard_release_package scripts.test_deploy_shard_vps -v
 
       - name: Scan backend dependencies and source
         working-directory: norium-back-end
@@ -369,6 +375,28 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Export the exact audited image for the homologation deployment
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_homologacao
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/shard-deploy-image"
+          image_id="$(docker image inspect norium-shard-security-ci --format '{{.Id}}')"
+          docker save "$image_id" | gzip > "$RUNNER_TEMP/shard-deploy-image/image.tar.gz"
+          cp "$RUNNER_TEMP/shard-image-audit/image-provenance.json" "$RUNNER_TEMP/shard-deploy-image/"
+          cp "$RUNNER_TEMP/shard-image-audit/image-audit-receipt.json" "$RUNNER_TEMP/shard-deploy-image/"
+          cd "$RUNNER_TEMP/shard-deploy-image"
+          sha256sum image.tar.gz > image.tar.gz.sha256
+
+      - name: Preserve the exact audited image without rebuilding on the VPS
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_homologacao
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: shard-deploy-image-${{ github.sha }}
+          path: ${{ runner.temp }}/shard-deploy-image/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 5
+
   shard-source-artifact:
     needs: [validate, postgres-persistence, team-call-quality, shard-image-security]
     runs-on: ubuntu-latest
@@ -386,5 +414,46 @@ jobs:
         with:
           name: shard-source-${{ github.event.pull_request.head.sha || github.sha }}
           path: output/shard-release/*
+          if-no-files-found: error
+          retention-days: 90
+
+  deploy-homologacao:
+    # Dispatch explicito em main. PRs nunca recebem SSH ou alteram o runtime.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_homologacao
+    needs: [validate, postgres-persistence, team-call-quality, shard-image-security, shard-source-artifact]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: homologacao
+    concurrency:
+      group: norium-vps-homologacao
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: shard-deploy-image-${{ github.sha }}
+          path: ${{ runner.temp }}/shard-deploy-image
+      - name: Publish through the reviewed VPS release executor
+        env:
+          SHARD_VPS_HOST: ${{ secrets.SHARD_VPS_HOST }}
+          SHARD_VPS_USER: ${{ secrets.SHARD_VPS_USER }}
+          SHARD_VPS_SSH_KEY: ${{ secrets.SHARD_VPS_SSH_KEY }}
+          SHARD_VPS_KNOWN_HOSTS: ${{ secrets.SHARD_VPS_KNOWN_HOSTS }}
+          SHARD_VPS_PORT: ${{ vars.SHARD_VPS_PORT || '22' }}
+          SHARD_HOMOLOGACAO_URL: ${{ vars.SHARD_HOMOLOGACAO_URL }}
+        run: |
+          python scripts/deploy_shard_vps.py --commit "$GITHUB_SHA" \
+            --image-dir "$RUNNER_TEMP/shard-deploy-image" \
+            --receipt output/shard-deploy/receipt.json
+      - name: Preserve deployment evidence without credentials or customer data
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: shard-deploy-receipt-${{ github.sha }}-${{ github.run_attempt }}
+          path: output/shard-deploy/receipt.json
           if-no-files-found: error
           retention-days: 90

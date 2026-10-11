@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import Field
 
+from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
 
 from app.routers.agenda_router import agenda_agent
@@ -513,7 +514,7 @@ class AgentExecutePayload(StrictModel):
 
 
 def tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("id") or "lucas123")
+    return require_user_id(user)
 
 
 def owned_wapi_binding(user_id: str) -> wb.InstanceBinding:

@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
+from app.core.identity import require_team_id, require_user_id
 from app.modules.auth.router import current_user
 from app.core.tenant import get_user_db_path
 from app.modules.operations.repository import APPROVAL_DB, AUDIT_DB, FOLLOWUP_DB, RECEIPT_DB, TEMPLATE_DB, delete_item, list_items
@@ -93,13 +94,13 @@ async def get_audit(
     limit: int = Query(default=100, ge=1, le=500),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    items = await list_items(str(user.get("id") or "lucas123"), AUDIT_DB)
+    items = await list_items(require_user_id(user), AUDIT_DB)
     return {"items": items[:limit], "total": len(items)}
 
 
 @router.get("/auditoria/exportar")
 async def export_audit(user: dict[str, Any] = Depends(current_user)) -> Response:
-    items = await list_items(str(user.get("id") or "lucas123"), AUDIT_DB)
+    items = await list_items(require_user_id(user), AUDIT_DB)
     stream = io.StringIO(newline="")
     writer = csv.writer(stream, delimiter=";")
     writer.writerow(["data_hora", "acao", "origem", "status", "usuario", "email", "tipo_registro", "id_registro", "descricao"])
@@ -134,7 +135,7 @@ async def get_receipts(
     limit: int = Query(default=100, ge=1, le=500),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    items = await list_items(str(user.get("id") or "lucas123"), RECEIPT_DB)
+    items = await list_items(require_user_id(user), RECEIPT_DB)
     return {"items": items[:limit], "total": len(items)}
 
 
@@ -159,7 +160,7 @@ async def get_approvals(
     status: str | None = Query(default=None),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    items = await list_items(str(user.get("id") or "lucas123"), APPROVAL_DB)
+    items = await list_items(require_user_id(user), APPROVAL_DB)
     if status:
         items = [item for item in items if item.get("status") == status]
     return {"items": items, "total": len(items)}
@@ -222,7 +223,7 @@ async def test_integration(
     allowed = {"gmail", "calendar", "whatsapp", "local"}
     if integration_id not in allowed:
         raise HTTPException(status_code=404, detail="Integracao nao encontrada.")
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     from app.modules.inbox.router import read_events
 
     events = await read_events(user_id)
@@ -288,7 +289,7 @@ async def patch_settings(
 
 @router.get("/modelos")
 async def get_templates(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    items = await list_items(str(user.get("id") or "lucas123"), TEMPLATE_DB)
+    items = await list_items(require_user_id(user), TEMPLATE_DB)
     return {"items": items, "total": len(items)}
 
 
@@ -314,7 +315,7 @@ async def patch_template(
 
 @router.delete("/modelos/{template_id}")
 async def remove_template(template_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
-    if not await delete_item(str(user.get("id") or "lucas123"), TEMPLATE_DB, template_id):
+    if not await delete_item(require_user_id(user), TEMPLATE_DB, template_id):
         raise HTTPException(status_code=404, detail="Modelo nao encontrado.")
     return {"ok": True}
 
@@ -324,7 +325,7 @@ async def get_follow_ups(
     status: str | None = Query(default=None),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    items = await list_items(str(user.get("id") or "lucas123"), FOLLOWUP_DB)
+    items = await list_items(require_user_id(user), FOLLOWUP_DB)
     if status:
         items = [item for item in items if item.get("status") == status]
     return {"items": items, "total": len(items)}
@@ -352,14 +353,14 @@ async def patch_follow_up(
 
 @router.delete("/acompanhamentos/{follow_up_id}")
 async def remove_follow_up(follow_up_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
-    if not await delete_item(str(user.get("id") or "lucas123"), FOLLOWUP_DB, follow_up_id):
+    if not await delete_item(require_user_id(user), FOLLOWUP_DB, follow_up_id):
         raise HTTPException(status_code=404, detail="Acompanhamento nao encontrado.")
     return {"ok": True}
 
 
 @router.get("/backup")
 async def export_tenant_backup(user: dict[str, Any] = Depends(current_user)) -> Response:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     from app.infrastructure.persistence import postgres_store
     if postgres_store.configured() or postgres_store.required():
         from app.modules.privacy.router import _build_export

@@ -12,6 +12,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from pydantic import Field, field_validator
 
+from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
 
 from app.core.tenant import get_user_db_path, read_json_file, write_json_file
@@ -298,7 +299,7 @@ async def record_event(
 
 @router.get("/inbox")
 async def get_universal_inbox(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     events = await read_events(user_id)
     events.sort(key=sort_key, reverse=True)
     return events
@@ -306,12 +307,12 @@ async def get_universal_inbox(user: dict[str, Any] = Depends(current_user)) -> l
 
 @router.get("/notifications/state")
 async def get_notification_state(user: dict[str, Any] = Depends(current_user)) -> dict[str, str | None]:
-    return await read_notification_state(str(user.get("id") or "lucas123"))
+    return await read_notification_state(require_user_id(user))
 
 
 @router.post("/notifications/read-all")
 async def mark_all_notifications_read(user: dict[str, Any] = Depends(current_user)) -> dict[str, str | None]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     async with events_lock:
         state = await read_notification_state(user_id)
         state["readBefore"] = utc_now_iso()
@@ -320,7 +321,7 @@ async def mark_all_notifications_read(user: dict[str, Any] = Depends(current_use
 
 @router.delete("/notifications")
 async def clear_notifications(user: dict[str, Any] = Depends(current_user)) -> dict[str, str | None]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     async with events_lock:
         state = await read_notification_state(user_id)
         cleared_at = utc_now_iso()
@@ -331,7 +332,7 @@ async def clear_notifications(user: dict[str, Any] = Depends(current_user)) -> d
 
 @router.post("/registrar-evento")
 async def register_omnichannel_event(event: OmnichannelEvent, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     event_payload, changed = await persist_event(event, user_id)
     if changed:
         await manager.broadcast(user_id, {"type": "NEW_EVENT", "event": event_payload})
@@ -342,7 +343,7 @@ async def register_omnichannel_event(event: OmnichannelEvent, user: dict[str, An
 async def omnichannel_websocket(websocket: WebSocket, ticket: str | None = Query(default=None)) -> None:
     try:
         user = await user_from_websocket_ticket(ticket or "")
-        user_id = str(user.get("id") or "lucas123")
+        user_id = require_user_id(user)
     except Exception:
         await websocket.close(code=4401)
         return

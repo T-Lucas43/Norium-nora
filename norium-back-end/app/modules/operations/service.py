@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from weakref import WeakKeyDictionary
 
+from app.core.identity import require_team_id, require_user_id
 from app.core.tenant import read_profile_db, get_data_root
 from app.core.request_context import current_workspace_id
 from fastapi import HTTPException
@@ -76,14 +77,14 @@ def actor_payload(user: dict[str, Any]) -> dict[str, str]:
 
 
 def _memory_owner_id(user: dict[str, Any], scope: str) -> str:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     if scope == "team":
         return str(user.get("teamOwnerId") or user_id)
     return user_id
 
 
 async def list_nora_memory(user: dict[str, Any]) -> list[dict[str, Any]]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     team_id = str(user.get("teamOwnerId") or user_id)
     personal, team = await asyncio.gather(
         list_items(user_id, MEMORY_DB),
@@ -153,8 +154,8 @@ async def save_nora_memory(user: dict[str, Any], payload: NoraMemoryCreate) -> d
 
 async def remove_nora_memory(user: dict[str, Any], memory_id: str) -> bool:
     owners = {
-        str(user.get("id") or "lucas123"),
-        str(user.get("teamOwnerId") or user.get("id") or "lucas123"),
+        require_user_id(user),
+        require_team_id(user),
     }
     for owner_id in owners:
         if await delete_item(owner_id, MEMORY_DB, memory_id):
@@ -180,11 +181,11 @@ async def record_audit(user: dict[str, Any], payload: AuditCreate) -> dict[str, 
         "actor": actor_payload(user),
         "timestamp": now_iso(),
     }
-    return await prepend_item(str(user.get("id") or "lucas123"), AUDIT_DB, item)
+    return await prepend_item(require_user_id(user), AUDIT_DB, item)
 
 
 async def record_receipt(user: dict[str, Any], payload: ReceiptCreate) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     item = {
         "id": f"receipt_{uuid.uuid4().hex}",
         **payload.model_dump(),
@@ -208,7 +209,7 @@ async def record_receipt(user: dict[str, Any], payload: ReceiptCreate) -> dict[s
 
 
 async def undo_receipt(user: dict[str, Any], receipt_id: str) -> dict[str, Any] | None:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     receipts = await list_items(user_id, RECEIPT_DB)
     receipt = next((item for item in receipts if str(item.get("id")) == receipt_id), None)
     if receipt is None:
@@ -260,7 +261,7 @@ async def undo_receipt(user: dict[str, Any], receipt_id: str) -> dict[str, Any] 
 
 
 async def get_operation_settings(user: dict[str, Any]) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     items = await list_items(user_id, SETTINGS_DB)
     current = next((item for item in items if item.get("id") == "preferences"), {})
     return {
@@ -274,7 +275,7 @@ async def get_operation_settings(user: dict[str, Any]) -> dict[str, Any]:
 
 
 async def update_operation_settings(user: dict[str, Any], payload: OperationSettingsUpdate) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     current = await get_operation_settings(user)
     update = {**current, **payload.model_dump(exclude_none=True), "updatedAt": now_iso()}
     saved = await replace_item(user_id, SETTINGS_DB, "preferences", update)
@@ -303,7 +304,7 @@ async def create_template(user: dict[str, Any], payload: OperationTemplateCreate
         "updatedAt": now_iso(),
         "createdBy": actor_payload(user),
     }
-    await prepend_item(str(user.get("id") or "lucas123"), TEMPLATE_DB, item)
+    await prepend_item(require_user_id(user), TEMPLATE_DB, item)
     await record_audit(
         user,
         AuditCreate(
@@ -325,7 +326,7 @@ async def update_template(
     payload: OperationTemplateUpdate,
 ) -> dict[str, Any] | None:
     update = {**payload.model_dump(exclude_none=True), "updatedAt": now_iso()}
-    return await replace_item(str(user.get("id") or "lucas123"), TEMPLATE_DB, template_id, update)
+    return await replace_item(require_user_id(user), TEMPLATE_DB, template_id, update)
 
 
 async def create_follow_up(user: dict[str, Any], payload: FollowUpCreate) -> dict[str, Any]:
@@ -337,7 +338,7 @@ async def create_follow_up(user: dict[str, Any], payload: FollowUpCreate) -> dic
         "updatedAt": now_iso(),
         "createdBy": actor_payload(user),
     }
-    await prepend_item(str(user.get("id") or "lucas123"), FOLLOWUP_DB, item)
+    await prepend_item(require_user_id(user), FOLLOWUP_DB, item)
     return item
 
 
@@ -349,7 +350,7 @@ async def update_follow_up(
     update = {**payload.model_dump(exclude_none=True), "updatedAt": now_iso()}
     if update.get("status") == "done":
         update["completedAt"] = now_iso()
-    return await replace_item(str(user.get("id") or "lucas123"), FOLLOWUP_DB, follow_up_id, update)
+    return await replace_item(require_user_id(user), FOLLOWUP_DB, follow_up_id, update)
 
 
 APPROVAL_VERSION = 1
@@ -443,7 +444,7 @@ async def _enforce_approval_binding(
 
 
 async def create_approval(user: dict[str, Any], payload: ApprovalCreate) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     item = {
         "id": f"approval_{uuid.uuid4().hex}",
         **payload.model_dump(),
@@ -500,7 +501,7 @@ async def decide_approval(
     approval_id: str,
     payload: ApprovalDecision,
 ) -> dict[str, Any] | None:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     async with approval_decision_lock(user_id, approval_id):
         return await _decide_approval_unlocked(user, approval_id, payload)
 
@@ -510,7 +511,7 @@ async def _decide_approval_unlocked(
     approval_id: str,
     payload: ApprovalDecision,
 ) -> dict[str, Any] | None:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     current_items = await list_items(user_id, APPROVAL_DB)
     current = next((item for item in current_items if str(item.get("id")) == approval_id), None)
     if current is None:
@@ -577,7 +578,7 @@ async def _decide_approval_unlocked(
 
 async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]) -> dict[str, Any]:
     """Execute the exact agent request captured before approval and persist proof."""
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
     message = str(payload.get("originalMessage") or "").strip()
     source = str(approval.get("source") or "").casefold()
@@ -783,7 +784,7 @@ async def create_exact_email_approval(
     session_id: str | None,
 ) -> dict[str, Any]:
     """Create a digest-bound approval authorizing one exact Gmail send."""
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     workspace = current_workspace_id()
     recipients = _normalize_exact_recipients(exact.get("to"))
     if not recipients:
@@ -935,7 +936,7 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
     from app.services.gmail_service import GmailService
     from app.services.nora_files import owned_bytes
 
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     approval_payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
     exact = approval_payload.get("emailExact") if isinstance(approval_payload.get("emailExact"), dict) else {}
     key = str(approval_payload.get("idempotencyKey") or "").strip()
@@ -1032,7 +1033,7 @@ async def reconcile_email_send(user: dict[str, Any], approval_id: str) -> dict[s
     """Check the sent folder for an uncertain send; read-only, never resends."""
     from app.services.gmail_service import GmailService
 
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     items = await list_items(user_id, APPROVAL_DB)
     current = next((item for item in items if str(item.get("id")) == approval_id), None)
     if current is None:
@@ -1193,7 +1194,7 @@ async def edit_approval(
     approval_id: str,
     payload: ApprovalUpdate,
 ) -> dict[str, Any] | None:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     current_items = await list_items(user_id, APPROVAL_DB)
     current = next((item for item in current_items if str(item.get("id")) == approval_id), None)
     if current is None or current.get("status") != "pending":
@@ -1505,7 +1506,7 @@ def _matches(query: str, *values: Any) -> bool:
 
 async def global_search(user: dict[str, Any], query: str, limit: int = 20) -> dict[str, Any]:
     """Search tenant-owned operational data without exposing another user's records."""
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     normalized_query = _search_text(query).strip()
     if len(normalized_query) < 2:
         return {"query": query, "items": [], "total": 0}
@@ -1689,7 +1690,7 @@ async def global_search(user: dict[str, Any], query: str, limit: int = 20) -> di
 
 
 async def operations_overview(user: dict[str, Any]) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     events, approvals, audits, receipts, templates, follow_ups, tasks, finance, memory, settings = await asyncio.gather(
         read_events(user_id),
         list_items(user_id, APPROVAL_DB),

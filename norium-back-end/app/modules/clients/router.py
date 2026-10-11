@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import Field
 
+from app.core.identity import require_team_id, require_user_id
 from app.modules.auth.router import current_user, assert_route_permissions
 from app.modules.clients import files
 from app.modules.clients.access import (
@@ -36,7 +37,7 @@ def now_iso() -> str:
 
 
 def tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("id") or "lucas123")
+    return require_user_id(user)
 
 
 def client_summary(item: dict, user: dict | None = None, store_id: str = "") -> dict:

@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.core.identity import require_team_id, require_user_id
 from app.modules.clients.repository import list_clients
 from app.modules.commercial.repository import read_store
 from app.modules.commercial.schemas import (
@@ -292,7 +293,7 @@ async def _edit_document_from_chat(
         )
     pdf_bytes, pdf_name = build_commercial_pdf(updated, document_type, tenant_id=collaboration_tenant_id(user))
     artifact = save_bytes(
-        str(user.get("id") or "lucas123"),
+        require_user_id(user),
         pdf_bytes,
         pdf_name,
         "application/pdf",
@@ -421,7 +422,7 @@ async def _create_document_from_chat(
     attachment_ids: list[str],
 ) -> dict[str, Any]:
     try:
-        photo_data_url = _attached_photo(str(user.get("id") or "lucas123"), attachment_ids)
+        photo_data_url = _attached_photo(require_user_id(user), attachment_ids)
     except ValueError as exc:
         return _response("precisa_dados", str(exc))
     primary, secondary, text = _document_palette(message)
@@ -591,7 +592,7 @@ async def _persist_proposal(user: dict[str, Any], session_id: str, state: dict[s
     )
     pdf_bytes, pdf_name = build_commercial_pdf(proposal, "proposal")
     artifact = save_bytes(
-        str(user.get("id") or "lucas123"),
+        require_user_id(user),
         pdf_bytes,
         pdf_name,
         "application/pdf",

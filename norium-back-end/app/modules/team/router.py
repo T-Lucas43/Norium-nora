@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import FileResponse
 from pydantic import Field
 
+from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
 from app.core.request_context import current_workspace_id
 
@@ -380,14 +381,14 @@ def can_use_nora(user: dict[str, Any]) -> bool:
 
 
 def team_id_for(user: dict[str, Any]) -> str:
-    return str(user.get("teamOwnerId") or user.get("id") or "lucas123")
+    return require_team_id(user)
 
 
 async def team_id_for_user_id(user_id: str) -> str:
     store = await read_user_store()
     user = next((item for item in store.get("users", []) if str(item.get("id")) == str(user_id)), None)
     if not user:
-        return str(user_id or "lucas123")
+        return require_user_id({"id": user_id})
     return str(user.get("teamOwnerId") or user.get("id") or user_id)
 
 

@@ -11,6 +11,7 @@ from typing import Any, Iterable, Sequence
 
 from fastapi import HTTPException
 
+from app.core.identity import require_team_id, require_user_id
 from app.core.tenant import get_user_dir, read_user_db, write_user_db
 from app.core.tenant import safe_tenant_id
 from app.infrastructure.persistence import postgres_store
@@ -69,7 +70,7 @@ DONE_TASK_STATUSES = {"concluida", "concluido"}
 
 
 def tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("id") or "lucas123")
+    return require_user_id(user)
 
 
 def _text(value: Any) -> str:

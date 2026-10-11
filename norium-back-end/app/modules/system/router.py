@@ -12,6 +12,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import Field
 
+from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
 from app.infrastructure.release_metadata import release_snapshot
 
@@ -142,7 +143,7 @@ async def diagnostics(user: dict[str, Any] = Depends(current_user)) -> dict[str,
 
 @router.get("/api/system/outbox")
 async def outbox(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    return await reliability_snapshot(str(user.get("id") or "lucas123"))
+    return await reliability_snapshot(require_user_id(user))
 
 
 @router.post("/api/system/idempotency/reconcile")

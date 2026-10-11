@@ -1,10 +1,10 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Settings2, ShieldCheck, Sparkles, UserPlus, UsersRound } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { ArrowRight, Check, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import type { AppMode, AuthSession, PlanInfo, UserPlan } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import { passwordSession } from "../../core/api/cookieSession";
-import BrandLogo from "../layout/BrandLogo";
 import AccountEmailAction from "./AccountEmailAction";
+import AuthLayout from "./AuthLayout";
 import { navigateNoriumView } from "../../app/navigation/view";
 
 interface AuthScreenProps {
@@ -13,19 +13,14 @@ interface AuthScreenProps {
 
 type FormMode = "login" | "register";
 
-const COSMIC_PARTICLES = Array.from({ length: 34 }, (_, index) => ({
-  left: `${(index * 37 + 7) % 98}%`,
-  top: `${(index * 53 + 11) % 94}%`,
-  size: `${2 + (index % 4)}px`,
-  delay: `${-(index % 11) * 0.73}s`,
-  duration: `${5.5 + (index % 7) * 0.8}s`,
-}));
-
-const AUTH_FEATURES = [
-  { label: "Permissões", Icon: ShieldCheck },
-  { label: "Modo equipe", Icon: UsersRound },
-  { label: "Admin", Icon: Settings2 },
-];
+function formatPlanPrice(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 
 function ensureAuthSession(value: unknown): AuthSession {
   if (!value || typeof value !== "object") {
@@ -52,6 +47,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [error, setError] = useState("");
   const [forgot, setForgot] = useState(false);
   const [planOptions, setPlanOptions] = useState<PlanInfo[]>([]);
+  const fieldId = useId();
 
   useEffect(() => {
     if (!planSession) return;
@@ -74,7 +70,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         return;
       }
       if (!legalAccepted) {
-        setError("Aceite os Termos de Uso e a Politica de Privacidade para criar a conta.");
+        setError("Aceite os Termos de Uso e a Política de Privacidade para criar a conta.");
         return;
       }
     }
@@ -120,267 +116,177 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
   if (planSession) {
     return (
-      <main className="norium-modern-shell norium-auth-shell norium-auth-dark min-h-dvh bg-[var(--background)] p-4 text-[var(--text)]">
-        <div className="mx-auto flex min-h-[calc(100dvh-32px)] max-w-6xl flex-col justify-center gap-6">
-          <div className="text-center">
-            <BrandLogo className="mx-auto h-14 w-[148px] text-[var(--text)]" />
-            <h1 className="mt-6 text-4xl font-black">Escolha seu plano</h1>
-            <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">
-              As permissões da conta serão aplicadas automaticamente.
-            </p>
-          </div>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {planOptions.map((plan) => (
+      <AuthLayout wide>
+        <div className="ac-center">
+          <h1 className="ac-title">Escolha seu plano</h1>
+          <p className="ac-sub">As permissões da conta serão aplicadas automaticamente.</p>
+        </div>
+        <section className="ac-plans" aria-label="Planos disponíveis">
+          {planOptions.map((plan) => (
+            <article key={plan.code} className={`ac-plan${plan.code === "free" ? " is-available" : ""}`}>
+              <span className="ac-plan-n">{plan.name}</span>
+              <span className="ac-plan-d">{plan.description}</span>
+              <span className="ac-plan-p">{formatPlanPrice(plan.monthlyPrice)}<small>/mês</small></span>
+              <ul className="ac-plan-f">
+                {plan.features.map((feature) => (
+                  <li key={feature}><Check size={15} aria-hidden="true" />{feature}</li>
+                ))}
+              </ul>
               <button
-                key={plan.code}
+                type="button"
                 onClick={() => void choosePlan(plan.code)}
                 disabled={loading || plan.code !== "free"}
-                className="group rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 text-left shadow-xl shadow-blue-950/16 transition hover:-translate-y-1 hover:border-cyan-300/45 hover:bg-[var(--surface-hover)] disabled:opacity-60"
+                className={`ac-btn${plan.code === "free" ? " is-primary" : ""}`}
               >
-                <span className="text-sm font-bold text-[var(--primary)]">R$ {plan.monthlyPrice}/mês</span>
-                <span className="mt-3 block text-2xl font-black">{plan.name}</span>
-                <span className="mt-2 block min-h-12 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{plan.description}</span>
-                <span className="mt-5 grid gap-2">
-                  {plan.features.map((feature) => (
-                    <span key={feature} className="text-xs font-bold text-[var(--text-secondary)]">- {feature}</span>
-                  ))}
-                </span>
-                <span className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
-                  {plan.code === "free" ? `Escolher ${plan.name}` : "Ativacao administrativa necessaria"}
-                  {plan.code === "free" && <ArrowRight size={16} className="transition group-hover:translate-x-1" />}
-                </span>
+                {plan.code === "free" ? `Escolher ${plan.name}` : "Ativação administrativa necessária"}
+                {plan.code === "free" && <ArrowRight size={16} aria-hidden="true" />}
               </button>
-            ))}
-          </section>
-          {error && <div className="mx-auto max-w-xl rounded-xl border border-red-400/30 bg-red-500/12 px-4 py-3 text-sm font-bold text-red-100">{error}</div>}
-        </div>
-      </main>
+            </article>
+          ))}
+        </section>
+        {error && <div role="alert" className="ac-alert" style={{ marginTop: 20 }}>{error}</div>}
+      </AuthLayout>
     );
   }
 
   if (pendingSession) {
     return (
-      <main className="norium-modern-shell norium-auth-shell norium-auth-dark min-h-dvh bg-[var(--background)] p-4 text-[var(--text)]">
-        <div className="norium-auth-choice-layout mx-auto flex min-h-[calc(100dvh-32px)] max-w-5xl items-center justify-center">
-          <section className="grid w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl shadow-blue-950/30 backdrop-blur-2xl md:grid-cols-[1.1fr_.9fr]">
-            <div className="norium-auth-feature relative min-h-[420px] overflow-hidden p-8 text-white">
-              <div className="norium-auth-grid absolute inset-0" />
-              <div className="relative z-10 flex h-full flex-col justify-between">
-                <BrandLogo className="h-14 w-[148px] text-white" />
-                <div>
-                  <span className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/16 px-4 py-2 text-sm font-bold">
-                    <ShieldCheck size={16} /> Acesso principal reconhecido
-                  </span>
-                  <h1 className="max-w-xl text-4xl font-black leading-tight">Escolha como deseja entrar no Norium.</h1>
-                  <p className="mt-4 max-w-lg text-sm font-semibold leading-6 text-white/82">
-                    Seu login pode abrir o painel operacional ou a área administrativa do sistema.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col justify-center gap-4 p-6 sm:p-8">
-              <button
-                onClick={() => onAuthenticated(pendingSession, "app")}
-                className="group rounded-lg border border-[var(--border)] bg-[var(--background)] p-5 text-left transition hover:bg-[var(--surface-hover)]"
-              >
-                <span className="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-blue-500/16 text-blue-300">
-                  <Sparkles size={22} />
-                </span>
-                <span className="block text-xl font-black">Usar sistema</span>
-                <span className="mt-2 block text-sm font-semibold leading-6 text-[var(--text-secondary)]">
-                  Abrir Dashboard, Gmail, Agenda, Chat, Tarefas, Gastos, Relatórios e Nora.
-                </span>
-                <span className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
-                  Entrar no painel <ArrowRight size={16} className="transition group-hover:translate-x-1" />
-                </span>
-              </button>
-
-              <button
-                onClick={() => onAuthenticated(pendingSession, "admin")}
-                className="group rounded-lg border border-cyan-300/30 bg-cyan-400/12 p-5 text-left transition hover:bg-cyan-400/18"
-              >
-                <span className="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-cyan-400/18 text-cyan-100">
-                  <ShieldCheck size={22} />
-                </span>
-                <span className="block text-xl font-black">Gerenciar sistema</span>
-                <span className="mt-2 block text-sm font-semibold leading-6 text-[var(--text-secondary)]">
-                  Administrar usuários, planos, permissões, módulos e liberações por integração.
-                </span>
-                <span className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
-                  Abrir admin <ArrowRight size={16} className="transition group-hover:translate-x-1" />
-                </span>
-              </button>
-            </div>
-          </section>
+      <AuthLayout>
+        <span className="ac-kicker"><ShieldCheck size={16} aria-hidden="true" /> Acesso principal reconhecido</span>
+        <h1 className="ac-title">Escolha como deseja entrar no Norium.</h1>
+        <p className="ac-sub">Seu login pode abrir o painel operacional ou a área administrativa do sistema.</p>
+        <div className="ac-choices">
+          <button type="button" onClick={() => onAuthenticated(pendingSession, "app")} className="ac-choice">
+            <span className="ac-choice-ic"><Sparkles size={20} aria-hidden="true" /></span>
+            <span>
+              <span className="ac-choice-t">Usar sistema</span>
+              <span className="ac-choice-d">Abrir Dashboard, Gmail, Agenda, Chat, Tarefas, Gastos, Relatórios e Nora.</span>
+              <span className="ac-choice-go">Entrar no painel <ArrowRight size={16} aria-hidden="true" /></span>
+            </span>
+          </button>
+          <button type="button" onClick={() => onAuthenticated(pendingSession, "admin")} className="ac-choice is-admin">
+            <span className="ac-choice-ic"><ShieldCheck size={20} aria-hidden="true" /></span>
+            <span>
+              <span className="ac-choice-t">Gerenciar sistema</span>
+              <span className="ac-choice-d">Administrar usuários, planos, permissões, módulos e liberações por integração.</span>
+              <span className="ac-choice-go">Abrir admin <ArrowRight size={16} aria-hidden="true" /></span>
+            </span>
+          </button>
         </div>
-      </main>
+      </AuthLayout>
     );
   }
 
+  const isLogin = mode === "login";
+  const ids = { nome: `${fieldId}-nome`, email: `${fieldId}-email`, senha: `${fieldId}-senha` };
+
   return (
-    <main className="norium-modern-shell norium-auth-shell norium-auth-dark relative min-h-dvh overflow-hidden bg-[var(--background)] p-4 text-[var(--text)]">
-      <div className="norium-auth-cosmos" aria-hidden="true">
-        <span className="norium-auth-planet norium-auth-planet-left" />
-        <span className="norium-auth-planet norium-auth-planet-top" />
-        <span className="norium-auth-orbit norium-auth-orbit-one" />
-        <span className="norium-auth-orbit norium-auth-orbit-two" />
-        <span className="norium-auth-orbit norium-auth-orbit-three" />
-        <span className="norium-auth-horizon" />
-        {COSMIC_PARTICLES.map((particle, index) => (
-          <span
-            key={index}
-            className={`norium-auth-particle ${index % 8 === 0 ? "is-large" : ""}`}
-            style={{
-              "--particle-left": particle.left,
-              "--particle-top": particle.top,
-              "--particle-size": particle.size,
-              "--particle-delay": particle.delay,
-              "--particle-duration": particle.duration,
-            } as CSSProperties}
-          />
-        ))}
-      </div>
-      <div className="norium-auth-layout relative z-10 mx-auto grid min-h-[calc(100dvh-32px)] max-w-6xl items-center gap-6 lg:grid-cols-[1.1fr_.9fr]">
-        <section className="norium-auth-feature relative overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-2xl shadow-blue-950/30 backdrop-blur-2xl">
-          <div className="norium-auth-grid absolute inset-0" />
-          <div className="relative z-10">
-            <BrandLogo className="h-16 w-[168px] text-white" />
-            <span className="mt-10 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-4 py-2 text-sm font-bold">
-              <Sparkles size={16} /> Operação unificada
-            </span>
-            <h1 className="mt-6 max-w-2xl text-5xl font-black leading-tight text-white drop-shadow-sm">
-              Entre no <span className="norium-auth-title-accent">Norium</span> com segurança e controle por usuário.
-            </h1>
-            <p className="mt-5 max-w-xl text-base font-semibold leading-7 text-white/84">
-              Login, cadastro, modo equipe, permissões por módulo e admin do sistema em uma base limpa e profissional.
-            </p>
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              {AUTH_FEATURES.map(({ label, Icon }) => (
-                <div key={label} className="norium-auth-feature-card rounded-2xl border border-white/16 bg-white/12 p-4 text-white backdrop-blur-xl">
-                  <Icon size={21} aria-hidden="true" />
-                  <p className="mt-3 text-sm font-bold">{label}</p>
-                  <p className="mt-1 text-xs font-semibold text-white/68">Controle granular</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+    <AuthLayout>
+      <h1 className="ac-title">{isLogin ? "Entrar" : "Criar conta"}</h1>
+      <p className="ac-sub">{isLogin ? "Acesse seu painel Norium." : "Crie um usuário principal individual."}</p>
 
-        <section className="norium-auth-form rounded-[24px] border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl shadow-blue-950/24 backdrop-blur-2xl sm:p-8">
-          <div className="mb-6 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-black">{mode === "login" ? "Entrar" : "Criar conta"}</h2>
-              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
-                {mode === "login" ? "Acesse seu painel Norium." : "Crie um usuário principal individual."}
-              </p>
-            </div>
-            <span className="grid h-12 w-12 place-items-center rounded-xl bg-blue-500/16 text-blue-300">
-              {mode === "login" ? <LockKeyhole size={22} /> : <UserPlus size={22} />}
+      <div className="ac-form">
+        {!isLogin && (
+          <div className="ac-field">
+            <label className="ac-label" htmlFor={ids.nome}>Nome</label>
+            <span className="ac-input">
+              <UserRound size={16} aria-hidden="true" />
+              <input
+                id={ids.nome}
+                value={nome}
+                autoComplete="name"
+                onChange={(event) => setNome(event.target.value)}
+                placeholder="Seu nome"
+              />
             </span>
           </div>
-
-          <div className="grid gap-3">
-            {mode === "register" && (
-              <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">
-                Nome
-                <input
-                  value={nome}
-                  onChange={(event) => setNome(event.target.value)}
-                  className="h-12 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold normal-case outline-none focus:border-blue-300"
-                  placeholder="Seu nome"
-                />
-              </label>
-            )}
-            <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">
-              E-mail
-              <span className="norium-auth-input-wrap">
-                <Mail size={17} aria-hidden="true" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] pl-11 pr-4 text-sm font-semibold normal-case outline-none focus:border-blue-300"
-                  placeholder="voce@email.com"
-                />
-              </span>
-            </label>
-            <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">
-              Senha
-              <span className="norium-auth-input-wrap">
-                <LockKeyhole size={17} aria-hidden="true" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  minLength={mode === "register" ? 10 : 1}
-                  onChange={(event) => setPassword(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void submit();
-                  }}
-                  className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] pl-11 pr-12 text-sm font-semibold normal-case outline-none focus:border-blue-300"
-                  placeholder={mode === "login" ? "Sua senha" : "Mínimo de 10 caracteres"}
-                />
-                <button
-                  type="button"
-                  className="norium-auth-password-toggle"
-                  onClick={() => setShowPassword((current) => !current)}
-                  aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                >
-                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-                </button>
-              </span>
-            </label>
-            {mode === "register" && (
-              <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
-                <input
-                  type="checkbox"
-                  checked={legalAccepted}
-                  onChange={(event) => setLegalAccepted(event.target.checked)}
-                  className="mt-1 h-4 w-4 shrink-0"
-                />
-                <span>
-                  Li e aceito os <a className="font-black text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("terms"); }}>Termos de Uso</a>
-                  {" "}e a <a className="font-black text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("privacy"); }}>Politica de Privacidade</a>.
-                </span>
-              </label>
-            )}
+        )}
+        <div className="ac-field">
+          <label className="ac-label" htmlFor={ids.email}>E-mail</label>
+          <span className="ac-input">
+            <Mail size={16} aria-hidden="true" />
+            <input
+              id={ids.email}
+              type="email"
+              value={email}
+              autoComplete={isLogin ? "username" : "email"}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="voce@email.com"
+            />
+          </span>
+        </div>
+        <div className="ac-field">
+          <div className="ac-label-row">
+            <label className="ac-label" htmlFor={ids.senha}>Senha</label>
+            {isLogin && <button type="button" onClick={() => setForgot(true)} className="ac-link">Esqueci minha senha</button>}
           </div>
-
-          <label className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-            <input type="checkbox" checked={persistent} onChange={(event) => setPersistent(event.target.checked)} />
-            Manter conectado neste navegador por até 7 dias
+          <span className="ac-input">
+            <LockKeyhole size={16} aria-hidden="true" />
+            <input
+              id={ids.senha}
+              type={showPassword ? "text" : "password"}
+              value={password}
+              minLength={isLogin ? 1 : 10}
+              autoComplete={isLogin ? "current-password" : "new-password"}
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void submit();
+              }}
+              placeholder={isLogin ? "Sua senha" : "Mínimo de 10 caracteres"}
+            />
+            <button
+              type="button"
+              className="ac-eye"
+              onClick={() => setShowPassword((current) => !current)}
+              aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </span>
+        </div>
+        {!isLogin && (
+          <label className="ac-check">
+            <input
+              type="checkbox"
+              checked={legalAccepted}
+              onChange={(event) => setLegalAccepted(event.target.checked)}
+            />
+            <span>
+              Li e aceito os <a className="ac-link" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("terms"); }}>Termos de Uso</a>
+              {" "}e a <a className="ac-link" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("privacy"); }}>Política de Privacidade</a>.
+            </span>
           </label>
-          {error && (
-            <div className="mt-4 rounded-xl border border-red-400/30 bg-red-500/12 px-4 py-3 text-sm font-bold text-red-100">
-              {error}
-            </div>
-          )}
+        )}
+        <label className="ac-check">
+          <input type="checkbox" checked={persistent} onChange={(event) => setPersistent(event.target.checked)} />
+          Manter conectado neste navegador por até 7 dias
+        </label>
+        {error && <div role="alert" className="ac-alert">{error}</div>}
 
-          <button
-            onClick={() => void submit()}
-            disabled={loading || (mode === "register" && !legalAccepted)}
-            className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 px-5 text-sm font-bold text-white shadow-lg shadow-blue-950/25 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Validando..." : mode === "login" ? "Entrar no Norium" : "Criar conta"}
-            <ArrowRight size={17} />
-          </button>
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={loading || (!isLogin && !legalAccepted)}
+          className="ac-btn is-primary"
+        >
+          {loading ? "Validando..." : isLogin ? "Entrar no Norium" : "Criar conta"}
+          <ArrowRight size={16} aria-hidden="true" />
+        </button>
 
+        <p className="ac-alt">
+          {isLogin ? "Ainda não tem conta? " : "Já tem conta? "}
           <button
+            type="button"
+            className="ac-link"
             onClick={() => {
-              setMode(mode === "login" ? "register" : "login");
+              setMode(isLogin ? "register" : "login");
               setError("");
             }}
-            className="mt-4 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
           >
-            {mode === "login" ? "Criar novo cadastro" : "Já tenho acesso"}
+            {isLogin ? "Criar novo cadastro" : "Já tenho acesso"}
           </button>
-          {mode === "login" && <button type="button" onClick={() => setForgot(true)} className="mt-4 w-full py-2 text-sm font-semibold text-[var(--primary)]">Esqueci minha senha</button>}
-          <nav className="mt-5 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs font-bold text-[var(--text-secondary)]">
-            <a className="hover:text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("terms"); }}>Termos de Uso</a>
-            <a className="hover:text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("privacy"); }}>Politica de Privacidade</a>
-          </nav>
-        </section>
+        </p>
       </div>
-    </main>
+    </AuthLayout>
   );
 }

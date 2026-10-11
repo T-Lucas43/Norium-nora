@@ -24,3 +24,4 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 - feat(layout): conteúdo de todas as telas no padrão do layout aprovado (claro e escuro), sem remover funções; Chat da equipe com minhas mensagens à direita; E-mails com leitura só ao abrir uma mensagem; Painel com colunas de altura fixa.
 - feat(layout): Configurações com menu de seções e uma seção por vez; Perfil dentro de Configurações; avatares mostram iniciais quando a foto falha; busca do topo fora do preenchimento automático.
 - perf: Chat da equipe sem chamada ativa reconcilia a cada 25 s (antes 5 s por aba); frontend local pré-processa as telas ao iniciar.
+- feat(layout): telas de acesso (login, cadastro, recuperar senha, confirmar e-mail, escolha de modo e plano) no padrão do layout aprovado, com a logo oficial e sem mudar a autenticação.

@@ -127,3 +127,265 @@ svg.lucide {
 .norium-dashboard-hero-actions button.is-primary:hover {
   background: color-mix(in srgb, var(--norium-accent) 88%, #000);
 }
+
+/* ===== Layout do PDF: medidas e marca ===== */
+.norium-sidebar {
+  width: 232px;
+  flex-basis: 232px;
+  border-right: 1px solid var(--border);
+}
+
+.norium-sidebar.is-collapsed {
+  width: 64px;
+  flex-basis: 64px;
+}
+
+.norium-sidebar-brand {
+  min-height: 0;
+  padding: 16px 20px 14px;
+}
+
+.norium-brand-mark-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.norium-brand-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #944af7 0%, #2563eb 55%, #0ea5e9 100%);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.norium-brand-name {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+
+.norium-sidebar-navigation {
+  padding: 0 12px 12px;
+}
+
+.norium-sidebar-primary {
+  margin-bottom: 8px;
+}
+
+.norium-sidebar-item,
+.norium-sidebar-group-toggle {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+
+.norium-sidebar-item:hover,
+.norium-sidebar-group-toggle:hover {
+  background: var(--surface-hover, color-mix(in srgb, var(--text) 5%, transparent));
+}
+
+.norium-sidebar-group-toggle[aria-expanded="true"],
+.norium-sidebar-group-toggle.has-active-item {
+  color: var(--text);
+}
+
+.norium-sidebar-group-toggle > svg:last-child {
+  margin-left: auto;
+  color: var(--text-muted, #8b909b);
+}
+
+.norium-sidebar-group-items {
+  margin: 0;
+}
+
+.norium-sidebar-group-items .norium-sidebar-item {
+  min-height: 32px;
+  padding: 0 10px 0 22px;
+}
+
+.norium-sidebar-item-icon,
+.norium-sidebar-group-icon {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  place-items: center;
+}
+
+.norium-sidebar-item.is-nora .norium-sidebar-item-icon {
+  width: 20px;
+  height: 20px;
+  flex-basis: 20px;
+}
+
+.norium-sidebar-nora-avatar {
+  width: 20px;
+  height: 20px;
+}
+
+.norium-sidebar-item-count {
+  margin-left: auto;
+  color: #8b909b;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.norium-sidebar-item.is-active .norium-sidebar-item-count {
+  color: var(--norium-accent-strong);
+}
+
+.norium-sidebar-secondary {
+  margin: auto 12px 0;
+  border-top: 1px solid var(--border);
+  padding: 10px 0 4px;
+}
+
+/* Topo: caminho, busca central, sino, Nora e avatar */
+.norium-topbar {
+  min-height: 56px;
+  height: 56px;
+  gap: 16px;
+  background: var(--surface);
+  padding: 0 24px;
+  backdrop-filter: none;
+}
+
+.norium-topbar-search-group {
+  flex: 1;
+  gap: 16px;
+}
+
+.norium-topbar-crumb {
+  margin: 0;
+  overflow: hidden;
+  color: #8b909b;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.norium-topbar-crumb b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.norium-command-search {
+  width: auto;
+  max-width: 520px;
+  height: 36px;
+  flex: 1;
+  margin: 0 auto;
+  background: var(--surface-2, var(--background));
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.norium-command-search kbd {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  padding: 1px 6px;
+  color: #8b909b;
+  font-size: 11px;
+}
+
+.norium-topbar-actions {
+  gap: 4px;
+}
+
+.norium-topbar-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.norium-topbar-nora {
+  height: 36px;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.norium-topbar-nora .h-8 {
+  width: 24px;
+  height: 24px;
+}
+
+.norium-topbar-profile {
+  margin-left: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.norium-topbar-profile-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.norium-topbar-profile-name,
+.norium-topbar-profile > svg {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .norium-topbar {
+    padding: 0 12px;
+  }
+
+  .norium-topbar-menu {
+    flex-basis: 36px;
+    justify-content: center;
+  }
+
+  .norium-topbar-crumb {
+    display: none;
+  }
+}
+
+/* Abas internas (Inteligência e Configurações) */
+.norium-panel-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  margin: 20px 28px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.norium-panel-tab {
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 8px 12px 10px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.norium-panel-tab.is-active {
+  border-bottom-color: var(--norium-accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .norium-panel-tabs {
+    margin: 12px 16px 0;
+  }
+}

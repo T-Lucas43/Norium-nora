@@ -8,6 +8,8 @@ import type {
   SystemNotification,
 } from "../../types/omnichannel";
 import ModuleCoach, { type GuidedModule } from "../../components/shared/ModuleCoach";
+import PanelTabs from "./PanelTabs";
+import { INTELLIGENCE_TABS, SETTINGS_TABS } from "../navigation/navigationGroups";
 
 const NoraWorkspace = lazy(() => import("../../components/nora/NoraWorkspace"));
 const AgendaDashboard = lazy(() => import("../../components/agenda/AgendaDashboard"));
@@ -37,7 +39,7 @@ const WorkHubDashboard = lazy(() => import("../../components/workhub/WorkHubDash
 function PanelLoading() {
   return (
     <div className="grid min-h-[calc(100vh-74px)] place-items-center bg-[var(--background)] text-sm font-semibold text-[var(--text-secondary)]">
-      Carregando modulo...
+      Carregando módulo…
     </div>
   );
 }
@@ -46,6 +48,7 @@ type EventGroups = Record<EventSource, OmnichannelEvent[]>;
 
 type AppPanelsProps = {
   activeTab: string;
+  allowedTabs?: string[];
   authSession: AuthSession;
   canUseNora: boolean;
   connected: boolean;
@@ -69,6 +72,7 @@ type AppPanelsProps = {
 
 export default function AppPanels({
   activeTab,
+  allowedTabs,
   authSession,
   canUseNora,
   connected,
@@ -96,6 +100,9 @@ export default function AppPanels({
   const coach = (module: GuidedModule, compact = false) => profile?.interface_preferences?.showGuides === false ? null : (
     <ModuleCoach module={module} onAskNora={onOpenNora} compact={compact} />
   );
+  const settingsTab = activeTab === "Configuracoes" ? "Configurações" : activeTab;
+  const intelligenceTabs = <PanelTabs label="Inteligência" tabs={INTELLIGENCE_TABS} activeTab={activeTab} allowedTabs={allowedTabs} onNavigate={onNavigate} />;
+  const settingsTabs = <PanelTabs label="Configurações" tabs={SETTINGS_TABS} activeTab={settingsTab} allowedTabs={allowedTabs} onNavigate={onNavigate} />;
 
   return (
     <Suspense fallback={<PanelLoading />}>
@@ -209,26 +216,31 @@ export default function AppPanels({
       )}
       {isPanelMounted("Agente Navegador") && (
         <section className={activePanelClass("Agente Navegador")}>
+          {intelligenceTabs}
           <IntelligenceHubDashboard mode="browser" onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Conhecimento") && (
         <section className={activePanelClass("Conhecimento")}>
+          {intelligenceTabs}
           <IntelligenceHubDashboard mode="knowledge" onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Marketplace") && (
         <section className={activePanelClass("Marketplace")}>
+          {intelligenceTabs}
           <IntelligenceHubDashboard mode="marketplace" onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("IA e Modelos") && (
         <section className={activePanelClass("IA e Modelos")}>
+          {intelligenceTabs}
           <IntelligenceHubDashboard mode="models" onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Perfil") && (
         <section className={activePanelClass("Perfil")}>
+          {settingsTabs}
           {coach("Perfil")}
           <ProfileSettings
             userId={currentUser.id}
@@ -240,6 +252,7 @@ export default function AppPanels({
       )}
       {isPanelMounted("Configuracoes", "Configurações") && (
         <section className={activePanelClass("Configuracoes", "Configurações")}>
+          {settingsTabs}
           {coach("Configuracoes")}
           <SettingsDashboard
             userId={currentUser.id}

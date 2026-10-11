@@ -15,21 +15,11 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
-import BrandLogo from "./BrandLogo";
 import IntegrationLogo from "../shared/IntegrationLogo";
 import NoraAvatar from "./NoraAvatar";
 import { preloadPanel } from "../../app/navigation/panelModules";
+import { NAVIGATION_GROUPS, displayLabel, normalizeTab } from "../../app/navigation/navigationGroups";
 import type { InterfacePreferences } from "../../utils/interfacePreferences";
-
-type NavigationItem = {
-  title: string;
-};
-
-type NavigationGroup = {
-  label: string;
-  items: string[];
-  icon: LucideIcon;
-};
 
 type SidebarProps = {
   activeTab: string;
@@ -42,43 +32,34 @@ type SidebarProps = {
   onNavigate: (tab: string) => void;
   onToggleCollapsed: () => void;
   navigationStyle?: InterfacePreferences["navigationStyle"];
+  counts?: Record<string, number>;
 };
 
 const NORA_ENTRY = "Nora";
 const PRIMARY_ENTRIES = ["Dashboard", NORA_ENTRY];
 
-// Todas as telas continuam no menu, cada uma separada; só a organização dos grupos mudou.
-const NAVIGATION_GROUPS: NavigationGroup[] = [
-  { label: "Início", icon: House, items: ["Central", "Controle"] },
-  { label: "Comunicação", icon: MessagesSquare, items: ["Chat", "E-mails", "Modelos de mensagens", "Chat da Equipe"] },
-  { label: "Agenda", icon: CalendarDays, items: ["Agenda", "Agendamentos"] },
-  { label: "Trabalho", icon: BriefcaseBusiness, items: ["Tarefas", "Clientes", "Documentos", "PDF Studio", "Estúdio"] },
-  { label: "Gestão", icon: ChartPie, items: ["Financeiro", "Automações", "Relatórios"] },
-  { label: "Inteligência", icon: BrainCircuit, items: ["Conhecimento", "Agente Navegador", "Marketplace", "IA e Modelos"] },
-  { label: "Equipe", icon: UsersRound, items: ["Equipe", "Governanca", "Mais"] },
-];
-
-// Rótulo exibido (a chave da tela continua a mesma para rotas e permissões).
-const DISPLAY_LABELS: Record<string, string> = {
-  Chat: "Conversas (WhatsApp)",
-  Governanca: "Governança",
+const GROUP_ICONS: Record<string, LucideIcon> = {
+  "Início": House,
+  "Comunicação": MessagesSquare,
+  Agenda: CalendarDays,
+  Trabalho: BriefcaseBusiness,
+  "Gestão": ChartPie,
+  "Inteligência": BrainCircuit,
+  Equipe: UsersRound,
 };
 
 function matchesTab(activeTab: string, title: string) {
-  return activeTab === title ||
-    (activeTab === "Inbox" && title === "Central") ||
-    (activeTab === "Automacoes" && title === "Automações") ||
-    (activeTab === "Relatorios" && title === "Relatórios");
+  return normalizeTab(activeTab) === title;
 }
 
-function initials(name: string) {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
+/** Marca do Norium no padrão do layout: "N" em degradê + NORIUM. */
+function BrandMark({ compact }: { compact: boolean }) {
+  return (
+    <span className="norium-brand-mark-wrap">
+      <span className="norium-brand-mark" aria-hidden="true">N</span>
+      {!compact && <b className="norium-brand-name">NORIUM</b>}
+    </span>
+  );
 }
 
 export default function Sidebar({
@@ -86,14 +67,13 @@ export default function Sidebar({
   allowedTabs,
   collapsed,
   mobileOpen,
-  currentUser,
-  profile,
   onCloseMobile,
   onNavigate,
   onToggleCollapsed,
   navigationStyle = "grouped",
+  counts = {},
 }: SidebarProps) {
-  const activeGroup = NAVIGATION_GROUPS.find((group) => group.items.some((title) => matchesTab(activeTab, title)))?.label ?? null;
+  const activeGroup = NAVIGATION_GROUPS.find((group) => !group.single && group.items.some((title) => matchesTab(activeTab, title)))?.label ?? null;
   const [expandedGroup, setExpandedGroup] = useState<string | null>(activeGroup);
   // A tela aberta fica sempre visível no menu: o grupo dela abre ao navegar.
   useEffect(() => {
@@ -101,36 +81,37 @@ export default function Sidebar({
   }, [activeGroup]);
   const isAllowed = (title: string) => !allowedTabs || allowedTabs.includes(title);
   const compact = collapsed && !mobileOpen;
-  const profileName = currentUser?.nome || profile?.nome || "Operador";
-  const planLabel = currentUser?.plan
-    ? `Plano ${currentUser.plan.charAt(0).toUpperCase()}${currentUser.plan.slice(1)}`
-    : "Norium";
 
   function navigate(tab: string) {
     onNavigate(tab);
     onCloseMobile();
   }
 
-  function renderItem(item: NavigationItem) {
-    const active = matchesTab(activeTab, item.title);
-    const label = DISPLAY_LABELS[item.title] ?? item.title;
+  function renderItem(title: string, options: { label?: string; icon?: LucideIcon; target?: string; active?: boolean } = {}) {
+    const active = options.active ?? matchesTab(activeTab, title);
+    const label = options.label ?? displayLabel(title);
+    const target = options.target ?? title;
+    const Icon = options.icon;
+    const count = counts[title] || 0;
 
     return (
       <button
-        key={item.title}
+        key={title}
         type="button"
-        className={`norium-sidebar-item ${active ? "is-active" : ""} ${item.title === NORA_ENTRY ? "is-nora" : ""}`}
-        onClick={() => navigate(item.title)}
-        onPointerEnter={() => preloadPanel(item.title)}
-        onFocus={() => preloadPanel(item.title)}
+        className={`norium-sidebar-item ${active ? "is-active" : ""} ${title === NORA_ENTRY ? "is-nora" : ""}`}
+        onClick={() => navigate(target)}
+        onPointerEnter={() => preloadPanel(target)}
+        onFocus={() => preloadPanel(target)}
         title={compact ? label : undefined}
         aria-current={active ? "page" : undefined}
-       aria-label={compact ? label : undefined}>
+        aria-label={compact ? label : undefined}>
         <span className="norium-sidebar-item-icon" aria-hidden="true">
-          {item.title === NORA_ENTRY ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" />
-            : <IntegrationLogo name={item.title} size={20} className="norium-sidebar-channel-icon" monochrome />}
+          {title === NORA_ENTRY ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" />
+            : Icon ? <Icon size={16} />
+            : <IntegrationLogo name={title} size={16} className="norium-sidebar-channel-icon" monochrome />}
         </span>
         {!compact && <span className="norium-sidebar-item-label">{label}</span>}
+        {!compact && count > 0 && <span className="norium-sidebar-item-count">{count > 99 ? "99+" : count}</span>}
       </button>
     );
   }
@@ -155,9 +136,9 @@ export default function Sidebar({
             type="button"
             className="norium-sidebar-brand-button"
             onClick={() => navigate("Dashboard")}
-            aria-label="Abrir Dashboard"
+            aria-label="Abrir Painel"
           >
-            <BrandLogo className={compact ? "h-10 w-10 object-left" : "h-12 w-[126px] object-left"} />
+            <BrandMark compact={compact} />
           </button>
 
           <button
@@ -172,20 +153,29 @@ export default function Sidebar({
 
         <nav className="norium-sidebar-navigation">
           <div className="norium-sidebar-primary">
-            {PRIMARY_ENTRIES.filter(isAllowed).map((title) => renderItem({ title }))}
+            {PRIMARY_ENTRIES.filter(isAllowed).map((title) => renderItem(title))}
           </div>
           {NAVIGATION_GROUPS.map((group) => {
             const visible = group.items.filter(isAllowed);
             if (!visible.length) return null;
+            const Icon = GROUP_ICONS[group.label] ?? BrainCircuit;
+            if (group.single) {
+              // Telas de uma mesma área abertas por um item só; as abas internas trocam entre elas.
+              const current = visible.find((title) => matchesTab(activeTab, title));
+              return (
+                <div key={group.label} className="norium-sidebar-group">
+                  {renderItem(group.label, { label: group.label, icon: Icon, target: current ?? visible[0], active: Boolean(current) })}
+                </div>
+              );
+            }
             if (navigationStyle === "classic") {
               return (
                 <div key={group.label} className="norium-sidebar-group">
                   {!compact && <p className="norium-sidebar-group-label" aria-hidden="true">{group.label}</p>}
-                  {visible.map((title) => renderItem({ title }))}
+                  {visible.map((title) => renderItem(title))}
                 </div>
               );
             }
-            const Icon = group.icon;
             const expanded = expandedGroup === group.label;
             const groupActive = visible.some((title) => matchesTab(activeTab, title));
             return (
@@ -202,60 +192,20 @@ export default function Sidebar({
                   aria-label={compact ? group.label : undefined}
                   title={compact ? group.label : undefined}
                 >
-                  <span className="norium-sidebar-group-icon"><Icon size={20} /></span>
+                  <span className="norium-sidebar-group-icon"><Icon size={16} /></span>
                   {!compact && <span>{group.label}</span>}
-                  {!compact && (expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+                  {!compact && (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
                 </button>
-                {expanded && !compact && <div id={`norium-sidebar-group-${group.label}`} className="norium-sidebar-group-items">{visible.map((title) => renderItem({ title }))}</div>}
+                {expanded && !compact && <div id={`norium-sidebar-group-${group.label}`} className="norium-sidebar-group-items">{visible.map((title) => renderItem(title))}</div>}
               </div>
             );
           })}
         </nav>
 
         <div className="norium-sidebar-secondary">
-          <button
-            type="button"
-            className={`norium-sidebar-item ${activeTab === "Configuracoes" || activeTab === "Configurações" ? "is-active" : ""}`}
-            onClick={() => navigate("Configurações")}
-            title="Configurações">
-            <span className="norium-sidebar-item-icon">
-              <IntegrationLogo name="Configurações" size={20} className="norium-sidebar-channel-icon" monochrome />
-            </span>
-            {!compact && <span className="norium-sidebar-item-label">Configurações</span>}
-          </button>
-          <button
-            type="button"
-            className={`norium-sidebar-item ${activeTab === "Ajuda" ? "is-active" : ""}`}
-            onClick={() => navigate("Ajuda")}
-            title="Ajuda"
-            aria-current={activeTab === "Ajuda" ? "page" : undefined}
-          >
-            <span className="norium-sidebar-item-icon">
-              <IntegrationLogo name="Ajuda" size={20} className="norium-sidebar-channel-icon" monochrome />
-            </span>
-            {!compact && <span className="norium-sidebar-item-label">Ajuda</span>}
-          </button>
+          {renderItem("Configurações", { active: ["Configurações", "Perfil"].includes(normalizeTab(activeTab)) })}
+          {renderItem("Ajuda")}
         </div>
-
-        <button
-          type="button"
-          className="norium-sidebar-profile"
-          onClick={() => navigate("Perfil")}
-          title={profileName}>
-          <span className="norium-sidebar-profile-avatar">
-            {profile?.fotoUrl ? (
-              <img src={profile.fotoUrl} alt="" />
-            ) : (
-              initials(profileName)
-            )}
-          </span>
-          {!compact && (
-            <span className="norium-sidebar-profile-copy">
-              <strong>{profileName}</strong>
-              <small>{planLabel}</small>
-            </span>
-          )}
-        </button>
 
         <button
           type="button"

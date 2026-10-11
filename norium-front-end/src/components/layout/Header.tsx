@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   LoaderCircle,
   LogOut,
+  Menu,
   Mail,
   MessageSquare,
   Moon,
@@ -28,7 +29,7 @@ import {
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import NoraAvatar from "./NoraAvatar";
-import BrandLogo from "./BrandLogo";
+import { breadcrumbFor } from "../../app/navigation/navigationGroups";
 import ThemeToggle from "./ThemeToggle";
 import ReleaseBadge from "./ReleaseBadge";
 import { apiBaseUrl, authToken } from "../../utils/api";
@@ -81,7 +82,7 @@ function initials(name: string) {
 }
 
 export default function Header({
-
+  activeTab,
   setActiveTab,
   onOpenNora,
   onOpenTeamChat,
@@ -107,6 +108,7 @@ export default function Header({
   const inputRef = useRef<HTMLInputElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const profileName = currentUser?.nome || profile?.nome || "Perfil";
+  const crumb = breadcrumbFor(activeTab);
 
   const commands = useMemo<SearchCommand[]>(
     () => [
@@ -225,10 +227,15 @@ export default function Header({
           type="button"
           className="norium-topbar-menu"
           onClick={onToggleSidebar}
-          aria-label="Abrir navegação pelo logo do Norium"
+          aria-label="Abrir navegação"
         >
-          <BrandLogo className="norium-topbar-brand-logo h-9 w-[98px]" />
+          <Menu size={18} />
         </button>
+
+        <p className="norium-topbar-crumb" aria-label="Local atual">
+          {crumb.group && <span>{crumb.group} / </span>}
+          <b>{crumb.title}</b>
+        </p>
 
         <div className="norium-command-search">
           <Search size={18} />
@@ -238,7 +245,7 @@ export default function Header({
             value={query}
             autoComplete="off"
             aria-label="Buscar no Norium"
-            placeholder="Buscar no Norium..."
+            placeholder="Buscar ou pedir algo à Nora…"
             onFocus={() => setSearchOpen(true)}
             onBlur={() => window.setTimeout(() => setSearchOpen(false), 120)}
             onChange={(event) => {

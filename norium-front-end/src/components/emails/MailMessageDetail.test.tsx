@@ -31,6 +31,15 @@ function setup(over: Partial<Parameters<typeof MailMessageDetail>[0]> = {}) {
 }
 
 describe("MailMessageDetail", () => {
+  it("mostra nova tentativa sem apresentar resumo como conteúdo carregado", () => {
+    const onRetry = vi.fn();
+    setup({ error: "Gmail limitado", onRetry, replyBox: <div>Responder conteúdo</div> });
+    expect(screen.getByRole("alert")).toHaveTextContent("Gmail limitado");
+    expect(screen.queryByText("resumo")).not.toBeInTheDocument();
+    expect(screen.queryByText("Responder conteúdo")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
   it("mostra assunto, remetente e data", () => {
     setup();
     expect(screen.getByRole("heading", { name: "Contrato 2026" })).toBeInTheDocument();

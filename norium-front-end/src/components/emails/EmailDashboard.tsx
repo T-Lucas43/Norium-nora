@@ -173,6 +173,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
     selectedIds,
     setSelectedIds,
     detailLoading,
+    detailError,
     openMessage,
     openMessageById,
     runMessageAction,
@@ -546,6 +547,8 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
                 message={selectedMessage}
                 labelById={labelById}
                 loading={detailLoading}
+                error={detailError}
+                onRetry={() => void openMessage(selectedMessage)}
                 fullscreen={messageFullscreen}
                 menuOpen={messageMenuOpen}
                 scrollRef={messageScrollRef}

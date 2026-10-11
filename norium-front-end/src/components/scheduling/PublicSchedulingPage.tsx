@@ -1,10 +1,29 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { CalendarDays, CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Globe2, MapPin, Moon, Sun, Video } from "lucide-react";
+import BrandLogo from "../layout/BrandLogo";
+import "./publicScheduling.css";
 import { apiBaseUrl } from "../../core/api/config";
 import { clearSlotsCache, schedulingApi, type BookingField, type SchedulingPage, type SchedulingService } from "../../features/scheduling/api";
 import { formatCpf, formatPhone, validateSchedulingField } from "../../features/scheduling/fieldValidation";
 
 type Slot = { startAt: string; endAt: string; remaining: number };
+
+export function localDateKey(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function dateFromKey(value: string) { return new Date(`${value}T12:00:00`); }
+function zonedDateKey(value: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+function dateLabel(value: string) { return dateFromKey(value).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }); }
+function safeColor(value: string | undefined, fallback: string) { return /^#[0-9a-f]{6}$/i.test(value || "") ? value! : fallback; }
+function onColor(value: string) {
+  const rgb = [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16) / 255).map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
+  return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722 > .179 ? "#101828" : "#ffffff";
+}
 
 function newOperationKey() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -33,7 +52,10 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   const [teamMode, setTeamMode] = useState(false);
   const [responsibleId, setResponsibleId] = useState("");
   const [duration, setDuration] = useState(30);
-  const [day, setDay] = useState(() => { const value = new Date(); value.setDate(value.getDate() + 1); return value.toISOString().slice(0, 10); });
+  const [day, setDay] = useState(() => { const value = new Date(); value.setDate(value.getDate() + 1); return localDateKey(value); });
+  const [dark, setDark] = useState(() => typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const [slotTimezone, setSlotTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo");
+  const [pageRetry, setPageRetry] = useState(0);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [form, setForm] = useState<Record<string, string>>({ full_name: "", email: "", phone: "" });
@@ -51,10 +73,15 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   const calendarRefreshAttemptRef = useRef("");
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError(""); setPage(null); setService(null); setSlot(null); setSuccess("");
     schedulingApi.publicPage(identifier).then((data) => {
+      if (cancelled) return;
       setPage(data.page); setService(data.service); setServices(data.services || [data.service]); setProfessionals(data.professionals || []); setTeamMode(Boolean(data.teamMode)); setDuration(data.service.durations[0]);
-    }).catch((reason) => setError(reason.message)).finally(() => setLoading(false));
-  }, [identifier]);
+      document.title = `${data.page.title} · Agendamento | Norium`;
+    }).catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Não foi possível abrir este agendamento."); }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [identifier, pageRetry]);
 
   useEffect(() => {
     if (!service || (teamMode && !responsibleId)) return;
@@ -66,6 +93,7 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
     schedulingApi.slotsCached(identifier, day, duration, controller.signal, responsibleId, service.id).then((data) => {
       if (slotsRequestRef.current !== requestId) return;
       setSlots(data.slots); setCalendarVerified(data.calendarVerified !== false);
+      if (data.timezone) setSlotTimezone(data.timezone);
       if (data.calendarVerified === false && calendarRefreshAttemptRef.current !== cacheKey) {
         calendarRefreshAttemptRef.current = cacheKey;
         refreshTimer = window.setTimeout(() => {
@@ -90,11 +118,14 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
     setService(first); if (first) setDuration(first.durations[0]);
   }
 
-  const theme = useMemo(() => ({
-    "--booking-primary": page?.theme?.primary || "#6d5dfc",
-    "--booking-bg": page?.theme?.background || "#f7f7fb",
-    "--booking-text": page?.theme?.text || "#171722",
-  }) as CSSProperties, [page]);
+  const theme = useMemo(() => {
+    const primary = safeColor(page?.theme?.primary, "#2563eb");
+    return {
+      "--booking-primary": primary, "--booking-on-primary": onColor(primary),
+      "--booking-bg": dark ? "#0d1421" : safeColor(page?.theme?.background, "#f4f7fc"),
+      "--booking-text": dark ? "#edf2fa" : safeColor(page?.theme?.text, "#17243b"),
+    } as CSSProperties;
+  }, [page, dark]);
 
   const bookingFields = useMemo<BookingField[]>(() => {
     const configured = page?.fields || [];
@@ -135,7 +166,7 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
       const result = await schedulingApi.book(identifier, {
         startAt: slot.startAt, duration, name: form.full_name.trim(), email: form.email.trim(), phone: form.phone || null,
         responsibleId: responsibleId || null, serviceId: service?.id || null,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo",
+        timezone: slotTimezone,
         responses, idempotencyKey: bookingOperationKeyRef.current, honeypot: "",
       });
       setSuccess(result.booking.public_id);
@@ -143,59 +174,77 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
     finally { setSending(false); }
   }
 
-  if (loading) return <main className="grid min-h-dvh place-items-center bg-slate-50 text-slate-700">Carregando horários...</main>;
-  if (error && !page) return <main className="grid min-h-dvh place-items-center bg-slate-50 p-6"><div role="alert" className="max-w-md rounded-xl bg-white p-8 text-center shadow-sm"><h1 className="text-xl font-semibold">Página indisponível</h1><p className="mt-2 text-sm text-slate-600">{error}</p></div></main>;
-  if (success) return <main style={theme} className="grid min-h-dvh place-items-center bg-[var(--booking-bg)] p-6 text-[var(--booking-text)]"><section className="max-w-lg rounded-xl bg-white p-8 text-center shadow-sm"><CheckCircle2 className="mx-auto text-emerald-500" size={54}/><h1 className="mt-4 text-2xl font-semibold">Agendamento confirmado</h1><p className="mt-2 text-sm text-slate-600">Seu horário foi reservado com segurança. Identificador: <strong>{success}</strong></p></section></main>;
+  const clock = (value: string) => new Date(value).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: slotTimezone });
+  const selectedProfessional = professionals.find((item) => item.id === responsibleId);
+  const selectionReady = !teamMode || Boolean(responsibleId && service);
+  const today = localDateKey(new Date());
+  const maximum = new Date(); maximum.setDate(maximum.getDate() + (service?.maximum_days || 365));
+  const maxDay = localDateKey(maximum);
+  const footer = <footer className="booking-footer"><span>Agendamento organizado com <strong>Norium</strong></span><span><Globe2 size={14} aria-hidden="true"/> Português · Brasil</span></footer>;
+  const brand = <header className="booking-topbar"><BrandLogo className="h-9 w-[112px]"/><span className="booking-topbar-label"><CalendarDays size={15} aria-hidden="true"/> Agendamento online</span><button type="button" className="booking-icon-button" aria-label={dark ? "Usar tema claro" : "Usar tema escuro"} onClick={() => setDark((value) => !value)}>{dark ? <Sun size={18}/> : <Moon size={18}/>}</button></header>;
+  const summary = slot && <div className="booking-summary"><CalendarDays size={21} aria-hidden="true"/><div><strong>{dateLabel(zonedDateKey(slot.startAt, slotTimezone))}</strong><span>{clock(slot.startAt)} – {clock(slot.endAt)} · {duration} min{selectedProfessional ? ` · ${selectedProfessional.name}` : ""}</span><span className="booking-muted">{slotTimezone.replace(/_/g, " ")}</span></div><Check size={18} aria-hidden="true"/></div>;
 
-  return <main style={theme} className="min-h-dvh bg-[var(--booking-bg)] p-4 text-[var(--booking-text)] sm:p-8">
-    <div className="mx-auto max-w-5xl">
-      <header className="mb-6 flex items-center gap-3">
-        {page?.logo_url ? <img src={`${apiBaseUrl()}${page.logo_url}`} alt="Logo" className="h-11 w-11 rounded-xl object-contain"/> : <div className="grid h-11 w-11 place-items-center rounded-xl bg-[var(--booking-primary)] text-white"><CalendarDays/></div>}
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--booking-primary)]">Norium Agendamentos</p><h1 className="text-xl font-semibold">{page?.title}</h1></div>
-      </header>
-      <div className="grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[.8fr_1.2fr]">
-        <aside className="border-b border-slate-200 p-6 lg:border-b-0 lg:border-r">
-          <h2 className="text-2xl font-semibold">{service?.name || "Escolha o atendimento"}</h2><p className="mt-2 text-sm text-slate-600">{page?.description || service?.description}</p>
-          {teamMode && <><p className="mt-5 text-sm font-semibold">1. Escolha o profissional</p><div className="mt-2 grid gap-2">{professionals.map((item) => <button key={item.id} type="button" onClick={() => selectProfessional(item.id)} className={`flex items-center gap-3 rounded-xl border p-3 text-left ${responsibleId===item.id?"border-transparent bg-[var(--booking-primary)] text-white":"border-slate-200"}`}>{item.avatarUrl?<img src={item.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover"/>:<span className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 font-semibold text-slate-700">{item.name.slice(0,2).toUpperCase()}</span>}<span><strong className="block text-sm">{item.name}</strong><small>{item.profession || item.position || "Profissional"}</small></span></button>)}</div>
-          <label className="mt-5 grid gap-1 text-sm font-semibold">2. Escolha o serviço<select disabled={!responsibleId} value={service?.id || ""} onChange={(event)=>{const next=availableServices.find(item=>item.id===event.target.value)||null;setService(next);if(next)setDuration(next.durations[0]);}} className="h-11 rounded-xl border border-slate-200 px-3"><option value="">Selecione</option>{availableServices.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></>}
-          <div className="mt-5 flex items-center gap-2 text-sm font-semibold"><Clock3 size={18} className="text-[var(--booking-primary)]"/> Duração</div>
-          <div className="mt-2 flex flex-wrap gap-2">{service?.durations.map((item) => <button key={item} onClick={() => setDuration(item)} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${duration === item ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{item} min</button>)}</div>
-          <p className="mt-6 flex items-center gap-2 text-xs text-slate-500"><ShieldCheck size={16}/> Seus dados são usados somente para este agendamento.</p>
-        </aside>
-        <section className="p-6">
-          <label className="grid gap-1 text-sm font-semibold">{teamMode ? "3. Escolha a data" : "Escolha a data"}<input type="date" disabled={teamMode && (!responsibleId || !service)} min={new Date().toISOString().slice(0, 10)} value={day} onChange={(event) => setDay(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3"/></label>
-          <div className="mt-5"><p className="mb-2 text-sm font-semibold">Horários disponíveis</p>
-            {!calendarVerified && <p role="status" className="mb-2 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-700">Calendário externo indisponível — os horários podem estar desatualizados. A reserva será validada na confirmação.</p>}
-            {slotsLoading
-              ? <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Carregando horários">{[0, 1, 2, 3, 4, 5].map((item) => <div key={item} className="h-16 animate-pulse rounded-xl bg-slate-100"/>)}
-            </div>
-              : slotsError
-                ? <div role="alert" className="rounded-xl bg-red-50 p-4 text-center text-sm font-semibold text-red-600">{slotsError} <button className="underline" onClick={() => setSlotsRetry((value) => value + 1)}>Tentar novamente</button></div>
-                : <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-              {slots.map((item) => <button key={item.startAt} onClick={() => { bookingOperationKeyRef.current = newOperationKey(); setSlot(item); setFieldErrors({}); setError(""); }} className={`rounded-xl border p-3 text-sm font-semibold ${slot?.startAt === item.startAt ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{new Date(item.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}<small className="block font-semibold opacity-75">{item.remaining} vaga(s)</small></button>)}
-              {!slots.length && <p className="col-span-full rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Nenhum horário disponível nesta data.</p>}
-            </div>}
+  return <main style={theme} className={`norium-booking${dark ? " booking-dark" : ""}`}>
+    <div className="booking-shell">
+      {brand}
+      {loading ? <section className="booking-state" aria-label="Carregando agendamento"><div className="booking-state-icon"><CalendarDays size={28}/></div><h1>Preparando seu agendamento</h1><p>Estamos buscando os serviços e horários.</p><div className="booking-skeleton" aria-hidden="true"/></section>
+        : !page ? <section className="booking-state" role="alert"><div className="booking-state-icon"><CalendarDays size={28}/></div><h1>Página indisponível</h1><p>{error || "Este link não está disponível. Confira o endereço com quem compartilhou o agendamento."}</p><button type="button" className="booking-primary-button" onClick={() => setPageRetry((value) => value + 1)}>Tentar novamente</button></section>
+        : success ? <section className="booking-state booking-success"><div className="booking-success-icon"><CheckCircle2 size={38}/></div><p className="booking-eyebrow">Tudo pronto</p><h1>Agendamento confirmado</h1><p>Seu horário foi reservado. Confira os detalhes abaixo.</p><h2>{service?.name || page.title}</h2>{summary}<div className="booking-confirmation-id"><span>Identificador da reserva</span><strong>{success}</strong></div></section>
+        : <>
+          <div className="booking-intro"><p className="booking-eyebrow">Um tempo reservado para você</p><h2>Vamos encontrar seu melhor horário.</h2><p>Escolha a data, selecione um horário e confirme seus dados.</p></div>
+          <div className="booking-card">
+            <aside className="booking-service">
+              {page.logo_url ? <img src={`${apiBaseUrl()}${page.logo_url}`} alt={page.title} className="booking-custom-logo"/> : <div className="booking-service-icon"><CalendarDays size={27} aria-hidden="true"/></div>}
+              <p className="booking-eyebrow">Seu atendimento</p><h1>{page.title}</h1>
+              {service?.name && service.name !== page.title && <p className="booking-service-name">{service.name}</p>}
+              {(page.description || service?.description) && <p className="booking-description">{page.description || service?.description}</p>}
+              <div className="booking-service-meta"><span><Clock3 size={17} aria-hidden="true"/>{duration} minutos</span>{service?.location_type === "online" && <span><Video size={17} aria-hidden="true"/> Atendimento online</span>}{service?.location && <span><MapPin size={17} aria-hidden="true"/>{service.location}</span>}</div>
+              {teamMode && <div className="booking-service-options"><h2>Escolha o profissional</h2><div className="booking-professionals">{professionals.map((item) => <button key={item.id} type="button" aria-pressed={responsibleId === item.id} onClick={() => selectProfessional(item.id)} className={`booking-professional${responsibleId === item.id ? " is-selected" : ""}`}>{item.avatarUrl ? <img src={item.avatarUrl} alt=""/> : <span className="booking-avatar">{item.name.slice(0, 2).toUpperCase()}</span>}<span><strong>{item.name}</strong><small>{item.profession || item.position || "Profissional"}</small></span>{responsibleId === item.id && <Check size={17} aria-hidden="true"/>}</button>)}</div>
+                <label className="booking-field">Escolha o serviço<select disabled={!responsibleId} value={service?.id || ""} onChange={(event) => { const next = availableServices.find((item) => item.id === event.target.value) || null; setService(next); if (next) setDuration(next.durations[0]); }}><option value="">Selecione</option>{availableServices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>}
+              {service && service.durations.length > 1 && <div className="booking-service-options"><h2>Duração do atendimento</h2><div className="booking-duration">{service.durations.map((item) => <button type="button" key={item} aria-pressed={duration === item} className={duration === item ? "is-selected" : ""} onClick={() => setDuration(item)}>{item} min</button>)}</div></div>}
+              {service?.instructions && <div className="booking-instructions"><h2>Antes do atendimento</h2><p>{service.instructions}</p></div>}
+              <div className="booking-service-note"><span className="booking-note-line"/><p>Escolha com calma.<br/>Seu próximo encontro começa aqui.</p></div>
+            </aside>
+            <section className="booking-workspace" aria-label="Reserve seu horário">
+              <ol className="booking-steps" aria-label="Etapas do agendamento"><li className={slot ? "is-complete" : "is-current"} aria-current={!slot ? "step" : undefined}><span>{slot ? <Check size={14}/> : "1"}</span>Data e horário</li><li className={slot ? "is-current" : ""} aria-current={slot ? "step" : undefined}><span>2</span>Seus dados</li><li><span>3</span>Confirmação</li></ol>
+              <div className="booking-availability">
+                <div className="booking-calendar-panel"><div className="booking-section-heading"><h2>Escolha a data</h2><label className="booking-date-input"><span className="sr-only">Escolha a data</span><input aria-label="Escolha a data" type="date" min={today} max={maxDay} value={day} disabled={!selectionReady || sending} onChange={(event) => { if (event.target.value) setDay(event.target.value); }}/></label></div><BookingCalendar day={day} min={today} max={maxDay} disabled={!selectionReady || sending} onChange={setDay}/><p className="booking-timezone"><Globe2 size={14} aria-hidden="true"/> Horários em {slotTimezone.replace(/_/g, " ")}</p></div>
+                <div className="booking-time-panel"><h2>Horários disponíveis</h2><p className="booking-time-date">{dateLabel(day)}</p>
+                  {!selectionReady ? <div className="booking-empty"><Clock3 size={23} aria-hidden="true"/><p>Escolha um profissional e um serviço para consultar os horários.</p></div>
+                    : slotsLoading ? <div className="booking-times" aria-label="Carregando horários">{[0, 1, 2, 3, 4, 5].map((item) => <div key={item} className="booking-time-skeleton"/>)}</div>
+                      : slotsError ? <div role="alert" className="booking-warning">{slotsError}<button type="button" className="booking-text-button" onClick={() => setSlotsRetry((value) => value + 1)}>Tentar novamente</button></div>
+                        : slots.length ? <div className="booking-times">{slots.map((item) => <button type="button" key={item.startAt} disabled={sending} aria-pressed={slot?.startAt === item.startAt} className={`booking-time${slot?.startAt === item.startAt ? " is-selected" : ""}`} onClick={() => { bookingOperationKeyRef.current = newOperationKey(); setSlot(item); setFieldErrors({}); setError(""); }}><span>{clock(item.startAt)}{slot?.startAt === item.startAt && <Check size={14} aria-hidden="true"/>}</span><small>{item.remaining} vaga(s)</small></button>)}</div>
+                          : <div className="booking-empty"><CalendarDays size={25} aria-hidden="true"/><p>Nenhum horário disponível nesta data.</p><span>Selecione outro dia no calendário.</span></div>}
+                  {!calendarVerified && <p role="status" className="booking-warning">Calendário externo indisponível — os horários podem estar desatualizados. A reserva será validada na confirmação.</p>}
+                </div>
+              </div>
+              {slot ? <form className="booking-form" onSubmit={(event) => { event.preventDefault(); if (!sending) void confirm(); }} noValidate>
+                <div className="booking-form-heading"><div><p className="booking-eyebrow">Quase lá</p><h2>Como podemos chamar você?</h2><p>Preencha seus dados para confirmar o atendimento.</p></div></div>{summary}
+                <fieldset disabled={sending}><legend className="sr-only">Dados do agendamento</legend><div className="booking-fields">{bookingFields.map((field) => <Input key={field.id} id={`booking-${field.id}`} label={field.label} required={field.required} type={inputType(field.type)} value={form[field.id] || ""} maxLength={field.maxLength || 500} error={fieldErrors[field.id]} onChange={(value) => setFieldValue(field, value)}/>)}</div></fieldset>
+                {error && <p role="alert" className="booking-warning booking-error">{error}</p>}
+                <button type="submit" disabled={sending || !form.full_name || !form.email} className="booking-primary-button booking-confirm-button">{sending ? "Confirmando..." : "Confirmar agendamento"}{!sending && <ArrowRight size={18} aria-hidden="true"/>}</button>
+              </form> : <p className="booking-next-hint"><span>2</span>Depois de escolher um horário, você poderá preencher seus dados.</p>}
+            </section>
           </div>
-          {slot && <div className="mt-6 grid gap-3">
-            {bookingFields.map((field) => <Input
-              key={field.id}
-              label={field.label}
-              required={field.required}
-              type={inputType(field.type)}
-              value={form[field.id] || ""}
-              maxLength={field.maxLength || 500}
-              error={fieldErrors[field.id]}
-              onChange={(value) => setFieldValue(field, value)}
-            />)}
-            {error && <p role="alert" className="text-sm font-semibold text-red-600">{error}</p>}
-            <button disabled={sending || !form.full_name || !form.email} onClick={() => void confirm()} className="mt-2 h-12 rounded-xl bg-[var(--booking-primary)] font-semibold text-white disabled:opacity-50">{sending ? "Confirmando..." : "Confirmar agendamento"}</button>
-          </div>}
-        </section>
-      </div>
+        </>}
+      {footer}
     </div>
   </main>;
 }
 
-function Input({label, value, onChange, type="text", required, maxLength, error}: {label:string; value:string; onChange:(value:string)=>void; type?:string; required?:boolean; maxLength:number; error?:string}) {
-  return <label className="grid gap-1 text-sm font-semibold">{label}{required && <span className="sr-only">obrigatório</span>}<input aria-required={required} aria-invalid={Boolean(error)} required={required} type={type} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} className={`h-11 rounded-xl border px-3 outline-none focus:border-[var(--booking-primary)] ${error ? "border-red-400" : "border-slate-200"}`}/>{error && <span className="text-xs font-semibold text-red-600">{error}</span>}</label>;
+function BookingCalendar({ day, min, max, disabled, onChange }: { day: string; min: string; max: string; disabled: boolean; onChange: (value: string) => void }) {
+  const [month, setMonth] = useState(() => new Date(dateFromKey(day).getFullYear(), dateFromKey(day).getMonth(), 1, 12));
+  useEffect(() => { const value = dateFromKey(day); setMonth(new Date(value.getFullYear(), value.getMonth(), 1, 12)); }, [day]);
+  const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const offset = (month.getDay() + 6) % 7;
+  function move(amount: number) { setMonth((value) => new Date(value.getFullYear(), value.getMonth() + amount, 1, 12)); }
+  const previous = new Date(month.getFullYear(), month.getMonth(), 0, 12);
+  const next = new Date(month.getFullYear(), month.getMonth() + 1, 1, 12);
+  return <div className="booking-calendar"><div className="booking-month"><strong>{month.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</strong><div><button type="button" aria-label="Mês anterior" className="booking-icon-button" disabled={disabled || localDateKey(previous) < min} onClick={() => move(-1)}><ChevronLeft size={17}/></button><button type="button" aria-label="Próximo mês" className="booking-icon-button" disabled={disabled || localDateKey(next) > max} onClick={() => move(1)}><ChevronRight size={17}/></button></div></div>
+    <div className="booking-calendar-grid" role="group" aria-label="Calendário de datas">{["seg", "ter", "qua", "qui", "sex", "sáb", "dom"].map((label) => <span key={label} className="booking-weekday" aria-hidden="true">{label}</span>)}{Array.from({ length: offset }, (_, i) => <span key={`empty-${i}`} aria-hidden="true"/>)}{Array.from({ length: count }, (_, i) => { const value = localDateKey(new Date(month.getFullYear(), month.getMonth(), i + 1, 12)); return <button type="button" key={value} aria-label={dateLabel(value)} aria-pressed={value === day} aria-current={value === min ? "date" : undefined} disabled={disabled || value < min || value > max} onClick={() => onChange(value)} className={`booking-day${value === day ? " is-selected" : ""}${value === min ? " is-today" : ""}`}>{i + 1}</button>; })}</div>
+  </div>;
+}
+
+function Input({ id, label, value, onChange, type = "text", required, maxLength, error }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean; maxLength: number; error?: string }) {
+  return <label className="booking-field" htmlFor={id}><span>{label}{required ? <span aria-hidden="true" className="booking-required"> *</span> : <small> (opcional)</small>}{required && <span className="sr-only">obrigatório</span>}</span><input id={id} aria-required={required} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} required={required} type={type} autoComplete={id === "booking-full_name" ? "name" : type === "email" ? "email" : type === "tel" ? "tel" : undefined} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)}/>{error && <span id={`${id}-error`} className="booking-field-error">{error}</span>}</label>;
 }

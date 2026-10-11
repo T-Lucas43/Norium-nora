@@ -4,7 +4,9 @@ import { useMailbox } from "./useMailbox";
 import { mailboxSessionCache } from "../mailboxCache";
 
 const apiJson = vi.hoisted(() => vi.fn());
+const readWait = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("../api", () => ({ mailApiRequest: apiJson }));
+vi.mock("../readPacing", () => ({ MAIL_SYNC_PAGE_DELAY_MS: 15_000, waitForMailRead: readWait }));
 
 const baseOptions = {
   userId: "u1",
@@ -22,6 +24,7 @@ const msg = (id: string) => ({ id, threadId: `t${id}`, subject: id, snippet: "",
 
 beforeEach(() => {
   apiJson.mockReset();
+  readWait.mockClear();
   mailboxSessionCache.clear();
   apiJson.mockResolvedValue({ messages: [], nextPageToken: null, resultSizeEstimate: 0 });
 });
@@ -46,6 +49,7 @@ describe("useMailbox", () => {
     expect(result.current.nextPageToken).toBeNull();
     expect(result.current.syncState.loaded).toBe(4);
     expect(apiJson.mock.calls.filter(([p]) => String(p).includes("folder=inbox"))).toHaveLength(3);
+    expect(readWait.mock.calls).toEqual([[15_000], [15_000]]);
   });
 
   it("nao busca nada quando desconectado", async () => {
@@ -223,5 +227,22 @@ describe("useMailbox", () => {
 
     await waitFor(() => expect(apiJson.mock.calls.length).toBeGreaterThan(antes));
     expect(onRefreshLabels).toHaveBeenCalled();
+  });
+
+  it("nao aquece sete pastas automaticamente ao conectar", async () => {
+    renderHook(() => useMailbox(baseOptions));
+    await waitFor(() => expect(apiJson).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    expect(apiJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("recua em 429 e preserva a pagina carregada", async () => {
+    apiJson.mockResolvedValueOnce({ messages: [msg("a")], nextPageToken: "p2", resultSizeEstimate: 2 });
+    apiJson.mockRejectedValueOnce(Object.assign(new Error("Gmail limitado"), { status: 429 }));
+    apiJson.mockResolvedValueOnce({ messages: [msg("b")], nextPageToken: null, resultSizeEstimate: 2 });
+    const { result } = renderHook(() => useMailbox(baseOptions));
+    await waitFor(() => expect(result.current.syncState.done).toBe(true));
+    expect(result.current.messages.map((message) => message.id)).toEqual(["a", "b"]);
+    expect(readWait).toHaveBeenCalledWith(30_000);
   });
 });

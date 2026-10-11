@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.services.gmail_read_limits import GmailRateLimitError
+
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -332,6 +334,8 @@ async def list_gmail_messages(
         )
     except GmailConfigError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except GmailRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": str(exc.retry_after)}) from None
     except Exception as exc:
         logger.exception("Falha ao sincronizar Gmail.")
         raise HTTPException(status_code=502, detail="Falha temporaria ao sincronizar Gmail.") from exc
@@ -361,6 +365,8 @@ async def get_gmail_message(message_id: str, user_id: str = "lucas123", user: di
         return GmailService(tenant_id(user)).get_message(message_id)
     except GmailConfigError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except GmailRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": str(exc.retry_after)}) from None
     except Exception as exc:
         logger.exception("Falha ao abrir e-mail.")
         raise HTTPException(status_code=502, detail="Falha temporaria ao abrir e-mail.") from exc

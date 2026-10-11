@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import PublicSchedulingPage from "./PublicSchedulingPage";
+import PublicSchedulingPage, { localDateKey } from "./PublicSchedulingPage";
 import { schedulingApi, type SlotsResponse } from "../../features/scheduling/api";
 
 vi.mock("../../features/scheduling/api", () => ({
@@ -26,6 +26,26 @@ describe("PublicSchedulingPage", () => {
     vi.clearAllMocks();
     vi.mocked(schedulingApi.publicPage).mockResolvedValue({ page, service });
     vi.mocked(schedulingApi.slotsCached).mockResolvedValue({ slots: [slotA], calendarVerified: true });
+  });
+
+  it("apresenta a identidade Norium e calendário com seleção acessível", async () => {
+    render(<PublicSchedulingPage identifier="public-1"/>);
+    expect(await screen.findByRole("group", { name: "Calendário de datas" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Etapas do agendamento" })).toBeInTheDocument();
+    expect(screen.getAllByAltText("Norium")).toHaveLength(2);
+    expect(screen.getByLabelText("Escolha a data")).toHaveAttribute("min", localDateKey(new Date()));
+  });
+
+  it("alterna tema sem alterar data e serviço", async () => {
+    const user = userEvent.setup();
+    render(<PublicSchedulingPage identifier="public-1"/>);
+    await screen.findByRole("group", { name: "Calendário de datas" });
+    const before = (screen.getByLabelText("Escolha a data") as HTMLInputElement).value;
+    await user.click(screen.getByRole("button", { name: "Usar tema escuro" }));
+    expect(screen.getByRole("main")).toHaveClass("booking-dark");
+    expect(screen.getByLabelText("Escolha a data")).toHaveValue(before);
+    await user.click(screen.getByRole("button", { name: "Usar tema claro" }));
+    expect(screen.getByRole("main")).not.toHaveClass("booking-dark");
   });
 
   it("shows a skeleton while loading slots, then the times", async () => {

@@ -8,8 +8,8 @@ from unittest.mock import patch
 from app.core.request_context import reset_request_context, set_request_context
 from app.modules.finance import router as finance_router
 from app.modules.operations import service as ops
-from app.modules.operations.repository import APPROVAL_DB, list_items
-from app.modules.operations.schemas import ApprovalDecision
+from app.modules.operations.repository import APPROVAL_DB, list_items, replace_item
+from app.modules.operations.schemas import ApprovalCreate, ApprovalDecision
 from app.services.finance_store import create_lancamento, list_finance
 
 
@@ -17,7 +17,7 @@ OWNER = "finance-owner"
 
 
 def owner() -> dict:
-    return {"id": OWNER, "nome": "Tester", "role": "owner"}
+    return {"id": OWNER, "nome": "Tester", "role": "owner", "plan": "individual"}
 
 
 class FinanceAgentApprovalTests(unittest.IsolatedAsyncioTestCase):
@@ -109,6 +109,65 @@ class FinanceAgentApprovalTests(unittest.IsolatedAsyncioTestCase):
         await ops.decide_approval(owner(), approval["id"], ApprovalDecision(decision="approved", expectedDigest=approval["digest"]))
         updated = next(entry for entry in self.entries() if entry["id"] == item["id"])
         self.assertEqual("pago", updated["status"])
+
+    async def test_exact_preview_rejects_another_owner(self) -> None:
+        with self.assertRaises(PermissionError):
+            await ops.create_exact_finance_approval(
+                owner(), "another-owner",
+                {"operation": "delete_lancamento", "itemId": "other-entry", "snapshot": {}},
+                "Excluir lançamento", "Excluir um lançamento de outra conta.",
+            )
+        self.assertEqual([], await list_items(OWNER, APPROVAL_DB))
+
+    async def test_forged_approval_cannot_delete_another_owners_entry(self) -> None:
+        other_owner = "another-owner"
+        target = create_lancamento(other_owner, {"title": "Outro lançamento", "amount": 17})
+        payload = {"kind": "nora_finance_exact", "ownerId": other_owner,
+                   "financeExact": {"operation": "delete_lancamento", "itemId": target["id"], "snapshot": {}}}
+        title, description = "Excluir lançamento", "Prévia forjada de outra conta."
+        digest = ops.approval_digest("nora_finance_exact", "financeiro", title, description,
+                                     payload, "primary", OWNER, ops.FINANCE_EXACT_VERSION)
+        approval = await ops.create_approval(owner(), ApprovalCreate(
+            title=title, description=description, action="nora_finance_exact", source="financeiro",
+            payload=payload, digest=digest,
+        ))
+        decided = await ops.decide_approval(owner(), approval["id"],
+                                           ApprovalDecision(decision="approved", expectedDigest=digest))
+        self.assertEqual("failed", decided["status"])
+        self.assertEqual([target["id"]], [entry["id"] for entry in list_finance(other_owner)["lancamentos"]])
+
+    async def test_modified_exact_payload_is_rejected(self) -> None:
+        create_lancamento(OWNER, {"title": "Internet", "amount": 120})
+        result = await finance_router.handle_finance_agent(OWNER, "alterar o valor da internet para 150", user=owner())
+        approval = result["approval"]
+        changed = approval["payload"]
+        changed["financeExact"]["updates"]["amount"] = 999
+        await replace_item(OWNER, APPROVAL_DB, approval["id"], {"payload": changed})
+        decided = await ops.decide_approval(owner(), approval["id"],
+                                           ApprovalDecision(decision="approved", expectedDigest=approval["digest"]))
+        self.assertEqual("failed", decided["status"])
+        self.assertEqual(120, self.entries()[0]["amount"])
+
+    async def test_revoked_finance_permission_prevents_execution(self) -> None:
+        create_lancamento(OWNER, {"title": "Internet", "amount": 120})
+        result = await finance_router.handle_finance_agent(OWNER, "excluir lancamento internet", user=owner())
+        approval = result["approval"]
+        with patch("app.routers.auth_router.effective_permissions", return_value={"gastos": False}):
+            decided = await ops.decide_approval(owner(), approval["id"],
+                                               ApprovalDecision(decision="approved", expectedDigest=approval["digest"]))
+        self.assertEqual("failed", decided["status"])
+        self.assertEqual(1, len(self.entries()))
+
+    async def test_exact_finance_approval_without_digest_is_rejected(self) -> None:
+        target = create_lancamento(OWNER, {"title": "Internet", "amount": 120})
+        approval = await ops.create_approval(owner(), ApprovalCreate(
+            title="Excluir lançamento", action="nora_finance_exact", source="financeiro",
+            payload={"kind": "nora_finance_exact", "ownerId": OWNER,
+                     "financeExact": {"operation": "delete_lancamento", "itemId": target["id"], "snapshot": {}}},
+        ))
+        with self.assertRaises(ValueError):
+            await ops.decide_approval(owner(), approval["id"], ApprovalDecision(decision="approved"))
+        self.assertEqual(1, len(self.entries()))
 
     def test_destructive_detection(self) -> None:
         self.assertTrue(finance_router.is_finance_destructive_message("apagar o lançamento do mercado"))

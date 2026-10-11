@@ -361,6 +361,10 @@ EMAIL_SEND_RECIPIENT_CAP = 20
 EMAIL_SEND_ATTACHMENT_CAP = 8
 
 
+# Ações que só executam com aprovação vinculada ao conteúdo exato (digest obrigatório).
+DIGEST_REQUIRED_ACTIONS = frozenset({"nora_finance_exact"})
+
+
 def approval_digest(
     action: str,
     source: str,
@@ -439,6 +443,8 @@ async def _enforce_approval_binding(
     if bound_workspace and bound_workspace != current_workspace_id():
         raise ValueError("Esta aprovação pertence a outro ambiente de trabalho.")
     digest = str(current.get("digest") or "").strip()
+    if not digest and str(current.get("action") or "") in DIGEST_REQUIRED_ACTIONS:
+        raise ValueError("Esta aprovação não está vinculada ao conteúdo exato. Gere uma nova prévia para aprovar.")
     if digest and not hmac.compare_digest(str(payload.expectedDigest or ""), digest):
         raise ValueError("O conteúdo mudou após a preparação. Gere uma nova prévia para aprovar o conteúdo exato.")
 
@@ -600,9 +606,7 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
             # Exclusão/alteração aprovada: executa só o id aprovado, nunca reinterpreta texto.
             from app.modules.finance.router import execute_finance_exact
 
-            owner_id = str(payload.get("ownerId") or "").strip()
-            if not owner_id:
-                raise ValueError("A aprovacao financeira nao possui o dono dos dados.")
+            owner_id = _verify_finance_exact_binding(user, approval)
             result = await execute_finance_exact(owner_id, finance_exact)
         elif source == "financeiro":
             from app.routers.financeiro_router import handle_finance_agent
@@ -854,6 +858,8 @@ async def create_exact_finance_approval(
     approver_id = str(user.get("id") or "").strip()
     if not approver_id or not str(owner_id or "").strip():
         raise PermissionError("Usuário não identificado para preparar a aprovação.")
+    if str(owner_id).strip() != approver_id:
+        raise PermissionError("Esta aprovação financeira pertence a outro usuário. Nada foi alterado.")
     workspace = current_workspace_id()
     payload = {"kind": "nora_finance_exact", "ownerId": str(owner_id), "financeExact": exact}
     expires_at = (datetime.now(timezone.utc) + FINANCE_APPROVAL_TTL).isoformat()
@@ -878,6 +884,39 @@ async def create_exact_finance_approval(
             digest=digest,
         ),
     )
+
+
+def _verify_finance_exact_binding(user: dict[str, Any], approval: dict[str, Any]) -> str:
+    """Recusa execução financeira sem digest válido, de outro ambiente ou de outro dono."""
+    user_id = require_user_id(user)
+    from app.routers.auth_router import effective_permissions
+
+    if not effective_permissions(user).get("gastos"):
+        raise PermissionError("A conta não possui permissão para alterar dados financeiros. Nada foi alterado.")
+    payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
+    metadata = approval.get("metadata") if isinstance(approval.get("metadata"), dict) else {}
+    stored = str(approval.get("digest") or "").strip()
+    if str(approval.get("action") or "") != "nora_finance_exact" or not stored:
+        raise PermissionError("Aprovação financeira sem vínculo com o conteúdo exato. Nada foi alterado.")
+    owner_id = str(payload.get("ownerId") or "").strip()
+    if not owner_id or owner_id != user_id:
+        raise PermissionError("Esta aprovação financeira pertence a outro usuário. Nada foi alterado.")
+    workspace = str(metadata.get("workspace") or "").strip()
+    if not workspace or workspace != current_workspace_id():
+        raise PermissionError("Esta aprovação financeira pertence a outra empresa. Nada foi alterado.")
+    expected = approval_digest(
+        "nora_finance_exact",
+        "financeiro",
+        str(approval.get("title") or ""),
+        str(approval.get("description") or ""),
+        payload,
+        workspace,
+        user_id,
+        FINANCE_EXACT_VERSION,
+    )
+    if not hmac.compare_digest(expected, stored):
+        raise PermissionError("A aprovação financeira não confere com a prévia aprovada. Nada foi alterado.")
+    return owner_id
 
 
 def _safe_timestamp(value: Any) -> int:

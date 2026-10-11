@@ -2407,7 +2407,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   --text:#f4f6f8;
   --text-primary:#f4f6f8;
   --text-secondary:#9098a3;
-  --primary:#2782ff;
+  --primary:var(--norium-accent);
   --primary-strong:#176de3;
   --primary-deep:#0b4eac;
   --glass-shadow:0 18px 52px rgba(0,0,0,.28);
@@ -2530,7 +2530,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   --mail-border:#22262b;
   --mail-text:#f4f6f8;
   --mail-muted:#9098a3;
-  --mail-soft:rgba(39,130,255,.11);
+  --mail-soft:color-mix(in srgb, var(--norium-accent) 11%, transparent);
   --mail-banner:#0c0e10;
   --mail-banner-text:#f4f6f8;
 }
@@ -2645,7 +2645,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-sidebar-group-toggle.has-active-item .norium-sidebar-group-icon{
-  color:#2782ff;
+  color:var(--norium-accent);
 }
 
 .norium-sidebar-group-icon{
@@ -2704,10 +2704,10 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-sidebar-item.is-active{
-  border-color:rgba(39,130,255,.34);
-  background:rgba(39,130,255,.06);
+  border-color:color-mix(in srgb, var(--norium-accent) 34%, transparent);
+  background:color-mix(in srgb, var(--norium-accent) 6%, transparent);
   color:var(--text);
-  box-shadow:inset 2px 0 0 #2782ff;
+  box-shadow:inset 2px 0 0 var(--norium-accent);
 }
 
 .norium-sidebar-item-icon{
@@ -2720,7 +2720,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-sidebar-item.is-active .norium-sidebar-item-icon{
-  color:#2782ff;
+  color:var(--norium-accent);
 }
 
 .norium-sidebar-item-label{
@@ -3068,8 +3068,8 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   flex:0 0 34px;
   place-items:center;
   border-radius:7px;
-  background:rgba(39,130,255,.12);
-  color:#2782ff;
+  background:color-mix(in srgb, var(--norium-accent) 12%, transparent);
+  color:var(--norium-accent);
 }
 
 .norium-command-results > button > span:last-child{
@@ -3121,7 +3121,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-topbar-nora:hover,
 .norium-topbar-profile:hover,
 .norium-topbar-icon.is-active{
-  border-color:rgba(39,130,255,.50);
+  border-color:color-mix(in srgb, var(--norium-accent) 50%, transparent);
   background:var(--surface-hover);
 }
 
@@ -3135,7 +3135,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   place-items:center;
   border:2px solid var(--background);
   border-radius:999px;
-  background:#2782ff;
+  background:var(--norium-accent);
   color:#fff;
   font-size:11px;
   font-weight:800;
@@ -3154,7 +3154,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-topbar-nora.is-open{
-  border-color:rgba(39,130,255,.58);
+  border-color:color-mix(in srgb, var(--norium-accent) 58%, transparent);
   background:var(--surface-hover);
 }
 
@@ -3266,7 +3266,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-nora-quick-welcome button:hover{
-  border-color:rgba(39,130,255,.5);
+  border-color:color-mix(in srgb, var(--norium-accent) 50%, transparent);
   background:var(--surface-hover);
   color:var(--text);
 }
@@ -3301,9 +3301,9 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-nora-quick-message.is-user{
   align-self:flex-end;
   max-width:84%;
-  border-color:rgba(39,130,255,.38);
+  border-color:color-mix(in srgb, var(--norium-accent) 38%, transparent);
   border-radius:10px 10px 3px 10px;
-  background:rgba(39,130,255,.14);
+  background:color-mix(in srgb, var(--norium-accent) 14%, transparent);
 }
 
 .norium-nora-quick-markdown h1,
@@ -3398,7 +3398,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   flex:0 0 34px;
   place-items:center;
   border-radius:7px;
-  background:#2782ff;
+  background:var(--norium-accent);
   color:#fff;
 }
 
@@ -3466,7 +3466,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-topbar-profile.is-open{
-  border-color:rgba(39,130,255,.58);
+  border-color:color-mix(in srgb, var(--norium-accent) 58%, transparent);
   background:var(--surface-hover);
 }
 
@@ -3627,7 +3627,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-dashboard-hero h1 span{
-  color:#2782ff;
+  color:var(--norium-accent);
 }
 
 .norium-dashboard-hero p{
@@ -3662,8 +3662,8 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-dashboard-hero-actions button.is-primary{
-  border-color:#2782ff;
-  background:rgba(39,130,255,.17);
+  border-color:var(--norium-accent);
+  background:color-mix(in srgb, var(--norium-accent) 17%, transparent);
   color:#8fc0ff;
 }
 
@@ -3688,7 +3688,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   position:absolute;
   inset:24px 0 10px 100px;
   border-radius:50%;
-  background:radial-gradient(ellipse at center, rgba(39,130,255,.07), transparent 70%);
+  background:radial-gradient(ellipse at center, color-mix(in srgb, var(--norium-accent) 7%, transparent), transparent 70%);
   filter:blur(18px);
   animation:norium-signal-glow 4.8s ease-in-out infinite;
 }
@@ -3845,7 +3845,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   height:7px;
   margin-top:4px;
   border-radius:50%;
-  background:#2782ff;
+  background:var(--norium-accent);
 }
 
 .norium-agenda-dot.color-1{background:#9b5cff}
@@ -3912,10 +3912,10 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   width:84px;
   height:84px;
   place-items:center;
-  border:1px solid #2782ff;
+  border:1px solid var(--norium-accent);
   border-radius:50%;
   color:#b7d6ff;
-  box-shadow:0 0 0 10px rgba(39,130,255,.035), 0 0 26px rgba(39,130,255,.22);
+  box-shadow:0 0 0 10px color-mix(in srgb, var(--norium-accent) 3.5%, transparent), 0 0 26px color-mix(in srgb, var(--norium-accent) 22%, transparent);
 }
 
 .norium-task-status-copy{
@@ -3960,11 +3960,11 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-assigned-task-card + .norium-assigned-task-card{margin-top:6px}
-.norium-assigned-task-card:hover{border-color:rgba(39,130,255,.42);background:var(--surface-hover)}
+.norium-assigned-task-card:hover{border-color:color-mix(in srgb, var(--norium-accent) 42%, transparent);background:var(--surface-hover)}
 .norium-assigned-task-card > span:first-child{width:5px;height:28px;border-radius:999px;background:#64748b}
 .norium-assigned-task-card > span:first-child.priority-urgente{background:#ef4444}
 .norium-assigned-task-card > span:first-child.priority-alta{background:#f59e0b}
-.norium-assigned-task-card > span:first-child.priority-media{background:#2782ff}
+.norium-assigned-task-card > span:first-child.priority-media{background:var(--norium-accent)}
 .norium-assigned-task-card > span:first-child.priority-baixa{background:#22c55e}
 .norium-assigned-task-card > span:nth-child(2){display:flex;min-width:0;flex-direction:column}
 .norium-assigned-task-card strong{overflow:hidden;color:var(--text);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
@@ -4008,7 +4008,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 
 .norium-day-summary-row > svg{
   width:23px;
-  color:#2782ff;
+  color:var(--norium-accent);
 }
 
 .norium-day-summary-row > svg.is-weather{
@@ -4088,7 +4088,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-next-steps em{
   overflow:hidden;
   margin-top:4px;
-  color:#2782ff;
+  color:var(--norium-accent);
   font-size:11px;
   font-style:normal;
   text-overflow:ellipsis;
@@ -4099,15 +4099,15 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-finance-pending-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .norium-finance-pending-heading .norium-dashboard-card-label{margin:0 0 3px}
 .norium-finance-pending-heading h2{margin:0!important}
-.norium-finance-pending-heading > button{display:inline-flex;align-items:center;gap:2px;color:#2782ff;font-size:10px;font-weight:750}
+.norium-finance-pending-heading > button{display:inline-flex;align-items:center;gap:2px;color:var(--norium-accent);font-size:10px;font-weight:750}
 .norium-finance-pending-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;border-radius:7px;background:var(--background);padding:10px}
 .norium-finance-pending-summary span,.norium-finance-pending-summary em{display:inline-flex;align-items:center;gap:6px}
 .norium-finance-pending-summary span{color:var(--text);font-size:12px;font-weight:800}
-.norium-finance-pending-summary span svg{color:#2782ff}
+.norium-finance-pending-summary span svg{color:var(--norium-accent)}
 .norium-finance-pending-summary em{color:#f59e0b;font-size:9px;font-style:normal;font-weight:800}
 .norium-finance-pending-list{max-height:188px;margin-top:7px;overflow-y:auto;scrollbar-width:thin}
 .norium-finance-pending-list > button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding:10px 2px;text-align:left}
-.norium-finance-pending-list > button:hover strong{color:#2782ff}
+.norium-finance-pending-list > button:hover strong{color:var(--norium-accent)}
 .norium-finance-pending-list > button > span{display:flex;min-width:0;flex-direction:column}
 .norium-finance-pending-list strong{overflow:hidden;color:var(--text);font-size:10px;text-overflow:ellipsis;white-space:nowrap}
 .norium-finance-pending-list small{margin-top:3px;color:var(--text-secondary);font-size:9px}
@@ -4118,7 +4118,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   position:relative;
   min-height:246px;
   overflow:hidden;
-  border:1px solid rgba(39,130,255,.52);
+  border:1px solid color-mix(in srgb, var(--norium-accent) 52%, transparent);
   border-radius:11px;
   background:
     radial-gradient(circle at 78% 45%, rgba(53,117,255,.22), transparent 35%),
@@ -4201,7 +4201,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   min-height:37px;
   align-items:center;
   justify-content:space-between;
-  border:1px solid rgba(39,130,255,.72);
+  border:1px solid color-mix(in srgb, var(--norium-accent) 72%, transparent);
   border-radius:7px;
   background:rgba(3,8,15,.78);
   padding:0 11px;
@@ -8331,7 +8331,7 @@ html.mail-fullscreen-open body{
 .team-call-control-surface{
   border:1px solid #1b2635;
   background:#101720!important;
-  color:#2782ff!important;
+  color:var(--norium-accent)!important;
 }
 .team-call-accent-text{ color:#4da3ff!important; }
 .team-call-remote-tile,
@@ -8347,7 +8347,7 @@ html.mail-fullscreen-open body{
 .team-call-participant-controls button[aria-pressed="true"]{ background:#164b83; color:#fff; }
 .team-call-stage{ grid-auto-rows:minmax(240px,1fr); }
 .team-call-stage-pinned{ grid-template-columns:minmax(0,3fr) minmax(260px,1fr); grid-auto-rows:minmax(240px,1fr); }
-.team-call-pinned-tile{ grid-column:1; border-color:#2782ff!important; }
+.team-call-pinned-tile{ grid-column:1; border-color:var(--norium-accent)!important; }
 .team-call-stage-pinned > .team-call-remote-tile:not(.team-call-pinned-tile){ grid-column:2; }
 @media (max-width:767px){
   .team-call-stage-pinned{ display:flex; flex-direction:column; }
@@ -8464,7 +8464,7 @@ html[data-underline-links="true"] a[href] {
 }
 .nora-native-scroll{scrollbar-width:none}
 .nora-native-scroll::-webkit-scrollbar{display:none}
-.norium-sidebar-channel-icon{display:block;width:20px;height:20px;color:#2782ff;object-fit:contain;filter:none;shape-rendering:geometricPrecision}
+.norium-sidebar-channel-icon{display:block;width:20px;height:20px;color:var(--norium-accent);object-fit:contain;filter:none;shape-rendering:geometricPrecision}
 .norium-suite-icon{filter:drop-shadow(0 1px 1px rgba(15,23,42,.32)) drop-shadow(0 2px 5px rgba(37,99,235,.14))}
 .dark .norium-suite-icon{filter:drop-shadow(0 1px 1px rgba(0,0,0,.58)) drop-shadow(0 0 5px rgba(125,211,252,.16))}
 html:not(.dark) .marketplace-hero-mark{border-color:rgba(14,116,144,.22);background:linear-gradient(145deg,rgba(37,99,235,.13),rgba(124,58,237,.1));color:#0e7490}
@@ -8573,7 +8573,7 @@ html:not(.dark) .models-notice.is-error{color:#9f1239}
 /* Acabamento do dashboard: hierarquia compacta, texto secundario legivel,
    indicadores sem card-in-card, decisao do dia e foco visivel acessivel. */
 .norium-dashboard :focus-visible{
-  outline:2px solid #2782ff;
+  outline:2px solid var(--norium-accent);
   outline-offset:2px;
   border-radius:6px;
 }
@@ -8633,7 +8633,7 @@ html:not(.dark) .models-notice.is-error{color:#9f1239}
   margin-top:12px;
   border:0;
   border-radius:10px;
-  background:color-mix(in srgb, #2782ff 12%, transparent);
+  background:color-mix(in srgb, var(--norium-accent) 12%, transparent);
   padding:12px 14px;
   color:var(--text);
   text-align:left;

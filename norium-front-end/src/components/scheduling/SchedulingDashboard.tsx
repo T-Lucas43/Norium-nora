@@ -6,6 +6,7 @@ import { WEEKDAYS, defaultPeriods, periodsFromWeekly, weeklyFromPeriods, type Da
 import PagePreview from "./PagePreview";
 import RescheduleDialog from "./RescheduleDialog";
 import "./scheduling-v2.css";
+import { bookingCopy, DEFAULT_BOOKING_COPY } from "../../features/scheduling/pageCopy";
 
 const BUILTIN_FIELDS = [
   { id: "full_name", type: "full_name", label: "Nome completo", required: true, maxLength: 160 },
@@ -13,7 +14,7 @@ const BUILTIN_FIELDS = [
   { id: "phone", type: "phone", label: "WhatsApp", required: false, maxLength: 32 },
 ];
 const EMPTY_SERVICE_FORM = { name: "", description: "", durations: "30", capacity: 1, bufferBefore: 0, bufferAfter: 0, professionalIds: [] as string[] };
-const EMPTY_PAGE_FORM = { serviceId: "", title: "", slug: "", description: "", primary: "#6d5dfc", secondary: "#4338ca", accent: "#14b8a6", background: "#f7f7fb", text: "#171722", mode: "auto" };
+const EMPTY_PAGE_FORM = { serviceId: "", title: "", slug: "", description: "", primary: "#6d5dfc", secondary: "#4338ca", accent: "#14b8a6", background: "#f7f7fb", text: "#171722", mode: "auto", ...DEFAULT_BOOKING_COPY };
 
 function customFieldMaxLength(type: string) {
   if (type === "cpf") return 14;
@@ -161,6 +162,7 @@ export default function SchedulingDashboard() {
       serviceId: item.service_id, title: item.title, slug: item.slug || "", description: item.description || "",
       primary: item.theme?.primary || "#6d5dfc", secondary: item.theme?.secondary || "#4338ca", accent: item.theme?.accent || "#14b8a6",
       background: item.theme?.background || "#f7f7fb", text: item.theme?.text || "#171722", mode: item.theme?.mode || "auto",
+      ...bookingCopy(item.theme),
     });
     setPageFields((item.fields || []).filter((field) => !["full_name", "email", "phone"].includes(field.id)).map((field) => ({ id: field.id, type: field.type, label: field.label, required: Boolean(field.required), maxLength: field.maxLength || 500 })));
     setPageLogo({ base64: "", preview: "", name: "" });
@@ -176,7 +178,7 @@ export default function SchedulingDashboard() {
   async function savePage() {
     if (!pageForm.serviceId || !pageForm.title.trim()) { setError("Escolha o serviço e informe o título da página."); return; }
     const fields = [...BUILTIN_FIELDS, ...pageFields];
-    const theme = { primary: pageForm.primary, secondary: pageForm.secondary, accent: pageForm.accent, background: pageForm.background, text: pageForm.text, mode: pageForm.mode };
+    const theme = { primary: pageForm.primary, secondary: pageForm.secondary, accent: pageForm.accent, background: pageForm.background, text: pageForm.text, mode: pageForm.mode, ...bookingCopy(pageForm) };
     try {
       if (editingPageId) {
         const current = pages.find((item) => item.id === editingPageId);
@@ -298,8 +300,19 @@ export default function SchedulingDashboard() {
     : <div className="nx-sc-split is-pages">
       <FormCard title={editingPageId ? "Editar página" : "Nova página"}>
         <Field label="Serviço"><select value={pageForm.serviceId} onChange={(e)=>setPageForm({...pageForm,serviceId:e.target.value})}>{services.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+        <p className="nx-small nx-muted">{previewService?.durations.length === 1 ? `Duração fixa do serviço: ${previewService.durations[0]} minutos.` : "A página oferece somente as durações cadastradas neste serviço."} Altere o tempo na seção Serviços.</p>
         <Field label="Título"><input value={pageForm.title} maxLength={120} onChange={(e)=>setPageForm({...pageForm,title:e.target.value})}/></Field>
         <Field label="Descrição"><textarea value={pageForm.description} maxLength={2000} placeholder="Texto exibido na página pública" onChange={(e)=>setPageForm({...pageForm,description:e.target.value})}/></Field>
+        <fieldset className="nx-sc-box" aria-label="Textos da página pública">
+          <legend className="nx-sc-lbl">Textos da página pública</legend>
+          <p className="nx-small nx-muted">Adapte os textos ao seu serviço, atendimento ou reunião. A prévia ao lado acompanha suas alterações. Deixe um texto em branco para ocultá-lo.</p>
+          <Field label="Chamada inicial"><input value={pageForm.introEyebrow} maxLength={120} onChange={(e)=>setPageForm({...pageForm,introEyebrow:e.target.value})}/></Field>
+          <Field label="Título de boas-vindas"><input value={pageForm.introTitle} maxLength={160} onChange={(e)=>setPageForm({...pageForm,introTitle:e.target.value})}/></Field>
+          <Field label="Orientação para agendar"><textarea value={pageForm.introDescription} maxLength={500} onChange={(e)=>setPageForm({...pageForm,introDescription:e.target.value})}/></Field>
+          <Field label="Identificação do serviço"><input value={pageForm.serviceLabel} maxLength={80} onChange={(e)=>setPageForm({...pageForm,serviceLabel:e.target.value})}/></Field>
+          <Field label="Mensagem abaixo do serviço"><textarea value={pageForm.closingNote} maxLength={500} onChange={(e)=>setPageForm({...pageForm,closingNote:e.target.value})}/></Field>
+          <button type="button" className="nx-btn is-sm" onClick={()=>setPageForm({...pageForm,...DEFAULT_BOOKING_COPY})}>Restaurar textos padrão</button>
+        </fieldset>
         <Field label="Slug opcional"><input value={pageForm.slug} maxLength={64} placeholder="consultoria" onChange={(e)=>setPageForm({...pageForm,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,"")})}/></Field>
         <p className="nx-sc-link" style={{marginTop:-8}}><Link2 size={13}/>{window.location.origin}/agendar/{pageForm.slug || "…"}</p>
         <label className="nx-sc-box">
@@ -328,7 +341,7 @@ export default function SchedulingDashboard() {
         <div className="nx-sc-btns"><button type="button" className="nx-btn is-primary" disabled={!pageForm.serviceId||!pageForm.title} onClick={() => void savePage()}>{editingPageId ? "Atualizar página" : "Gerar link com esta identidade"}</button>{editingPageId && <button type="button" className="nx-btn" onClick={resetPageForm}>Cancelar</button>}</div>
       </FormCard>
       <div className="nx-sc-side">
-        <div className="nx-sc-sticky"><PagePreview serviceName={previewService?.name || ""} title={pageForm.title} description={pageForm.description} identity={{ primary: pageForm.primary, secondary: pageForm.secondary, accent: pageForm.accent, background: pageForm.background, text: pageForm.text, mode: pageForm.mode }} logoSrc={pageLogo.preview || (currentLogoUrl ? `${apiBaseUrl()}${currentLogoUrl}` : "")} fields={previewFields} /></div>
+        <div className="nx-sc-sticky"><PagePreview serviceName={previewService?.name || ""} durations={previewService?.durations} title={pageForm.title} description={pageForm.description} copy={bookingCopy(pageForm)} identity={{ primary: pageForm.primary, secondary: pageForm.secondary, accent: pageForm.accent, background: pageForm.background, text: pageForm.text, mode: pageForm.mode }} logoSrc={pageLogo.preview || (currentLogoUrl ? `${apiBaseUrl()}${currentLogoUrl}` : "")} fields={previewFields} /></div>
         {pages.map((item)=>{const link=pageLink(item);return <article key={item.id} className="nx-card nx-sc-page"><div style={{display:"flex",alignItems:"center",gap:8}}><h3 className="nx-grow">{item.title}</h3><span className={`nx-badge ${item.active === false ? "" : "is-green"}`}>{item.active === false ? "Arquivada" : "No ar"}</span></div><p className="nx-sc-link"><Link2 size={13}/>{link}</p><div className="nx-sc-btns" style={{marginTop:12}}><button type="button" className="nx-btn is-sm" onClick={()=>void navigator.clipboard.writeText(link)}><Copy size={14}/>Copiar</button><button type="button" className="nx-btn is-sm" onClick={()=>window.open(link,"_blank","noopener")}><ExternalLink size={14}/>Visualizar</button><button type="button" className="nx-btn is-sm" onClick={()=>startEditPage(item)}><Pencil size={14}/>Editar</button><button type="button" className="nx-btn is-sm is-ghost" onClick={()=>void archivePage(item.id)}><Trash2 size={14}/>{pendingConfirm?.kind === "page" && pendingConfirm.id === item.id ? "Confirmar arquivamento" : "Arquivar"}</button><label className="nx-btn is-sm is-ghost nx-sc-upload"><Upload size={14}/>Trocar logo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event)=>void uploadLogo(item.id,event.target.files?.[0])}/></label></div></article>})}
       </div>
     </div>}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { ArrowRight, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Globe2, MapPin, Moon, Sun, Video } from "lucide-react";
 import BrandLogo from "../layout/BrandLogo";
 import "./publicScheduling.css";
+import { bookingCopy } from "../../features/scheduling/pageCopy";
 import { apiBaseUrl } from "../../core/api/config";
 import { clearSlotsCache, schedulingApi, type BookingField, type SchedulingPage, type SchedulingService } from "../../features/scheduling/api";
 import { formatCpf, formatPhone, validateSchedulingField } from "../../features/scheduling/fieldValidation";
@@ -180,6 +181,7 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   const today = localDateKey(new Date());
   const maximum = new Date(); maximum.setDate(maximum.getDate() + (service?.maximum_days || 365));
   const maxDay = localDateKey(maximum);
+  const copy = bookingCopy(page?.theme);
   const footer = <footer className="booking-footer"><span>Agendamento organizado com <strong>Norium</strong></span><span><Globe2 size={14} aria-hidden="true"/> Português · Brasil</span></footer>;
   const brand = <header className="booking-topbar"><BrandLogo className="h-9 w-[112px]"/><span className="booking-topbar-label"><CalendarDays size={15} aria-hidden="true"/> Agendamento online</span><button type="button" className="booking-icon-button" aria-label={dark ? "Usar tema claro" : "Usar tema escuro"} onClick={() => setDark((value) => !value)}>{dark ? <Sun size={18}/> : <Moon size={18}/>}</button></header>;
   const summary = slot && <div className="booking-summary"><CalendarDays size={21} aria-hidden="true"/><div><strong>{dateLabel(zonedDateKey(slot.startAt, slotTimezone))}</strong><span>{clock(slot.startAt)} – {clock(slot.endAt)} · {duration} min{selectedProfessional ? ` · ${selectedProfessional.name}` : ""}</span><span className="booking-muted">{slotTimezone.replace(/_/g, " ")}</span></div><Check size={18} aria-hidden="true"/></div>;
@@ -191,19 +193,19 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
         : !page ? <section className="booking-state" role="alert"><div className="booking-state-icon"><CalendarDays size={28}/></div><h1>Página indisponível</h1><p>{error || "Este link não está disponível. Confira o endereço com quem compartilhou o agendamento."}</p><button type="button" className="booking-primary-button" onClick={() => setPageRetry((value) => value + 1)}>Tentar novamente</button></section>
         : success ? <section className="booking-state booking-success"><div className="booking-success-icon"><CheckCircle2 size={38}/></div><p className="booking-eyebrow">Tudo pronto</p><h1>Agendamento confirmado</h1><p>Seu horário foi reservado. Confira os detalhes abaixo.</p><h2>{service?.name || page.title}</h2>{summary}<div className="booking-confirmation-id"><span>Identificador da reserva</span><strong>{success}</strong></div></section>
         : <>
-          <div className="booking-intro"><p className="booking-eyebrow">Um tempo reservado para você</p><h2>Vamos encontrar seu melhor horário.</h2><p>Escolha a data, selecione um horário e confirme seus dados.</p></div>
+          <div className="booking-intro">{copy.introEyebrow && <p className="booking-eyebrow">{copy.introEyebrow}</p>}{copy.introTitle && <h2>{copy.introTitle}</h2>}{copy.introDescription && <p>{copy.introDescription}</p>}</div>
           <div className="booking-card">
             <aside className="booking-service">
               {page.logo_url ? <img src={`${apiBaseUrl()}${page.logo_url}`} alt={page.title} className="booking-custom-logo"/> : <div className="booking-service-icon"><CalendarDays size={27} aria-hidden="true"/></div>}
-              <p className="booking-eyebrow">Seu atendimento</p><h1>{page.title}</h1>
+              {copy.serviceLabel && <p className="booking-eyebrow">{copy.serviceLabel}</p>}<h1>{page.title}</h1>
               {service?.name && service.name !== page.title && <p className="booking-service-name">{service.name}</p>}
               {(page.description || service?.description) && <p className="booking-description">{page.description || service?.description}</p>}
-              <div className="booking-service-meta"><span><Clock3 size={17} aria-hidden="true"/>{duration} minutos</span>{service?.location_type === "online" && <span><Video size={17} aria-hidden="true"/> Atendimento online</span>}{service?.location && <span><MapPin size={17} aria-hidden="true"/>{service.location}</span>}</div>
+              <div className="booking-service-meta"><span><Clock3 size={17} aria-hidden="true"/>{service?.durations.length === 1 ? "Duração do serviço: " : ""}{duration} minutos</span>{service?.location_type === "online" && <span><Video size={17} aria-hidden="true"/> Atendimento online</span>}{service?.location && <span><MapPin size={17} aria-hidden="true"/>{service.location}</span>}</div>
               {teamMode && <div className="booking-service-options"><h2>Escolha o profissional</h2><div className="booking-professionals">{professionals.map((item) => <button key={item.id} type="button" aria-pressed={responsibleId === item.id} onClick={() => selectProfessional(item.id)} className={`booking-professional${responsibleId === item.id ? " is-selected" : ""}`}>{item.avatarUrl ? <img src={item.avatarUrl} alt=""/> : <span className="booking-avatar">{item.name.slice(0, 2).toUpperCase()}</span>}<span><strong>{item.name}</strong><small>{item.profession || item.position || "Profissional"}</small></span>{responsibleId === item.id && <Check size={17} aria-hidden="true"/>}</button>)}</div>
                 <label className="booking-field">Escolha o serviço<select disabled={!responsibleId} value={service?.id || ""} onChange={(event) => { const next = availableServices.find((item) => item.id === event.target.value) || null; setService(next); if (next) setDuration(next.durations[0]); }}><option value="">Selecione</option>{availableServices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>}
-              {service && service.durations.length > 1 && <div className="booking-service-options"><h2>Duração do atendimento</h2><div className="booking-duration">{service.durations.map((item) => <button type="button" key={item} aria-pressed={duration === item} className={duration === item ? "is-selected" : ""} onClick={() => setDuration(item)}>{item} min</button>)}</div></div>}
-              {service?.instructions && <div className="booking-instructions"><h2>Antes do atendimento</h2><p>{service.instructions}</p></div>}
-              <div className="booking-service-note"><span className="booking-note-line"/><p>Escolha com calma.<br/>Seu próximo encontro começa aqui.</p></div>
+              {service && service.durations.length > 1 && <div className="booking-service-options"><h2>Duração do serviço</h2><div className="booking-duration">{service.durations.map((item) => <button type="button" key={item} aria-pressed={duration === item} className={duration === item ? "is-selected" : ""} onClick={() => setDuration(item)}>{item} min</button>)}</div></div>}
+              {service?.instructions && <div className="booking-instructions"><h2>Antes do serviço</h2><p>{service.instructions}</p></div>}
+              {copy.closingNote && <div className="booking-service-note"><span className="booking-note-line"/><p style={{ whiteSpace: "pre-line" }}>{copy.closingNote}</p></div>}
             </aside>
             <section className="booking-workspace" aria-label="Reserve seu horário">
               <ol className="booking-steps" aria-label="Etapas do agendamento"><li className={slot ? "is-complete" : "is-current"} aria-current={!slot ? "step" : undefined}><span>{slot ? <Check size={14}/> : "1"}</span>Data e horário</li><li className={slot ? "is-current" : ""} aria-current={slot ? "step" : undefined}><span>2</span>Seus dados</li><li><span>3</span>Confirmação</li></ol>

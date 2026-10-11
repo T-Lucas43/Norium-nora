@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1] / "norium-front-end" / "dist"
-SERVICE = {"id": "demo-service", "name": "Conversa de planejamento", "description": "Um encontro para ouvir suas ideias, alinhar prioridades e planejar os próximos passos.", "durations": [30, 60], "color": "#2563eb", "buffer_before": 0, "buffer_after": 0, "capacity": 1, "slot_interval": 30, "active": True, "location_type": "online", "maximum_days": 90}
+SERVICE = {"id": "demo-service", "name": "Manutenção preventiva", "description": "Reserve um horário para o cuidado do seu equipamento. Nossa equipe estará pronta para receber você.", "durations": [45], "color": "#2563eb", "buffer_before": 0, "buffer_after": 0, "capacity": 1, "slot_interval": 15, "active": True, "location_type": "in_person", "location": "Unidade de demonstração", "maximum_days": 90}
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs): super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -22,7 +22,7 @@ class Handler(SimpleHTTPRequestHandler):
                 for hour, minute in [(9, 0), (9, 30), (10, 0), (10, 30), (11, 0), (14, 0), (14, 30), (15, 0), (15, 30), (16, 0)]:
                     start = dt.datetime.fromisoformat(f"{day}T{hour:02}:{minute:02}:00-03:00"); rows.append({"startAt": start.isoformat(), "endAt": (start + dt.timedelta(minutes=duration)).isoformat(), "remaining": 1})
                 return self.json({"slots": rows, "calendarVerified": True, "timezone": "America/Sao_Paulo"})
-            return self.json({"page": {"id": "demo-page", "public_id": "demo-public", "title": "Vamos conversar?", "description": SERVICE["description"], "service_id": SERVICE["id"], "fields": [], "theme": {}, "active": True}, "service": SERVICE})
+            return self.json({"page": {"id": "demo-page", "public_id": "demo-public", "title": "Agende seu serviço", "description": SERVICE["description"], "service_id": SERVICE["id"], "fields": [], "theme": {"introEyebrow": "Serviço especializado", "introTitle": "Agende sua manutenção.", "introDescription": "Escolha a data e o horário. O serviço tem duração de 45 minutos.", "serviceLabel": "Seu serviço", "closingNote": "Conte com nossa equipe.\nSeu equipamento em boas mãos."}, "active": True}, "service": SERVICE})
         if path.startswith("/api/"): self.send_error(404); return
         if path.startswith("/agendar/"): self.path = "/index.html"
         super().do_GET()

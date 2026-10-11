@@ -17,15 +17,21 @@ Corrigir a abertura de e-mails e o link público informado pelo usuário; reesti
 - Gmail: lotes de até 20, orçamento em memória por conta de 4.000 unidades/minuto, pausa após quota e HTTP 429 sanitizado com Retry-After. Sem reenvio ou mudança de scopes. Limite local por processo; múltiplas réplicas e outros clientes Google podem consumir a quota compartilhada.
 - Frontend busca todas as páginas progressivamente a cada 15s; recua 30/60s em 429, mantém progresso e interrompe ao sair. Demais pastas carregam quando abertas. Leitura descarta respostas obsoletas e mostra erro/repete sem renderizar snippet como corpo completo.
 - `scripts/preview_public_scheduling.py`: fixture sintética local; sem Gmail, calendário, envio ou gravação de reservas.
+- Textos editáveis em Agendamentos > Páginas: título/descrição existentes, chamada inicial, boas-vindas, orientação, identificação e mensagem complementar; campos vazios ocultam o trecho. Prévia ao vivo antes de gravar. Persistência no JSON validado da identidade existente, sem migração de tabela.
+- Padrões usam serviço/agendamento. A duração única do serviço aparece como fixa; a escolha só existe quando o próprio cadastro tem múltiplas durações. Backend rejeita duração fora do cadastro. Nenhuma página real foi reconfigurada pelo agente.
 
 ## Verificação
 
-- Backend: 58 testes focados, sem falhas/erros; cópia descartável, dados fictícios, dotenv desabilitado, rede externa bloqueada pelo runner. Recibo `output/pos-correcao/hotfix-gmail-scheduling-confirm.json`.
+- Backend final com personalização: 61 testes focados, sem falhas/erros; cópia descartável, dados fictícios, dotenv desabilitado, rede externa bloqueada pelo runner. Recibo `output/pos-correcao/hotfix-textos-servicos.json`.
 - Frontend: suíte completa com 848 testes em 138 arquivos passou, incluindo resposta obsoleta, fechar leitor, limite Google, dispatcher público e reservas idempotentes.
 - Build TypeScript/Vite e orçamento de bundle passaram.
 - Conferência visual local: desktop 1280px e celular 390px; tema escuro/claro e confirmação com dados fictícios. Imagens em `output/homologacao-20261011/agendamento-*.png` no checkout principal. Deploy ainda não efetuado neste hotfix.
-- Docker Desktop local: motor WSL não inicializa (`0xc00000fd`). Os testes deste hotfix não dependem dele. Gate PostgreSQL será executado pelo CI.
+- Personalização e duração: 23 testes frontend focados passaram após ajustar duas asserções dos testes. Build TypeScript/Vite passou.
+- Docker Desktop foi reiniciado e agora responde com versão 29.8.1. PostgreSQL local sintético dedicado pronto para as fases 6/7; seu ensaio separado não comprova abertura real de e-mail.
+- Primeiro candidato do PR #55 (`733fd05`) passou nos cinco gates GitHub, run 38179726708. Personalização solicitada depois exige novo candidato e novos gates antes do deploy.
 
 ## Publicação e aceite
 
-Pendente: revisão do diff final, gates GitHub do candidato, imagem imutável, backup/restauração, promoção na Shard, release/ready/rota/assets e conferência do usuário no Gmail. Não declarar abertura real de e-mail corrigida apenas com health check. Não promover produção.
+Publicação em PR #55: https://github.com/T-Lucas43/Norium-nora/pull/55. A tentativa anterior de mover main foi recusada pela revisão automática porque os gates e a revisão humana ainda estavam pendentes; nenhuma alternativa foi usada para contornar essa recusa. O usuário depois conferiu a prévia e pediu personalização, respeito ao tempo do serviço, deploy após finalizar as correções e trabalho em paralelo nas fases 6/7.
+
+Pendente: revisão do diff final, novos gates GitHub do candidato completo, imagem imutável, backup/restauração, promoção na Shard, release/ready/rota/assets e conferência do usuário no Gmail. Não declarar abertura real de e-mail corrigida apenas com health check. Não promover produção.

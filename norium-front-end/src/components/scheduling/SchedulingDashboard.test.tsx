@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SchedulingDashboard from "./SchedulingDashboard";
@@ -53,6 +53,27 @@ describe("SchedulingDashboard", () => {
     vi.mocked(schedulingApi.createPage).mockResolvedValue({ id: "page-1", public_id: "public-1", service_id: "service-1", title: "Consultoria", description: "", fields: [], theme: {}, active: true });
     vi.mocked(schedulingApi.uploadLogo).mockResolvedValue({ logoUrl: "/logo" });
     vi.mocked(schedulingApi.saveTeamSettings).mockImplementation(async (body) => ({ enabled: body.enabled, professionals: [{ ...professional, ...body.professionals[0] }] }));
+  });
+
+  it("personaliza os textos na prévia e grava-os junto da identidade da página", async () => {
+    const user = userEvent.setup();
+    render(<SchedulingDashboard />);
+    await screen.findByText("Maria");
+    await user.click(screen.getByRole("button", { name: "Páginas" }));
+    await user.type(screen.getByLabelText("Título"), "Serviço premium");
+    const welcome = screen.getByLabelText("Título de boas-vindas");
+    await user.clear(welcome);
+    await user.type(welcome, "Agende seu atendimento técnico");
+    expect(screen.getByRole("heading", { name: "Agende seu atendimento técnico" })).toBeInTheDocument();
+    const note = screen.getByLabelText("Mensagem abaixo do serviço");
+    await user.clear(note);
+    await user.type(note, "Conte com nossa equipe.");
+    expect(within(screen.getByRole("region", { name: "Prévia da página pública" })).getByText("Conte com nossa equipe.")).toBeInTheDocument();
+    expect(screen.getByText("Duração do serviço: 60 minutos")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Gerar link com esta identidade" }));
+    await waitFor(() => expect(schedulingApi.createPage).toHaveBeenCalledWith(expect.objectContaining({
+      theme: expect.objectContaining({ introTitle: "Agende seu atendimento técnico", closingNote: "Conte com nossa equipe." }),
+    })));
   });
 
   it("stops loading on an API error and offers a working retry", async () => {

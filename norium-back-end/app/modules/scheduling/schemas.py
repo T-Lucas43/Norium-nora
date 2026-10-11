@@ -11,6 +11,8 @@ from app.shared.schemas import StrictModel
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+PAGE_TEXT_LIMITS = {"introEyebrow": 120, "introTitle": 160, "introDescription": 500,
+                    "serviceLabel": 80, "closingNote": 500}
 
 
 def contrast_ratio(first: str, second: str) -> float:
@@ -153,10 +155,14 @@ class PagePayload(StrictModel):
     @field_validator("theme")
     @classmethod
     def valid_theme(cls, value: dict[str, Any]):
-        allowed = {"primary", "secondary", "accent", "background", "text", "mode"}
+        allowed = {"primary", "secondary", "accent", "background", "text", "mode", *PAGE_TEXT_LIMITS}
         cleaned = {key: item for key, item in value.items() if key in allowed}
         for key, item in cleaned.items():
-            if key != "mode" and (not isinstance(item, str) or not HEX_COLOR.fullmatch(item)):
+            if key in PAGE_TEXT_LIMITS:
+                if not isinstance(item, str) or len(item) > PAGE_TEXT_LIMITS[key]:
+                    raise ValueError(f"Texto {key} invalido ou excede o limite.")
+                cleaned[key] = item.strip()
+            elif key != "mode" and (not isinstance(item, str) or not HEX_COLOR.fullmatch(item)):
                 raise ValueError(f"Cor {key} invalida.")
         if cleaned.get("mode") not in (None, "light", "dark", "auto"):
             raise ValueError("Modo de tema invalido.")

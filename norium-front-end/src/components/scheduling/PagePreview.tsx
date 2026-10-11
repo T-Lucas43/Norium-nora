@@ -1,3 +1,5 @@
+import { DEFAULT_BOOKING_COPY, type BookingCopy } from "../../features/scheduling/pageCopy";
+
 export type PreviewField = { id: string; label: string; type: string; required?: boolean };
 export type PreviewIdentity = { primary: string; secondary: string; accent: string; background: string; text: string; mode: string };
 
@@ -9,12 +11,16 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function PagePreview({
-  serviceName, title, description, identity, logoSrc, fields,
+  serviceName, title, description, identity, logoSrc, fields, durations, copy = DEFAULT_BOOKING_COPY,
 }: {
-  serviceName: string; title: string; description: string; identity: PreviewIdentity; logoSrc: string; fields: PreviewField[];
+  serviceName: string; title: string; description: string; identity: PreviewIdentity; logoSrc: string; fields: PreviewField[]; durations?: number[]; copy?: BookingCopy;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--border)] p-5 shadow-sm" style={{ background: identity.background, color: identity.text }}>
+    <div role="region" aria-label="Prévia da página pública" className="rounded-xl border border-[var(--border)] p-5 shadow-sm" style={{ background: identity.background, color: identity.text }}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: identity.primary }}>Prévia ao vivo · antes de publicar</p>
+      {copy.introEyebrow && <p className="mt-3 text-xs font-semibold">{copy.introEyebrow}</p>}
+      {copy.introTitle && <h2 className="mt-1 text-xl font-semibold">{copy.introTitle}</h2>}
+      {copy.introDescription && <p className="mb-4 mt-1 text-sm opacity-80">{copy.introDescription}</p>}
       <div className="flex items-center gap-3">
         {logoSrc ? (
           <img src={logoSrc} alt="Pré-visualização do logo" className="h-12 w-12 rounded-xl object-contain" />
@@ -24,7 +30,7 @@ export default function PagePreview({
           </div>
         )}
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: identity.primary }}>Prévia ao vivo · antes de publicar</p>
+          {copy.serviceLabel && <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: identity.primary }}>{copy.serviceLabel}</p>}
           <h3 className="truncate text-xl font-semibold">{title || "Título da página"}</h3>
           {serviceName && (
             <p className="mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold text-white" style={{ background: identity.accent }}>{serviceName}</p>
@@ -32,6 +38,9 @@ export default function PagePreview({
         </div>
       </div>
       {description && <p className="mt-3 text-sm opacity-80">{description}</p>}
+      {durations?.length === 1 ? <p className="mt-3 text-xs font-semibold">Duração do serviço: {durations[0]} minutos</p>
+        : Boolean(durations?.length) && <p className="mt-3 text-xs font-semibold">Durações disponíveis: {durations?.join(" / ")} minutos</p>}
+      {copy.closingNote && <p className="mt-4 whitespace-pre-line border-t border-black/10 pt-3 text-sm opacity-80">{copy.closingNote}</p>}
       <div className="mt-4 grid max-h-72 gap-2 overflow-y-auto">
         {fields.map((field) => (
           <div key={field.id}>

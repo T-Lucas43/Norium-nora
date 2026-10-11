@@ -353,7 +353,7 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
   useEffect(() => {
     if (!data?.processingJobs.some((job) => job.status === "queued" || job.status === "processing")) return undefined;
     const timer = window.setInterval(() => {
-      void loadCommercialData().then(setData).catch(() => undefined);
+      if (!document.hidden) void loadCommercialData().then(setData).catch(() => undefined);
     }, 3000);
     return () => window.clearInterval(timer);
   }, [data?.processingJobs]);

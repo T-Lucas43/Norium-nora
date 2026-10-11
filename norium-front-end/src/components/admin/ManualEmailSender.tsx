@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Mail, Send, Sparkles } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
-import noraLogo from "../../assets/nora-brand.png";
+import noraLogo from "../../assets/nora-brand.webp";
 
 type Recipient = { id: string; name: string; email: string; enabled: boolean };
 type EmailTone = "profissional" | "cordial" | "direto" | "comercial";

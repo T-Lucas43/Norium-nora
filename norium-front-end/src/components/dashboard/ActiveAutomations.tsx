@@ -90,7 +90,7 @@ export default function ActiveAutomations({ onNavigate }: ActiveAutomationsProps
     }
 
     void loadAutomations();
-    const interval = window.setInterval(loadAutomations, 60_000);
+    const interval = window.setInterval(() => { if (!document.hidden) void loadAutomations(); }, 120_000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);

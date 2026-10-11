@@ -15,10 +15,10 @@ import {
 } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
 import Button from "../shared/Button";
-import openAiLogo from "../../assets/ai-providers/openai.png";
-import geminiLogo from "../../assets/ai-providers/gemini.png";
+import openAiLogo from "../../assets/ai-providers/openai.webp";
+import geminiLogo from "../../assets/ai-providers/gemini.webp";
 import groqLogo from "../../assets/ai-providers/groq.png";
-import claudeLogo from "../../assets/ai-providers/claude.png";
+import claudeLogo from "../../assets/ai-providers/claude.webp";
 
 type Provider = {
   id: string;

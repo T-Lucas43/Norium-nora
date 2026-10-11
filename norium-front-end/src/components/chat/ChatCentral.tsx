@@ -830,7 +830,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       }
     };
     void consultarProgresso();
-    interval = window.setInterval(() => void consultarProgresso(), 2_500);
+    interval = window.setInterval(() => { if (!document.hidden) void consultarProgresso(); }, 2_500);
     return () => {
       active = false;
       controller.abort();

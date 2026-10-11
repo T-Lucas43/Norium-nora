@@ -127,7 +127,8 @@ export function useAuthenticatedMediaState(source?: string | null): Authenticate
     setResolvedFor(value);
     setLoading(true);
     setError(null);
-    void apiBlobRequest(plan.requestUrl, { cache: "no-store" })
+    // O servidor define a validade (ex.: privada por 5 min); o navegador reaproveita sem baixar de novo.
+    void apiBlobRequest(plan.requestUrl, { cache: "default" })
       .then((blob) => {
         if (cancelled) return;
         revokedUrl = URL.createObjectURL(blob);

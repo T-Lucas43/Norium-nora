@@ -105,7 +105,7 @@ describe("status do WhatsApp", () => {
     await waitFor(() => expect(contactRow.querySelector("img")).toHaveAttribute("src", "blob:status-photo"));
     expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(
       `/api/chat/media-proxy?url=${encodeURIComponent(photoUrl)}`,
-      { cache: "no-store" },
+      { cache: "default" },
     );
   });
 

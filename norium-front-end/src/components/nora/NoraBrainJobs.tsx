@@ -115,12 +115,12 @@ export default function NoraBrainJobs({ onClose }: { onClose: () => void }) {
   const hasReview = useMemo(() => jobs.some((job) => job.status === "awaiting_approval"), [jobs]);
   useEffect(() => {
     if (!hasRunning) return;
-    const timer = window.setInterval(() => void refresh(), 1800);
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 3000);
     return () => window.clearInterval(timer);
   }, [hasRunning, refresh]);
   useEffect(() => {
     if (!hasReview || hasRunning) return;
-    const timer = window.setInterval(() => void refresh(), 15_000);
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 15_000);
     return () => window.clearInterval(timer);
   }, [hasReview, hasRunning, refresh]);
 

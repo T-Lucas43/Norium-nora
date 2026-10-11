@@ -128,7 +128,7 @@ export default function BrowserAgentDashboard({ onOpenNora }: { onOpenNora: (pro
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!data.runs.some((run) => activeStates.has(run.status || ""))) return undefined;
-    const timer = window.setInterval(() => void load(), 1800);
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 3000);
     return () => window.clearInterval(timer);
   }, [data.runs, load]);
 

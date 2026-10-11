@@ -89,7 +89,7 @@ describe("estado vazio do Status", () => {
     expect(screen.getAllByRole("button", { name: /Maria/ })).toHaveLength(1);
     expect(screen.getByRole("button", { name: /Maria/ })).toHaveAccessibleName(/2 atualiza\u00e7\u00f5es/);
     expect(await screen.findByAltText("Pr\u00e9via do Status de Maria")).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[1].mediaUrl!), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[1].mediaUrl!), { cache: "default" });
   });
 
   it("agrupa por nome quando o contato n\u00e3o tem ID e indica v\u00eddeo e \u00e1udio", async () => {
@@ -108,8 +108,8 @@ describe("estado vazio do Status", () => {
     expect(screen.getByRole("img", { name: "Pr\u00e9via em \u00e1udio do Status de Bia" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /1 atualiza\u00e7\u00e3o/ })).toHaveLength(3);
     await waitFor(() => expect(view.container.querySelector("video")?.getAttribute("src")).toMatch(/^blob:status-media-/));
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[0].mediaUrl!), { cache: "no-store" });
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[2].mediaUrl!), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[0].mediaUrl!), { cache: "default" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[2].mediaUrl!), { cache: "default" });
   });
 
   it("renova uma foto de contato expirada uma unica vez pelo ID do Status", async () => {
@@ -132,14 +132,14 @@ describe("estado vazio do Status", () => {
     const row = screen.getByRole("button", { name: /Maria/ });
     await waitFor(() => expect(row.querySelector("img")?.getAttribute("src")).toMatch(/^blob:status-media-/));
     const expiredBlobUrl = row.querySelector("img")?.getAttribute("src");
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(expiredPhoto), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(expiredPhoto), { cache: "default" });
     fireEvent.error(row.querySelector("img") as HTMLImageElement);
     await waitFor(() => {
       const refreshedBlobUrl = row.querySelector("img")?.getAttribute("src");
       expect(refreshedBlobUrl).toMatch(/^blob:status-media-/);
       expect(refreshedBlobUrl).not.toBe(expiredBlobUrl);
     });
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(freshPhoto), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(freshPhoto), { cache: "default" });
     fireEvent.error(row.querySelector("img") as HTMLImageElement);
 
     await waitFor(() => expect(mediaApi.apiRequest).toHaveBeenCalledTimes(1));
@@ -235,7 +235,7 @@ describe("estado vazio do Status", () => {
     expect(caption.tagName).toBe("FIGCAPTION");
     expect(image).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
     expect(caption.closest("figure")?.querySelector("img")).toBe(image);
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(item.mediaUrl), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(item.mediaUrl), { cache: "default" });
   });
 
   it("exibe imagens e áudios externos somente após baixá-los pelo proxy seguro", async () => {
@@ -244,11 +244,11 @@ describe("estado vazio do Status", () => {
     const view = render(<WhatsAppStatusView items={[image, audio]} selectedId={image.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
 
     expect(await screen.findByAltText("Status de Maria")).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(image.mediaUrl), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(image.mediaUrl), { cache: "default" });
 
     view.rerender(<WhatsAppStatusView items={[image, audio]} selectedId={audio.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
     await waitFor(() => expect(view.container.querySelector("audio")?.getAttribute("src")).toMatch(/^blob:status-media-/));
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(audio.mediaUrl), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(audio.mediaUrl), { cache: "default" });
   });
 
   it("mantém o estado de carregamento de uma mídia privada sem convertê-la em Status de texto", () => {
@@ -290,7 +290,7 @@ describe("estado vazio do Status", () => {
     const callsBeforeRetry = mediaApi.apiBlobRequest.mock.calls.length;
     await user.click(retry);
     await waitFor(() => expect(mediaApi.apiBlobRequest).toHaveBeenCalledTimes(callsBeforeRetry + 1));
-    expect(mediaApi.apiBlobRequest).toHaveBeenLastCalledWith(mediaProxyUrl(item.mediaUrl), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenLastCalledWith(mediaProxyUrl(item.mediaUrl), { cache: "default" });
   });
 
   it("descarta a mídia anterior ao trocar de Status e permite repetir uma URL externa pelo proxy", async () => {
@@ -315,7 +315,7 @@ describe("estado vazio do Status", () => {
 
     const firstImage = await screen.findByAltText("Status de Maria");
     expect(firstImage).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(first.mediaUrl), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(first.mediaUrl), { cache: "default" });
     fireEvent.error(firstImage);
     expect(await screen.findByText("Mídia do Status indisponível")).toBeInTheDocument();
     const callsBeforeRetry = mediaApi.apiBlobRequest.mock.calls.length;
@@ -325,7 +325,7 @@ describe("estado vazio do Status", () => {
 
     view.rerender(<WhatsAppStatusView items={[first, second]} selectedId={second.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
     expect(await screen.findByAltText("Status de João")).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(second.mediaUrl), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(second.mediaUrl), { cache: "default" });
     expect(screen.queryByText("Mídia do Status indisponível")).not.toBeInTheDocument();
   });
 });

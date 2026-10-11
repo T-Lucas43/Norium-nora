@@ -14,7 +14,7 @@ import base64
 import binascii
 from html import unescape
 from urllib.parse import quote_plus
-from typing import Any, Literal, List
+from typing import Any, AsyncIterator, Literal, List
 
 import httpx
 from dotenv import load_dotenv
@@ -103,8 +103,11 @@ nora_service = NoraIAService()
 wapi_messaging = WapiMessagingService()
 agent_manager = AgentManager()
 email_agent = shared_email_agent
-ELEVENLABS_DEFAULT_VOICE_ID = "KHmfNHtEjHhLK9eER20w"
-ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+# Alice: mesma voz usada no video de divulgacao (video-divulgacao/scripts/gerar-voz.mjs).
+ELEVENLABS_DEFAULT_VOICE_ID = "Xb7hH8MSUJpSbSDYk0k2"
+ELEVENLABS_DEFAULT_MODEL_ID = "eleven_flash_v2_5"
+ELEVENLABS_TTS_STREAM_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
+EDGE_TTS_PROVIDERS = {"edge", "edge-tts", "microsoft"}
 EDGE_TTS_DEFAULT_VOICE = "pt-BR-ThalitaMultilingualNeural"
 
 
@@ -976,56 +979,107 @@ def texto_para_voz(texto: str) -> str:
     return re.sub(r"\s+", " ", value).strip()[:1800]
 
 
-async def gerar_audio_elevenlabs(texto: str, voice_id: str | None = None) -> bytes:
+def elevenlabs_voice_id() -> str:
+    """A voz e definida pelo servidor; o cliente nao escolhe voz nem consome creditos de outra."""
+    return (os.getenv("ELEVENLABS_VOICE_ID") or "").strip() or ELEVENLABS_DEFAULT_VOICE_ID
+
+
+async def abrir_audio_elevenlabs_stream(texto: str) -> AsyncIterator[bytes]:
+    """Abre o streaming da ElevenLabs e so devolve o gerador apos o primeiro trecho de audio.
+
+    Assim, falhas antes do primeiro byte (creditos, rede, provedor) ainda podem cair
+    na voz Edge sem que o cliente receba uma resposta quebrada.
+    """
     load_dotenv()
     api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
     if not api_key:
         raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY nao configurada no back-end.")
 
-    selected_voice_id = (voice_id or os.getenv("ELEVENLABS_VOICE_ID") or ELEVENLABS_DEFAULT_VOICE_ID).strip()
-    model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2").strip() or "eleven_multilingual_v2"
-    language_code = os.getenv("ELEVENLABS_LANGUAGE_CODE", "pt").strip()
     clean_text = texto_para_voz(texto)
     if not clean_text:
         raise HTTPException(status_code=400, detail="Texto vazio para gerar voz.")
+    model_id = os.getenv("ELEVENLABS_MODEL_ID", "").strip() or ELEVENLABS_DEFAULT_MODEL_ID
+    language_code = os.getenv("ELEVENLABS_LANGUAGE_CODE", "pt").strip()
     voice_payload: dict[str, Any] = {
         "text": clean_text,
         "model_id": model_id,
         "voice_settings": {
-            "stability": 0.45,
-            "similarity_boost": 0.78,
-            "style": 0.25,
+            "stability": 0.42,
+            "similarity_boost": 0.8,
+            "style": 0.4,
             "use_speaker_boost": True,
+            "speed": 1.04,
         },
     }
     if language_code and model_id != "eleven_multilingual_v2":
         voice_payload["language_code"] = language_code
 
+    started_at = time.perf_counter()
+    client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=8.0))
+    response: httpx.Response | None = None
+
+    async def close() -> None:
+        if response is not None:
+            await response.aclose()
+        await client.aclose()
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                ELEVENLABS_TTS_URL.format(voice_id=selected_voice_id),
-                params={"output_format": "mp3_44100_128"},
-                headers={
-                    "xi-api-key": api_key,
-                    "Content-Type": "application/json",
-                    "Accept": "audio/mpeg",
-                },
-                json=voice_payload,
-            )
+        request = client.build_request(
+            "POST",
+            ELEVENLABS_TTS_STREAM_URL.format(voice_id=elevenlabs_voice_id()),
+            params={"output_format": "mp3_44100_128"},
+            headers={"xi-api-key": api_key, "Content-Type": "application/json", "Accept": "audio/mpeg"},
+            json=voice_payload,
+        )
+        response = await client.send(request, stream=True)
     except httpx.HTTPError as exc:
-        logger.exception("Falha ao conectar na ElevenLabs.")
+        await close()
+        logger.warning("nora_tts event=connect_failed provider=elevenlabs error=%s", type(exc).__name__)
         raise HTTPException(status_code=502, detail="Falha temporaria ao conectar ao provedor de voz.") from exc
 
-    if response.status_code == 402:
-        raise HTTPException(
-            status_code=402,
-            detail="A ElevenLabs recusou a geracao por falta de creditos, limite ou plano ativo.",
-        )
     if response.status_code >= 400:
-        logger.warning("ElevenLabs recusou a geracao de voz com status %s.", response.status_code)
-        raise HTTPException(status_code=response.status_code, detail="O provedor recusou a geracao de voz.")
-    return response.content
+        status_code = response.status_code
+        await close()
+        logger.warning("nora_tts event=rejected provider=elevenlabs status=%s", status_code)
+        if status_code == 402:
+            raise HTTPException(
+                status_code=402,
+                detail="A ElevenLabs recusou a geracao por falta de creditos, limite ou plano ativo.",
+            )
+        raise HTTPException(status_code=status_code, detail="O provedor recusou a geracao de voz.")
+
+    chunks = response.aiter_bytes()
+    try:
+        first_chunk = await anext(chunks)
+    except (StopAsyncIteration, httpx.HTTPError) as exc:
+        await close()
+        raise HTTPException(status_code=502, detail="O provedor de voz nao retornou audio.") from exc
+    logger.info(
+        "nora_tts event=first_audio_chunk provider=elevenlabs model=%s elapsed_ms=%.1f",
+        model_id,
+        (time.perf_counter() - started_at) * 1000,
+    )
+
+    async def audio_stream():
+        total_bytes = len(first_chunk)
+        try:
+            yield first_chunk
+            async for chunk in chunks:
+                total_bytes += len(chunk)
+                yield chunk
+        except asyncio.CancelledError:
+            logger.info("nora_tts event=stream_cancelled provider=elevenlabs bytes=%s", total_bytes)
+            raise
+        finally:
+            await close()
+        logger.info(
+            "nora_tts event=stream_completed provider=elevenlabs chars=%s total_ms=%.1f bytes=%s",
+            len(clean_text),
+            (time.perf_counter() - started_at) * 1000,
+            total_bytes,
+        )
+
+    return audio_stream()
 
 
 def gerar_audio_edge_tts_stream(texto: str):
@@ -1828,10 +1882,11 @@ async def record_nora_telemetry(
 @router.post("/voz")
 async def gerar_voz_nora(payload: NoraVoicePayload, _: dict[str, Any] = Depends(require_nora_permission)):
     load_dotenv()
-    tts_started = time.perf_counter()
     provider = os.getenv("NORA_TTS_PROVIDER", "edge").strip().lower()
-    if provider in {"edge", "edge-tts", "microsoft"}:
-        audio_stream = gerar_audio_edge_tts_stream(payload.text)
+    if provider == "auto":
+        provider = "elevenlabs" if os.getenv("ELEVENLABS_API_KEY", "").strip() else "edge"
+
+    def progressive(audio_stream, voice_provider: str, voice_id: str) -> StreamingResponse:
         return StreamingResponse(
             audio_stream,
             media_type="audio/mpeg",
@@ -1840,22 +1895,24 @@ async def gerar_voz_nora(payload: NoraVoicePayload, _: dict[str, Any] = Depends(
                 "Content-Disposition": "inline",
                 "X-Accel-Buffering": "no",
                 "X-Norium-Audio-Mode": "progressive",
-                "X-Norium-Voice-Provider": "edge-tts",
-                "X-Norium-Voice-Id": os.getenv("EDGE_TTS_VOICE", EDGE_TTS_DEFAULT_VOICE),
+                "X-Norium-Voice-Provider": voice_provider,
+                "X-Norium-Voice-Id": voice_id,
             },
         )
 
-    audio = await gerar_audio_elevenlabs(payload.text, payload.voice_id)
-    elapsed_ms = round((time.perf_counter() - tts_started) * 1000, 1)
-    return Response(
-        content=audio,
-        media_type="audio/mpeg",
-        headers={
-            "Cache-Control": "no-store",
-            "X-Norium-Voice-Provider": "elevenlabs",
-            "X-Norium-Voice-Id": payload.voice_id or os.getenv("ELEVENLABS_VOICE_ID") or ELEVENLABS_DEFAULT_VOICE_ID,
-            "Server-Timing": f"tts;dur={elapsed_ms}",
-        },
+    if provider not in EDGE_TTS_PROVIDERS:
+        # payload.voice_id permanece no contrato por compatibilidade, mas a voz e sempre a do servidor.
+        try:
+            return progressive(await abrir_audio_elevenlabs_stream(payload.text), "elevenlabs", elevenlabs_voice_id())
+        except HTTPException as exc:
+            if exc.status_code == 400:
+                raise
+            logger.warning("nora_tts event=fallback_edge from=elevenlabs status=%s", exc.status_code)
+
+    return progressive(
+        gerar_audio_edge_tts_stream(payload.text),
+        "edge-tts",
+        os.getenv("EDGE_TTS_VOICE", EDGE_TTS_DEFAULT_VOICE),
     )
 
 

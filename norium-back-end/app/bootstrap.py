@@ -155,6 +155,8 @@ public_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
 auth_ip_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=15 * 60)
 webhook_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
 ai_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=60)
+# A voz ao vivo sintetiza uma requisicao por frase; um limite proprio evita cortar a fala no meio.
+voice_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
 message_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
 admin_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
 internal_limiter = SlidingWindowRateLimiter(limit=240, window_seconds=60)
@@ -165,6 +167,8 @@ def rate_limit_bucket(path: str) -> str:
         return "internal"
     if path.startswith("/api/whatsapp/webhook"):
         return "webhook"
+    if path == "/api/nora/voz":
+        return "voice"
     if path.startswith(("/api/nora", "/api/brainstorm/sessions")):
         return "ai"
     if path.startswith(("/api/chat/enviar", "/api/team-chat/messages")):
@@ -186,6 +190,7 @@ async def enforce_rate_limit(path: str, key: str) -> None:
         "auth": auth_ip_limiter,
         "webhook": webhook_limiter,
         "ai": ai_limiter,
+        "voice": voice_limiter,
         "message": message_limiter,
         "admin": admin_limiter,
         "internal": internal_limiter,

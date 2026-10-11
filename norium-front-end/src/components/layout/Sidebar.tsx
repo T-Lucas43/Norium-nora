@@ -15,6 +15,7 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
+import BrandLogo from "./BrandLogo";
 import IntegrationLogo from "../shared/IntegrationLogo";
 import NoraAvatar from "./NoraAvatar";
 import { preloadPanel } from "../../app/navigation/panelModules";
@@ -50,16 +51,6 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
 
 function matchesTab(activeTab: string, title: string) {
   return normalizeTab(activeTab) === title;
-}
-
-/** Marca do Norium no padrão do layout: "N" em degradê + NORIUM. */
-function BrandMark({ compact }: { compact: boolean }) {
-  return (
-    <span className="norium-brand-mark-wrap">
-      <span className="norium-brand-mark" aria-hidden="true">N</span>
-      {!compact && <b className="norium-brand-name">NORIUM</b>}
-    </span>
-  );
 }
 
 export default function Sidebar({
@@ -138,7 +129,7 @@ export default function Sidebar({
             onClick={() => navigate("Dashboard")}
             aria-label="Abrir Painel"
           >
-            <BrandMark compact={compact} />
+            <BrandLogo className={compact ? "h-10 w-10 object-left" : "h-12 w-[126px] object-left"} />
           </button>
 
           <button

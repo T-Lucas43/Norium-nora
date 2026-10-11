@@ -24,6 +24,10 @@ RUN python3.14 -m venv /opt/norium-venv \
 
 FROM ${NORIUM_RUNTIME_BASE} AS runtime
 
+# Norium starts Uvicorn directly; no service supervisor from the base image is
+# part of its runtime. Do not inherit a future base entrypoint.
+ENTRYPOINT []
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV ENVIRONMENT=production
@@ -49,6 +53,17 @@ RUN apt-get update \
     && useradd --uid 10001 --gid norium --no-create-home --shell /usr/sbin/nologin norium
 
 COPY --from=backend-build /opt/norium-venv /opt/norium-venv
+
+# The pinned base includes an unused Pebble binary built with Go 1.26.7. CI
+# found three HIGH stdlib advisories there. Norium's direct Uvicorn command and
+# Docker init do not use Pebble. Remove this optional binary from the final
+# filesystem; retain FFmpeg, Chrome and all application package metadata.
+RUN python - <<'PY'
+from pathlib import Path
+Path("/usr/bin/pebble").unlink(missing_ok=True)
+if Path("/usr/bin/pebble").exists():
+    raise SystemExit("Unused vulnerable base-image supervisor remains installed")
+PY
 
 # Use the official, patched stable Chrome package. The bundled Playwright
 # Chromium is older than the current vendor security fixes. Verify the exact

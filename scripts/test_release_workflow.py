@@ -182,6 +182,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(commands.count("--cap-drop=ALL"), 2)
         self.assertNotIn("continue-on-error", smoke)
 
+    def test_runtime_excludes_unused_pebble_and_preserves_application_tools(self):
+        runtime = Path("Dockerfile.shard").read_text(encoding="utf-8").split("FROM ${NORIUM_RUNTIME_BASE} AS runtime", 1)[1]
+        self.assertIn("ENTRYPOINT []", runtime)
+        self.assertIn('Path("/usr/bin/pebble").unlink(missing_ok=True)', runtime)
+        self.assertIn('if Path("/usr/bin/pebble").exists()', runtime)
+        self.assertIn("ca-certificates python3.14 ffmpeg", runtime)
+        self.assertIn("google-chrome-stable", runtime)
+        self.assertIn("exec uvicorn --app-dir /opt/norium", runtime)
+        self.assertIn("--workers 1", runtime)
+
     def test_shard_source_artifact_requires_all_gates_and_has_no_provider_credentials(self):
         workflow = self.workflow()
         job = workflow["jobs"]["shard-source-artifact"]

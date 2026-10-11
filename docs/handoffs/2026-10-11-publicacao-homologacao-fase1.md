@@ -30,6 +30,14 @@ A execução agora exige usuário/dono coincidentes, workspace atual, digest obr
 - Workflow, empacotamento e transporte: 37 testes passaram (23,412 s); SSH/deploy são mocks. A limitação de acesso a temporários no sandbox exigiu rodar com diretório temporário da tarefa e autorização do ambiente.
 - CI GitHub da revisão final e aceite remoto: pendentes.
 
+## Primeira execução GitHub e correção da imagem
+
+PR #53, head `0acf64d`, CI `38159730141`: build, identidade e DOM com sandbox passaram; o gate Trivy bloqueou três HIGH no arquivo `usr/bin/pebble`, stdlib Go `v1.26.7`: CVE-2026-78667, CVE-2026-78669 e CVE-2026-97031. O relatório aponta versões corrigidas 1.26.9/1.27.2; a [fonte oficial Go](https://go.dev/doc/devel/release#go1.26.9) confirma atualização de segurança de 08/10/2026. Evidência no artifact `11708989282`, vinculada à imagem/revisão.
+
+O relatório da imagem confirma entrypoint nulo e CMD com `exec uvicorn`; o projeto não usa Pebble. A proposta remove somente esse binário opcional do filesystem final e explicita `ENTRYPOINT []`; preserva FFmpeg, Chrome, metadados de pacotes, sandbox e scanners sem ignores. Nova execução da revisão corrigida precisa comprovar zero HIGH/CRITICAL; o relato local não antecipa esse gate.
+
+Consulta pública atual: `/api/system/release` confirma homologação `1878aa7`, versão `2026.10.08`; `/health/ready` retorna `ready`. A UI GitHub mostrou somente environments Preview/Production e nenhuma credencial `SHARD_VPS_*` nos nomes dos secrets do repositório (valores não lidos). A configuração do novo fluxo continua pendente.
+
 ## GitHub como padrão de deploy
 
 O responsável reiterou que o deploy deve usar GitHub Actions. O workflow anterior só validava e gerava ZIP. A proposta acrescenta dispatch explícito em main, com `deploy_homologacao`, depois de todos os gates, e transporte da mesma imagem Docker auditada (sem rebuild no host). A VPS é acessada via SSH com known_hosts previamente conferido; credenciais não entram no PR, recibo ou conversa.

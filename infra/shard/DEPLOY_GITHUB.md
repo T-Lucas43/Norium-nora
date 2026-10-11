@@ -10,6 +10,13 @@ dias; para refazer por dispatch, usar `export_image=true` e
 na VPS sem rebuild; configuração, dados e contêiner anterior devem ser preservados,
 com aceite remoto antes de concluir. A exportação isolada não usa secrets SSH.
 
+Se o conector limitar o download a 512 MiB, executar `Shard Cloud - transferencia
+da imagem auditada` em main, indicando run, artifact e SHA originais. O workflow
+confere todos os gates, o hash GitHub, a identidade e o audit receipt; divide o
+ZIP original em até três partes de 250 MiB e registra hashes individuais. Reunir
+as partes e conferir o hash original antes de carregar a imagem no host. Não há
+rebuild nem acesso à VPS nesse workflow.
+
 O workflow existente fazia CI e pacote de fonte. Esta proposta acrescenta exportação
 da **mesma imagem auditada** e transporte SSH por GitHub Actions. O console Shard
 foi usado somente para leitura. A VPS segue no release `1878aa7`.

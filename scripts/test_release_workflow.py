@@ -14,7 +14,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_only_shard_workflow_is_active_and_cannot_deploy_azure(self):
         active = {path.name for pattern in ("*.yml", "*.yaml") for path in WORKFLOW_PATH.parent.glob(pattern)}
-        self.assertEqual(active, {WORKFLOW_PATH.name})
+        self.assertEqual(active, {WORKFLOW_PATH.name, "shard-image-transfer.yml"})
         workflow = self.workflow()
         self.assertEqual(workflow["name"], "Shard Cloud - validacao e homologacao")
         self.assertEqual(set(workflow["jobs"]), {

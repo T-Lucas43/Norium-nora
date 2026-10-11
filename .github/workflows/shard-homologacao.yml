@@ -63,7 +63,7 @@ jobs:
           python -m pip check
 
       - name: Validate release workflow and deterministic Shard packaging
-        run: python -m unittest scripts.test_release_workflow scripts.test_shard_release_package scripts.test_deploy_shard_vps -v
+        run: python -m unittest scripts.test_release_workflow scripts.test_shard_release_package scripts.test_deploy_shard_vps scripts.test_split_shard_image_artifact -v
 
       - name: Scan backend dependencies and source
         working-directory: norium-back-end

@@ -1,0 +1,73 @@
+name: Shard Cloud - transferencia da imagem auditada
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: CI completo aprovado que gerou a imagem
+        required: true
+        default: '38171102321'
+      source_artifact:
+        description: Artifact imutavel da imagem auditada
+        required: true
+        default: '11714238389'
+      source_revision:
+        description: SHA completo da imagem aprovada
+        required: true
+        default: f6b455fedb5bf9c42d0c738668a09578c661aaf5
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  transfer:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Download and split the same validated image without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+          SOURCE_ARTIFACT: ${{ inputs.source_artifact }}
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+        shell: bash
+        run: |
+          python -c 'import os,re; assert os.environ["SOURCE_RUN"].isdecimal(); assert os.environ["SOURCE_ARTIFACT"].isdecimal(); assert re.fullmatch("[0-9a-f]{40}",os.environ["SOURCE_REVISION"])'
+          mkdir -p "$RUNNER_TEMP/shard-transfer"
+          cd "$RUNNER_TEMP/shard-transfer"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" > run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/jobs?per_page=100" > jobs.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT" > artifact.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT/zip" > original.zip
+          python "$GITHUB_WORKSPACE/scripts/split_shard_image_artifact.py" --archive original.zip \
+            --output parts --revision "$SOURCE_REVISION" --run run.json --jobs jobs.json --artifact artifact.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: shard-image-part-001-${{ inputs.source_revision }}
+          path: ${{ runner.temp }}/shard-transfer/parts/image.part.001
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 5
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: shard-image-part-002-${{ inputs.source_revision }}
+          path: ${{ runner.temp }}/shard-transfer/parts/image.part.002
+          compression-level: 0
+          if-no-files-found: ignore
+          retention-days: 5
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: shard-image-part-003-${{ inputs.source_revision }}
+          path: ${{ runner.temp }}/shard-transfer/parts/image.part.003
+          compression-level: 0
+          if-no-files-found: ignore
+          retention-days: 5
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: shard-image-transfer-${{ inputs.source_revision }}
+          path: ${{ runner.temp }}/shard-transfer/parts/transfer-receipt.json
+          if-no-files-found: error
+          retention-days: 90

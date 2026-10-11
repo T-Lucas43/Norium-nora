@@ -2243,6 +2243,29 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
     onClose();
   }
 
+  const isEmptyPage = variant === "page" && messages.length === 0;
+  const quickSuggestions = showSuggestions && (
+    <div className="nora-quick-suggestions mt-4">
+      <p className="nora-suggestions-label text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestões rápidas</p>
+      <div className="nora-suggestions-grid flex flex-wrap justify-center gap-2">
+        {suggestions.filter((suggestion) => variant !== "page" || !["summary", "agent", "question"].includes(suggestion.action)).map((suggestion) => {
+          const Icon = suggestion.icon;
+          return (
+            <Button
+              key={suggestion.title}
+              variant="secondary"
+              onClick={() => handleSuggestion(suggestion.action, suggestion.title)}
+              className="nora-quick-suggestion min-h-11 w-auto flex-row items-center justify-start gap-2 px-3 py-2 text-left"
+            >
+              <span className="nora-quick-suggestion-icon" aria-hidden="true"><Icon size={14} /></span>
+              <span className="text-xs leading-4">{suggestion.title}</span>
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   return (
     <AnimatePresence>
       {open && (
@@ -2390,6 +2413,7 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
             >
               {messages.length === 0 && !loading && (
                 <div className="nora-empty-state">
+                  {variant === "page" && <NoraAvatar className="nora-empty-portrait" />}
                   <h3>{welcomeName && <span>{`Olá, ${welcomeName}. `}</span>}<strong>O que vamos resolver hoje?</strong></h3>
                   <p>Converse, crie e acione qualquer área do Norium.</p>
                 </div>
@@ -2433,30 +2457,7 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
                 </div>
               )}
 
-              {showSuggestions && (
-                <div className="nora-quick-suggestions mt-4">
-                  <p className="nora-suggestions-label text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestões rápidas</p>
-
-                  <div className="nora-suggestions-grid flex flex-wrap justify-center gap-2">
-                    {suggestions.filter((suggestion) => variant !== "page" || !["summary", "agent", "question"].includes(suggestion.action)).map((suggestion) => {
-                      const Icon = suggestion.icon;
-                      return (
-                        <Button
-                          key={suggestion.title}
-                          variant="secondary"
-                          onClick={() => handleSuggestion(suggestion.action, suggestion.title)}
-                          className="nora-quick-suggestion min-h-11 w-auto flex-row items-center justify-start gap-2 px-3 py-2 text-left"
-                        >
-                          <span className="nora-quick-suggestion-icon" aria-hidden="true">
-                            <Icon size={14} />
-                          </span>
-                          <span className="text-xs leading-4">{suggestion.title}</span>
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              {!isEmptyPage && quickSuggestions}
             </div>
 
             <div className="nora-composer border-t border-[var(--border)] p-3">
@@ -2573,6 +2574,7 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
                 </motion.button>
               </div>
             </div>
+            {isEmptyPage && quickSuggestions}
           </motion.aside>
         </>
       )}

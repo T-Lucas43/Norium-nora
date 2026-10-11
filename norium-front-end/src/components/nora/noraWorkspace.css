@@ -718,12 +718,24 @@
   scrollbar-width: none;
 }
 
-.nora-page .nora-drawer-conversation.is-empty {
+.nora-workspace .nora-page-empty {
+  gap: 24px;
+  overflow-y: auto;
+  padding: 32px 24px max(32px, env(safe-area-inset-bottom));
+}
+
+.nora-page-empty .nora-drawer-conversation.is-empty {
   display: flex;
+  flex: 0 0 auto !important;
   flex-direction: column;
-  justify-content: center;
   gap: 0;
-  padding-bottom: 150px !important;
+  overflow: visible;
+  margin-top: auto;
+  padding: 0 !important;
+}
+
+.nora-workspace .nora-page-empty > :last-child {
+  margin-bottom: auto !important;
 }
 
 .nora-page .nora-empty-state {
@@ -734,8 +746,14 @@
   align-items: center;
   margin: 0 auto;
   padding: 0 16px;
-  transform: translateY(-48px);
   text-align: center;
+}
+
+.nora-page .nora-empty-portrait {
+  width: 80px;
+  height: 80px;
+  flex-shrink: 0;
+  margin-bottom: 20px;
 }
 
 .nora-page .nora-empty-state h3 {
@@ -759,12 +777,9 @@
 }
 
 .nora-page .nora-quick-suggestions {
-  position: absolute;
-  top: calc(50% + 94px);
-  left: 50%;
-  width: min(720px, calc(100% - 42px));
-  margin: 0 !important;
-  transform: translateX(-50%);
+  width: min(720px, 100%);
+  flex-shrink: 0;
+  margin: 0 auto !important;
 }
 
 .nora-page .nora-suggestions-label {
@@ -980,13 +995,8 @@
 }
 
 .nora-page-empty .nora-composer {
-  position: absolute;
-  z-index: 8;
-  top: 50%;
-  left: 50%;
-  width: min(790px, calc(100% - 48px));
+  width: min(790px, 100%);
   padding: 0 !important;
-  transform: translate(-50%, 4px);
   background: transparent !important;
 }
 
@@ -1163,26 +1173,14 @@
     padding: 18px 14px 28px !important;
   }
 
-  .nora-page .nora-drawer-conversation.is-empty {
-    padding-bottom: 138px !important;
-  }
-
-  .nora-page .nora-empty-state {
-    transform: translateY(-44px);
+  .nora-workspace .nora-page-empty {
+    gap: 20px;
+    padding: 24px 12px max(24px, env(safe-area-inset-bottom));
   }
 
   .nora-page .nora-empty-state h3 {
     max-width: 520px;
     font-size: 21px;
-  }
-
-  .nora-page-empty .nora-composer {
-    width: calc(100% - 24px);
-  }
-
-  .nora-page .nora-quick-suggestions {
-    top: calc(50% + 90px);
-    width: calc(100% - 24px);
   }
 
   .nora-page .nora-composer {
@@ -1223,21 +1221,19 @@
   .nora-composer-model span { display: none; }
   .nora-composer-model { padding: 7px 5px; }
   .nora-page .nora-empty-state p { display: none; }
-  .nora-page .nora-quick-suggestions { top: calc(50% + 88px); }
   .nora-page .nora-quick-suggestion { padding-inline: 7px !important; }
   .nora-page .nora-quick-suggestion:nth-child(n + 4) { display: none !important; }
 }
 
 @media (max-height: 690px) {
-  .nora-page-empty .nora-composer {
-    top: 46%;
+  .nora-workspace .nora-page-empty {
+    gap: 18px;
+    padding-block: 20px;
   }
 
-  .nora-page .nora-empty-state {
-    transform: translateY(-52px);
-  }
-
-  .nora-page .nora-quick-suggestions {
-    top: calc(46% + 90px);
+  .nora-page .nora-empty-portrait {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 16px;
   }
 }

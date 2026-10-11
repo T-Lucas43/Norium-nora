@@ -14,3 +14,6 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 - fix(lgpd): CPF, cartão e segredos mascarados em toda chamada de IA, sem confundir celular com CPF.
 - fix(nora): memória da equipe gravada só por quem gerencia a equipe; memórias entram como dados, não como instruções.
 - fix(seguranca): requisições sem usuário identificado falham em vez de usar a conta fixa `lucas123`.
+- feat(layout): base visual com tokens, fonte Inter local, azul unificado, ícones mais leves e menu agrupado sem remover telas.
+- perf: atualizações automáticas menos frequentes e pausadas com a aba oculta (WhatsApp, Agenda, E-mails, integrações, versão).
+- perf: cache de documentos do PostgreSQL com fila por usuário (entra um, sai o usado há mais tempo), limite de memória e validade de 5 min.

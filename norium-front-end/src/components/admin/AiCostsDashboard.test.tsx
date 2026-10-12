@@ -20,7 +20,7 @@ describe("AiCostsDashboard", () => {
     expect(await screen.findByText("Custo de todos os usuários")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Ana/ }));
     expect(screen.getByRole("heading", { name: "Detalhamento por modelo" })).toBeInTheDocument();
-    expect(within(screen.getByRole("table")).getByText("openai/gpt-oss-20b")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByText("openai/gpt-oss-20b")).toBeInTheDocument();
     expect(screen.getByText(/75% de entrada/)).toBeInTheDocument();
   });
   it("salva zero como bloqueio e campo vazio como ilimitado", async () => {
@@ -63,7 +63,7 @@ describe("AiCostsDashboard", () => {
     await screen.findByText("Ana");
     await user.click(screen.getByRole("button", { name: "Todo o histórico" }));
     await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs?month=all", "test-token"));
-    await user.click(screen.getByRole("button", { name: "Consumo e auditoria" }));
+    await user.click(screen.getByRole("button", { name: "Últimas chamadas" }));
     expect(screen.getByText(/Nenhuma chamada registrada neste período/)).toBeInTheDocument();
   });
   it("mantém falha de carregamento visível", async () => {

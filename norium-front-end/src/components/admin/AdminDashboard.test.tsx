@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession, NoriumUser, PlanInfo } from "../../types/auth";
@@ -67,7 +67,8 @@ describe("AdminDashboard", () => {
     render(<AdminDashboard session={session()} onUseSystem={vi.fn()} onSessionUpdate={vi.fn()} />);
 
     expect(await screen.findByText("Fernando")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Fernando/ }));
+    await user.click(screen.getByRole("button", { name: "Abrir ficha de Fernando" }));
+    await user.click(screen.getByRole("tab", { name: "Acesso" }));
     await user.click(await screen.findByRole("button", { name: /Tornar admin auxiliar/i }));
 
     await waitFor(() => expect(authJson).toHaveBeenCalledWith(
@@ -83,9 +84,27 @@ describe("AdminDashboard", () => {
     const user = userEvent.setup();
     render(<AdminDashboard session={session(assistant)} onUseSystem={vi.fn()} onSessionUpdate={vi.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: /Tarcisio Lucas/ }));
+    await user.click(await screen.findByRole("button", { name: "Abrir ficha de Tarcisio Lucas" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("protegida contra alterações");
     expect(screen.getByRole("combobox", { name: "Plano do usuário selecionado" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Tornar admin auxiliar/i })).not.toBeInTheDocument();
   });
+  it("mantém todas as entradas existentes e os atalhos diretos",async()=>{
+    mockApi([owner,fernando]);const onUseSystem=vi.fn();const user=userEvent.setup();render(<AdminDashboard session={session()} onUseSystem={onUseSystem} onSessionUpdate={vi.fn()}/>);
+    await screen.findByText('Fernando');
+    for(const label of ['Visão geral','Usuários','Equipes','Planos','Permissões','Financeiro','Custos de IA','Provedores e tarifas','E-mails','E-mails do sistema','Monitoramento','Logs do sistema','Integrações','Auditoria','Backup']) expect(within(screen.getByRole('navigation',{name:'Navegação administrativa'})).getByRole('button',{name:label})).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Chaves e segredos'})).not.toBeInTheDocument();await user.click(screen.getByRole('button',{name:'Voltar ao sistema'}));expect(onUseSystem).toHaveBeenCalledOnce();
+  });
+  it("fecha a ficha com Escape e devolve o foco ao botão",async()=>{
+    mockApi([owner,fernando]);const user=userEvent.setup();render(<AdminDashboard session={session()} onUseSystem={vi.fn()} onSessionUpdate={vi.fn()}/>);
+    const trigger=await screen.findByRole('button',{name:'Abrir ficha de Fernando'});await user.click(trigger);expect(screen.getByRole('dialog',{name:'Ficha do usuário'})).toBeInTheDocument();await user.keyboard('{Escape}');expect(screen.queryByRole('dialog')).not.toBeInTheDocument();expect(trigger).toHaveFocus();
+  });
+  it("novo usuário conserva campos, foco e fechamento sem enviar",async()=>{
+    mockApi([owner,fernando]);const user=userEvent.setup();render(<AdminDashboard session={session()} onUseSystem={vi.fn()} onSessionUpdate={vi.fn()}/>);await screen.findByText('Fernando');await user.click(screen.getByRole('button',{name:'Criar novo usuário'}));
+    expect(screen.getByRole('dialog',{name:'Novo usuário'})).toBeInTheDocument();expect(screen.getByLabelText('Nome do novo usuário')).toHaveFocus();expect(screen.getByLabelText('Senha inicial do novo usuário')).toBeInTheDocument();await user.keyboard('{Escape}');expect(screen.queryByRole('dialog')).not.toBeInTheDocument();expect(vi.mocked(authJson).mock.calls.some(call=>call[2]?.method==='POST')).toBe(false);
+  });
+  it("pagina usuários sem esconder os registros restantes",async()=>{
+    const extra=Array.from({length:14},(_,i)=>({...fernando,id:`example-${i}`,nome:`Exemplo ${i}`}));mockApi([owner,...extra]);const user=userEvent.setup();render(<AdminDashboard session={session()} onUseSystem={vi.fn()} onSessionUpdate={vi.fn()}/>);await screen.findByText('Exemplo 0');await user.click(screen.getByRole('button',{name:'Usuários'}));expect(screen.getByText('Mostrando 1–12 de 15')).toBeInTheDocument();await user.click(screen.getByRole('button',{name:'Próxima'}));expect(screen.getByText('Mostrando 13–15 de 15')).toBeInTheDocument();expect(screen.getByText('Exemplo 13')).toBeInTheDocument();
+  });
+
 });

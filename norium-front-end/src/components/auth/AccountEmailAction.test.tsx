@@ -44,9 +44,12 @@ describe("Account email actions", () => {
   it("does not send the welcome campaign automatically when opening settings", async () => {
     request.mockResolvedValue({ sender: "suporte@norium-ai.com", ready: true, enabled: true, passwordConfigured: true, publicUrl: "https://norium.example.invalid", delivery: { counts: {}, recent: [], welcome: { title: "Boas-vindas", description: "Aqui quem fala é a Nora." } } });
     render(<SystemEmailSettings token="admin-test" />);
+    await screen.findByRole("button", { name: "Remetente" });
+    fireEvent.click(screen.getByRole("button", { name: "Remetente" }));
+    expect(screen.getByLabelText("Senha da caixa de suporte")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Modelos" }));
     const send = await screen.findByRole("button", { name: "Enviar boas-vindas aos cadastrados" });
     expect(request).toHaveBeenCalledTimes(1);
-    expect(screen.getByLabelText("Senha da caixa de suporte")).toHaveValue("");
     request.mockResolvedValueOnce({ queued: 2, alreadyQueued: 0, skipped: 0 });
     fireEvent.click(send);
     expect(await screen.findByRole("status")).toHaveTextContent("2 e-mail(s) na fila");

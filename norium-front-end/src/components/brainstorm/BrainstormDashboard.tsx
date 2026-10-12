@@ -1,3 +1,5 @@
+import AvatarImage from "../profile/AvatarImage";
+import { ProfilePeople } from "../profile/ProfilePeople";
 import IdeaCard, { type IdeaComment, type IdeaData, type IdeaNode, type IdeaVariant } from "./StudioIdeaNode";
 import "../../styles/screens/trabalho-comum.css";
 import "../../styles/screens/estudio.css";
@@ -52,7 +54,6 @@ import {
   ThumbsUp,
   Timer,
   Trash2,
-  UsersRound,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -539,7 +540,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   const statusLabel = boardLocked ? (session.status === "arquivado" ? "Sessão arquivada" : "Sessão encerrada") : "Sessão ativa";
 
   return (
-    <div className="nxw-screen nxs-editor">
+    <ProfilePeople people={members}><div className="nxw-screen nxs-editor">
       {error && <div className="nxw-alert is-error nxs-editor-alert"><span>{error}</span></div>}
       {boardLocked && <div className="nxw-alert is-warning nxs-editor-alert"><LockKeyhole size={16} /><span>Sessão encerrada. O quadro está bloqueado para novas ideias, votos, comentários e alterações.</span></div>}
 
@@ -629,7 +630,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
               <label className="nxs-check"><input type="checkbox" checked={Boolean(selectedNode.data.completed)} onChange={(event) => updateSelected({ completed: event.target.checked }, true)} /> Item concluído</label>
               {selectedNode.data.file && <a href={selectedNode.data.file.dataUrl} download={selectedNode.data.file.name} className="nx-btn is-sm"><FolderOpen size={14} /> Baixar {selectedNode.data.file.name}</a>}
               <div className="nxs-grid-2"><button type="button" onClick={toggleVote} className="nx-btn is-sm"><ThumbsUp size={14} /> Votar ({selectedNode.data.votes?.length || 0})</button><button type="button" onClick={() => void convertTask()} className="nx-btn is-sm"><ListChecks size={14} /> Virar tarefa</button></div>
-              <section className="nxs-section"><h3><MessageSquareText size={15} /> Comentários</h3><div className="nxs-stack-sm">{(selectedNode.data.comments || []).map((item) => <article key={item.id} className="nxw-action"><div className="nxs-comment-h"><span>{item.authorName}</span><time>{formatDate(item.timestamp)}</time></div><p>{item.text}</p></article>)}</div><div className="nxs-comment-form"><input className="nxw-field" value={comment} onChange={(event) => setComment(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addComment(); }} placeholder="Comentar..." /><button type="button" className="nxw-icon-btn nxs-primary-icon" onClick={addComment} aria-label="Adicionar comentário"><Plus size={16} /></button></div></section>
+              <section className="nxs-section"><h3><MessageSquareText size={15} /> Comentários</h3><div className="nxs-stack-sm">{(selectedNode.data.comments || []).map((item) => <article key={item.id} className="nxw-action"><div className="nxs-comment-h"><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><AvatarImage userId={item.authorId} name={item.authorName} size={24}/>{item.authorName}</span><time>{formatDate(item.timestamp)}</time></div><p>{item.text}</p></article>)}</div><div className="nxs-comment-form"><input className="nxw-field" value={comment} onChange={(event) => setComment(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addComment(); }} placeholder="Comentar..." /><button type="button" className="nxw-icon-btn nxs-primary-icon" onClick={addComment} aria-label="Adicionar comentário"><Plus size={16} /></button></div></section>
             </fieldset>
           ) : (
             <div className="nxs-stack">
@@ -645,7 +646,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
 
               {inspectorMode === "notes" && <section><div className="nxs-panel-h"><div className="nx-grow"><p className="nxs-eyebrow">Notas</p><h2 className="nxs-h2">{nodes.filter((node) => node.data.variant === "sticky").length} post-its</h2></div><button type="button" className="nx-btn is-sm is-primary" disabled={boardLocked} onClick={() => addIdea("sticky")}><Plus size={14} /> Nova</button></div><div className="nxs-stack-sm" style={{ marginTop: 12 }}>{nodes.filter((node) => node.data.variant === "sticky").slice(0, 20).map((node) => <button type="button" key={node.id} onClick={() => { setSelectedId(node.id); setInspectorMode("notes"); }} className="nxw-action nxs-list-btn"><strong className="nx-ell">{node.data.label}</strong><small>{node.data.category || "geral"}</small></button>)}</div></section>}
 
-              {inspectorMode === "participants" && <section><p className="nxs-eyebrow">Pessoas</p><h2 className="nxs-h2">Equipe da sessão</h2><div className="nxs-stack-sm" style={{ marginTop: 12 }}>{members.map((member) => { const online = Boolean(presence[member.id]); return <article key={member.id} className="nxw-action nxs-person">{member.fotoUrl ? <img src={member.fotoUrl} alt="" /> : <span className="nx-av" style={{ width: 32, height: 32, background: "#2563eb" }}>{avatarFallback(member.nome)}</span>}<span className="nx-grow"><strong className="nx-ell" style={{ display: "block" }}>{member.nome}</strong><small className={online ? "nxs-online" : "nx-faint"}>{online ? "Online no quadro" : "Offline"}</small></span></article>; })}</div></section>}
+              {inspectorMode === "participants" && <section><p className="nxs-eyebrow">Pessoas</p><h2 className="nxs-h2">Equipe da sessão</h2><div className="nxs-stack-sm" style={{ marginTop: 12 }}>{members.map((member) => { const online = Boolean(presence[member.id]); return <article key={member.id} className="nxw-action nxs-person"><AvatarImage src={member.fotoUrl} userId={member.id} name={member.nome} size={32}/><span className="nx-grow"><strong className="nx-ell" style={{ display: "block" }}>{member.nome}</strong><small className={online ? "nxs-online" : "nx-faint"}>{online ? "Online no quadro" : "Offline"}</small></span></article>; })}</div></section>}
 
               {inspectorMode === "files" && <section><div className="nxs-panel-h"><div className="nx-grow"><p className="nxs-eyebrow">Arquivos</p><h2 className="nxs-h2">Anexos do quadro</h2></div><button type="button" className="nx-btn is-sm is-primary" disabled={boardLocked} onClick={() => fileInputRef.current?.click()}><Plus size={14} /> Anexar</button></div><p className="nxs-text">Até 2 MB por arquivo. Os anexos ficam vinculados à sessão.</p><div className="nxs-stack-sm" style={{ marginTop: 12 }}>{nodes.filter((node) => node.data.file).map((node) => <button type="button" key={node.id} onClick={() => setSelectedId(node.id)} className="nxw-action nxs-person"><span className="nxw-icon is-sm"><FileText size={16} /></span><span className="nx-grow"><strong className="nx-ell" style={{ display: "block" }}>{node.data.file?.name}</strong><small className="nx-faint">{((node.data.file?.size || 0) / 1024).toFixed(1).replace(".", ",")} KB</small></span></button>)}</div></section>}
 
@@ -674,7 +675,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
           </section>
         </div>
       )}
-    </div>
+    </div></ProfilePeople>
   );
 }
 
@@ -827,7 +828,7 @@ export default function BrainstormDashboard({
   if (selectedSessionId) return <BoardEditor sessionId={selectedSessionId} authSession={session} onBack={() => { setSelectedSessionId(null); void load(); }} />;
 
   return (
-    <div className="nx-page nxw-screen nxs-page h-full overflow-y-auto">
+    <ProfilePeople people={members}><div className="nx-page nxw-screen nxs-page h-full overflow-y-auto">
       <header className="nx-ph">
         <div><h1>Estúdio</h1><p>Um espaço para organizar ideias e transformar decisões em entregas</p></div>
         <div className="nx-ph-actions"><button type="button" className="nx-btn is-primary" onClick={() => setCreating(true)}><Plus size={16} />Nova sessão</button></div>
@@ -874,7 +875,7 @@ export default function BrainstormDashboard({
             <div className="nxs-card-top"><span className="nxw-icon"><Boxes size={16} /></span><span className={`nx-badge ${item.status === "ativo" ? "is-green" : item.status === "encerrado" ? "is-violet" : ""}`}>{item.status === "ativo" ? "Ativa" : item.status === "encerrado" ? "Encerrada" : "Arquivada"}</span></div>
             <h2 className="nxs-card-title">{item.title}</h2>
             <p className="nxs-text nxs-clamp-3">{item.objective || "Sessão livre para organizar novas ideias."}</p>
-            <div className="nxs-card-meta"><span><UsersRound size={14} /> {item.responsibleName}</span><span><StickyNote size={14} /> {item.nodeCount || 0} itens</span><span className="nxs-span-2"><Clock3 size={14} /> Atualizado em {formatDate(item.updatedAt)}</span></div>
+            <div className="nxs-card-meta"><span><AvatarImage userId={item.responsibleId} name={item.responsibleName} size={24}/> {item.responsibleName}</span><span><StickyNote size={14} /> {item.nodeCount || 0} itens</span><span className="nxs-span-2"><Clock3 size={14} /> Atualizado em {formatDate(item.updatedAt)}</span></div>
             <div className="nxs-card-actions">
               <button type="button" className="nx-btn is-sm is-primary" onClick={() => setSelectedSessionId(item.id)}><MousePointer2 size={14} /> Abrir quadro</button>
               <button type="button" className="nxw-icon-btn is-sm" onClick={() => void shareSession(item)} title="Compartilhar" aria-label="Compartilhar"><Share2 size={15} /></button>
@@ -921,6 +922,6 @@ export default function BrainstormDashboard({
       )}
 
       {creating && <StudioTemplates members={members} userId={session.user.id} onClose={() => setCreating(false)} onCreate={createSession} />}
-    </div>
+    </div></ProfilePeople>
   );
 }

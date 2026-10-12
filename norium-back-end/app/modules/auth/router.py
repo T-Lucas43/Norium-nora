@@ -31,7 +31,7 @@ from app.core.security import (
 )
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.request_context import normalize_workspace_id, set_ai_user_id
-from app.core.tenant import get_system_db_path, read_account_db, read_json_file, write_json_file
+from app.core.tenant import get_system_db_path, read_account_db, read_json_file, read_profile_db, write_json_file
 from app.infrastructure.persistence.json_repository import PersistenceError
 from app.infrastructure.persistence.postgres_store import PostgresStoreError
 from app.infrastructure import auth_sessions as sessions
@@ -398,6 +398,9 @@ def sanitize_user(user: dict[str, Any]) -> dict[str, Any]:
     safe["permissions"] = effective_permissions(safe)
     safe["status"] = safe.get("status", "ativo")
     safe["requiresPlanSelection"] = bool(safe.get("requiresPlanSelection", False))
+    if safe.get("id"):
+        profile = read_profile_db(str(safe["id"]), {})
+        safe["fotoUrl"] = str(profile.get("fotoUrl") or safe.get("fotoUrl") or "")
     return safe
 
 

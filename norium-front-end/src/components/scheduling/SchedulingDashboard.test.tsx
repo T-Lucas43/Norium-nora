@@ -39,6 +39,40 @@ const emptyAvailability = { service_id: "service-1", timezone: "America/Sao_Paul
 const professional = { userId: "pro-1", name: "Ana", email: "ana@x.com", active: true, profession: "Advogada", position: "Sócia", color: "#2563eb" };
 
 describe("SchedulingDashboard", () => {
+  it("permite cadastrar atendimento presencial com local e instruções", async () => {
+    const user = userEvent.setup(); render(<SchedulingDashboard/>); await screen.findByText("Maria");
+    await user.click(screen.getByRole('button',{name:'Serviços'}));
+    await user.type(screen.getByLabelText('Nome'),'Manutenção');
+    await user.selectOptions(screen.getByLabelText('Tipo de atendimento'),'in_person');
+    await user.type(screen.getByLabelText('Local ou orientação de acesso'),'Unidade sintética');
+    await user.type(screen.getByLabelText('Instruções antes do atendimento'),'Traga seu equipamento.');
+    await user.click(screen.getByRole('button',{name:'Criar serviço'}));
+    await waitFor(()=>expect(schedulingApi.createService).toHaveBeenCalledWith(expect.objectContaining({locationType:'in_person',location:'Unidade sintética',instructions:'Traga seu equipamento.'})));
+  });
+  it("filtra vencidos sem concluir automaticamente e registra o tipo realizado", async () => {
+    const user = userEvent.setup();
+    vi.mocked(schedulingApi.updateBookingStatus).mockResolvedValue({...dashboard.bookings[0],status:"COMPLETED",completion_type:"service"});
+    render(<SchedulingDashboard/>);
+    await screen.findByText("Maria");
+    await user.click(screen.getByRole("button",{name:/Vencidos/}));
+    expect(screen.getByText("Vencido · aguardando registro")).toBeInTheDocument();
+    expect(schedulingApi.updateBookingStatus).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByLabelText("Registrar resultado de Maria"),"service");
+    await waitFor(()=>expect(schedulingApi.updateBookingStatus).toHaveBeenCalledWith("book-1","COMPLETED","service"));
+    expect(screen.queryByText("Maria")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button",{name:"Realizados"}));
+    expect(screen.getByText("Serviço realizado")).toBeInTheDocument();
+  });
+  it("prévia usa a página pública e não consulta nem cria reservas", async () => {
+    const user=userEvent.setup(); render(<SchedulingDashboard/>); await screen.findByText("Maria");
+    await user.click(screen.getByRole("button",{name:"Páginas"}));
+    const region=screen.getByRole("region",{name:"Prévia da página pública"});
+    expect(region.querySelector('.norium-booking')).toHaveAttribute('data-preview','true');
+    expect(within(region).getByRole('heading',{name:'Escolha a data'})).toBeInTheDocument();
+    expect(within(region).getByRole('button',{name:'Confirmar agendamento'})).toBeDisabled();
+    await user.click(within(region).getByRole('button',{name:/Usar tema/}));
+    expect(within(screen.getByRole('group',{name:'Modo'})).getByRole('button',{name:'Escuro'})).toHaveAttribute('aria-pressed','true');
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(schedulingApi.dashboard).mockResolvedValue(dashboard);
@@ -152,7 +186,7 @@ describe("SchedulingDashboard", () => {
     await user.click(screen.getByRole("button", { name: "Adicionar" }));
 
     expect(screen.getAllByText("Atendimento premium")).toHaveLength(2);
-    expect(screen.getByText("CPF · obrigatório")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Prévia da página pública" })).getByLabelText(/CPF/)).toBeRequired();
   });
 
   it("archives a service only after a two-click confirmation", async () => {

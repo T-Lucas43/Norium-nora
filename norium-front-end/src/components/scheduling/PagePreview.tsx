@@ -1,66 +1,24 @@
+import { useMemo } from "react";
 import { DEFAULT_BOOKING_COPY, type BookingCopy } from "../../features/scheduling/pageCopy";
+import type { SchedulingService } from "../../features/scheduling/api";
+import PublicSchedulingPage, { type SchedulingPreview } from "./PublicSchedulingPage";
 
-export type PreviewField = { id: string; label: string; type: string; required?: boolean };
-export type PreviewIdentity = { primary: string; secondary: string; accent: string; background: string; text: string; mode: string };
+export type PreviewField = { id: string; label: string; type: string; required?: boolean; maxLength?: number };
+export type PreviewIdentity = { primary: string; secondary: string; accent: string; background: string; text: string; mode: string; surface?: string; muted?: string; border?: string; fontFamily?: string; cardStyle?: string; layout?: string; showHeader?: string; showFooter?: string; darkBackground?: string; darkText?: string; darkSurface?: string; darkMuted?: string; darkBorder?: string };
 
-const TYPE_LABELS: Record<string, string> = {
-  full_name: "Nome", first_name: "Nome", last_name: "Sobrenome", email: "E-mail", phone: "Telefone",
-  text: "Texto", textarea: "Texto longo", cpf: "CPF", cnpj: "CNPJ", date: "Data", datetime: "Data e hora",
-  time: "Hora", address: "Endereço", number: "Número", select: "Seleção", multiselect: "Múltipla escolha",
-  checkbox: "Múltipla escolha", radio: "Opção única", boolean: "Sim/não",
-};
-
-export default function PagePreview({
-  serviceName, title, description, identity, logoSrc, fields, durations, copy = DEFAULT_BOOKING_COPY,
-}: {
-  serviceName: string; title: string; description: string; identity: PreviewIdentity; logoSrc: string; fields: PreviewField[]; durations?: number[]; copy?: BookingCopy;
+export default function PagePreview({ onThemeChange, serviceName, service, professionals, teamMode, title, description, identity, logoSrc, fields, durations, copy = DEFAULT_BOOKING_COPY }: {
+  onThemeChange?: (mode: "light" | "dark") => void;
+  serviceName: string; service?: SchedulingService; professionals?: SchedulingPreview["professionals"]; teamMode?: boolean;
+  title: string; description: string; identity: PreviewIdentity; logoSrc: string;
+  fields: PreviewField[]; durations?: number[]; copy?: BookingCopy;
 }) {
-  return (
-    <div role="region" aria-label="Prévia da página pública" className="rounded-xl border border-[var(--border)] p-5 shadow-sm" style={{ background: identity.background, color: identity.text }}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: identity.primary }}>Prévia ao vivo · antes de publicar</p>
-      {copy.introEyebrow && <p className="mt-3 text-xs font-semibold">{copy.introEyebrow}</p>}
-      {copy.introTitle && <h2 className="mt-1 text-xl font-semibold">{copy.introTitle}</h2>}
-      {copy.introDescription && <p className="mb-4 mt-1 text-sm opacity-80">{copy.introDescription}</p>}
-      <div className="flex items-center gap-3">
-        {logoSrc ? (
-          <img src={logoSrc} alt="Pré-visualização do logo" className="h-12 w-12 rounded-xl object-contain" />
-        ) : (
-          <div className="grid h-12 w-12 place-items-center rounded-xl font-semibold text-white" style={{ background: identity.secondary }}>
-            {(title || serviceName || "N").slice(0, 1).toUpperCase()}
-          </div>
-        )}
-        <div className="min-w-0">
-          {copy.serviceLabel && <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: identity.primary }}>{copy.serviceLabel}</p>}
-          <h3 className="truncate text-xl font-semibold">{title || "Título da página"}</h3>
-          {serviceName && (
-            <p className="mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold text-white" style={{ background: identity.accent }}>{serviceName}</p>
-          )}
-        </div>
-      </div>
-      {description && <p className="mt-3 text-sm opacity-80">{description}</p>}
-      {durations?.length === 1 ? <p className="mt-3 text-xs font-semibold">Duração do serviço: {durations[0]} minutos</p>
-        : Boolean(durations?.length) && <p className="mt-3 text-xs font-semibold">Durações disponíveis: {durations?.join(" / ")} minutos</p>}
-      {copy.closingNote && <p className="mt-4 whitespace-pre-line border-t border-black/10 pt-3 text-sm opacity-80">{copy.closingNote}</p>}
-      <div className="mt-4 grid max-h-72 gap-2 overflow-y-auto">
-        {fields.map((field) => (
-          <div key={field.id}>
-            <p className="mb-1 text-[11px] font-semibold">
-              {field.label}
-              {field.required && <span style={{ color: identity.primary }}> *</span>}
-              <span className="ml-2 font-semibold opacity-60">{TYPE_LABELS[field.type] || field.type}{field.required ? " · obrigatório" : " · opcional"}</span>
-            </p>
-            {field.type === "textarea" ? (
-              <div className="min-h-16 rounded-lg border border-black/10 px-3 py-2 text-xs opacity-60">Resposta longa…</div>
-            ) : field.type === "boolean" ? (
-              <div className="flex gap-2 text-xs font-semibold"><span className="rounded-lg border border-black/10 px-3 py-2">Sim</span><span className="rounded-lg border border-black/10 px-3 py-2">Não</span></div>
-            ) : (
-              <div className="h-10 truncate rounded-lg border border-black/10 px-3 py-2 text-xs opacity-60">{field.label}</div>
-            )}
-          </div>
-        ))}
-        {!fields.length && <p className="rounded-lg bg-black/5 p-3 text-center text-xs opacity-60">Nenhum campo ainda.</p>}
-        <button type="button" tabIndex={-1} className="h-10 rounded-lg text-sm font-semibold text-white" style={{ background: identity.primary }}>Continuar</button>
-      </div>
-    </div>
-  );
+  const preview = useMemo<SchedulingPreview>(() => ({
+    page: { id: "preview", public_id: "preview", service_id: service?.id || "preview", title: title || "Título da página", description, fields, theme: { ...identity, ...copy }, active: true },
+    service: service || { id: "preview", name: serviceName, description: "", durations: durations?.length ? durations : [30], color: identity.primary, capacity: 1, buffer_before: 0, buffer_after: 0, slot_interval: 15, active: true, location_type: "online" },
+    professionals, teamMode, logoSrc, onThemeChange: onThemeChange ? (dark) => onThemeChange(dark ? "dark" : "light") : undefined,
+  }), [onThemeChange, title, description, fields, identity, copy, service, serviceName, durations, professionals, teamMode, logoSrc]);
+  return <section role="region" aria-label="Prévia da página pública" className="booking-preview-panel">
+    <header><strong>Prévia ao vivo · antes de publicar</strong><p>Mesmo layout da página pública. Horários ilustrativos; nenhuma reserva será criada.</p></header>
+    <PublicSchedulingPage identifier="preview" preview={preview}/>
+  </section>;
 }

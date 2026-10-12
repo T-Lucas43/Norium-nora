@@ -45,9 +45,16 @@ function formatFieldValue(fieldType: string, value: string) {
   return value;
 }
 
-export default function PublicSchedulingPage({ identifier }: { identifier: string }) {
-  const [page, setPage] = useState<SchedulingPage | null>(null);
-  const [service, setService] = useState<SchedulingService | null>(null);
+export type SchedulingPreview = {
+  page: SchedulingPage; service: SchedulingService;
+  services?: SchedulingService[];
+  professionals?: Array<{id:string;name:string;avatarUrl?:string;profession:string;position:string;color:string}>;
+  teamMode?: boolean; logoSrc?: string; onThemeChange?: (dark: boolean) => void;
+};
+
+export default function PublicSchedulingPage({ identifier, preview }: { identifier: string; preview?: SchedulingPreview }) {
+  const [page, setPage] = useState<SchedulingPage | null>(preview?.page || null);
+  const [service, setService] = useState<SchedulingService | null>(preview?.service || null);
   const [services, setServices] = useState<SchedulingService[]>([]);
   const [professionals, setProfessionals] = useState<Array<{id:string;name:string;avatarUrl?:string;profession:string;position:string;color:string}>>([]);
   const [teamMode, setTeamMode] = useState(false);
@@ -60,7 +67,7 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [form, setForm] = useState<Record<string, string>>({ full_name: "", email: "", phone: "" });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preview);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [calendarVerified, setCalendarVerified] = useState(true);
   const [sending, setSending] = useState(false);
@@ -74,6 +81,13 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   const calendarRefreshAttemptRef = useRef("");
 
   useEffect(() => {
+    if (preview) {
+      setPage(preview.page); setService(preview.service);
+      setServices(preview.services || [preview.service]); setProfessionals(preview.professionals || []);
+      setTeamMode(Boolean(preview.teamMode)); setDuration(preview.service.durations[0] || 30);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true); setError(""); setPage(null); setService(null); setSlot(null); setSuccess("");
     schedulingApi.publicPage(identifier).then((data) => {
@@ -82,9 +96,22 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
       document.title = `${data.page.title} · Agendamento | Norium`;
     }).catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Não foi possível abrir este agendamento."); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [identifier, pageRetry]);
+  }, [identifier, pageRetry, preview]);
 
   useEffect(() => {
+    if (page?.theme.mode === "dark") setDark(true);
+    if (page?.theme.mode === "light") setDark(false);
+  }, [page?.theme.mode]);
+
+  useEffect(() => {
+    if (preview) {
+      const examples = [9, 10, 11, 14, 15, 16].map((hour) => {
+        const start = new Date(`${day}T${String(hour).padStart(2, "0")}:00:00`);
+        return { startAt: start.toISOString(), endAt: new Date(start.getTime() + duration * 60_000).toISOString(), remaining: 1 };
+      });
+      setSlots(examples); setSlotsLoading(false); setSlot(examples[0]);
+      return;
+    }
     if (!service || (teamMode && !responsibleId)) return;
     const requestId = ++slotsRequestRef.current;
     const controller = new AbortController();
@@ -109,7 +136,7 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
       if (slotsRequestRef.current === requestId) setSlotsLoading(false);
     });
     return () => { controller.abort(); if (refreshTimer !== null) window.clearTimeout(refreshTimer); };
-  }, [identifier, day, duration, service, responsibleId, teamMode, slotsRetry]);
+  }, [identifier, day, duration, service, responsibleId, teamMode, slotsRetry, preview]);
 
   const availableServices = useMemo(() => teamMode && responsibleId ? services.filter((item) => item.professionalIds?.includes(responsibleId)) : services, [responsibleId, services, teamMode]);
 
@@ -123,18 +150,26 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
     const primary = safeColor(page?.theme?.primary, "#2563eb");
     return {
       "--booking-primary": primary, "--booking-on-primary": onColor(primary),
-      "--booking-bg": dark ? "#0d1421" : safeColor(page?.theme?.background, "#f4f7fc"),
-      "--booking-text": dark ? "#edf2fa" : safeColor(page?.theme?.text, "#17243b"),
+      "--booking-bg": dark ? safeColor(page?.theme.darkBackground, "#0d1421") : safeColor(page?.theme?.background, "#f4f7fc"),
+      "--booking-text": dark ? safeColor(page?.theme.darkText, "#edf2fa") : safeColor(page?.theme?.text, "#17243b"),
+      "--booking-secondary": safeColor(page?.theme?.secondary, primary), "--booking-accent": safeColor(page?.theme?.accent, primary),
+      "--booking-surface": dark ? safeColor(page?.theme.darkSurface, "#151f30") : safeColor(page?.theme?.surface, "#ffffff"),
+      "--booking-muted": dark ? safeColor(page?.theme.darkMuted, "#a5b4cc") : safeColor(page?.theme?.muted, "#63728a"),
+      "--booking-border": dark ? safeColor(page?.theme.darkBorder, "#2b3a50") : safeColor(page?.theme?.border, "#e4eaf3"),
+      "--booking-font": page?.theme.fontFamily === "serif" ? "Georgia, serif" : page?.theme.fontFamily === "system" ? "system-ui, sans-serif" : "'Inter Variable', Inter, system-ui, sans-serif",
     } as CSSProperties;
   }, [page, dark]);
+
+  const copy = bookingCopy(page?.theme);
+  const logoUrl = preview?.logoSrc || (page?.logo_url ? new URL(page.logo_url, `${apiBaseUrl()}/`).href : "");
 
   const bookingFields = useMemo<BookingField[]>(() => {
     const configured = page?.fields || [];
     const configuredById = new Map(configured.map((field) => [field.id, field]));
     return [
-      configuredById.get("full_name") || { id: "full_name", type: "full_name", label: "Nome completo", required: true, maxLength: 160 },
-      configuredById.get("email") || { id: "email", type: "email", label: "E-mail", required: true, maxLength: 254 },
-      configuredById.get("phone") || { id: "phone", type: "phone", label: "WhatsApp", required: false, maxLength: 32 },
+      configuredById.get("full_name") || { id: "full_name", type: "full_name", label: bookingCopy(page?.theme).nameLabel || "Nome completo", required: true, maxLength: 160 },
+      configuredById.get("email") || { id: "email", type: "email", label: bookingCopy(page?.theme).emailLabel || "E-mail", required: true, maxLength: 254 },
+      configuredById.get("phone") || { id: "phone", type: "phone", label: bookingCopy(page?.theme).phoneLabel || "WhatsApp", required: false, maxLength: 32 },
       ...configured.filter((field) => !["full_name", "email", "phone"].includes(field.id)),
     ];
   }, [page]);
@@ -150,6 +185,7 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   }
 
   async function confirm() {
+    if (preview) return;
     if (!slot) return;
     const nextErrors = Object.fromEntries(
       bookingFields
@@ -181,55 +217,54 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   const today = localDateKey(new Date());
   const maximum = new Date(); maximum.setDate(maximum.getDate() + (service?.maximum_days || 365));
   const maxDay = localDateKey(maximum);
-  const copy = bookingCopy(page?.theme);
-  const footer = <footer className="booking-footer"><span>Agendamento organizado com <strong>Norium</strong></span><span><Globe2 size={14} aria-hidden="true"/> Português · Brasil</span></footer>;
-  const brand = <header className="booking-topbar"><BrandLogo className="h-9 w-[112px]"/><span className="booking-topbar-label"><CalendarDays size={15} aria-hidden="true"/> Agendamento online</span><button type="button" className="booking-icon-button" aria-label={dark ? "Usar tema claro" : "Usar tema escuro"} onClick={() => setDark((value) => !value)}>{dark ? <Sun size={18}/> : <Moon size={18}/>}</button></header>;
+  const footer = <footer className="booking-footer"><span>{copy.footerText}</span><span><Globe2 size={14} aria-hidden="true"/> Português · Brasil</span></footer>;
+  const brand = <header className="booking-topbar">{logoUrl ? <img src={logoUrl} alt={page?.title || "Logo do atendimento"} className="booking-header-logo"/> : <BrandLogo className="h-9 w-[112px]"/>}<span className="booking-topbar-label"><CalendarDays size={15} aria-hidden="true"/> {copy.headerLabel}</span><button type="button" className="booking-icon-button" aria-label={dark ? "Usar tema claro" : "Usar tema escuro"} onClick={() => { const next = !dark; setDark(next); preview?.onThemeChange?.(next); }}>{dark ? <Sun size={18}/> : <Moon size={18}/>}</button></header>;
   const summary = slot && <div className="booking-summary"><CalendarDays size={21} aria-hidden="true"/><div><strong>{dateLabel(zonedDateKey(slot.startAt, slotTimezone))}</strong><span>{clock(slot.startAt)} – {clock(slot.endAt)} · {duration} min{selectedProfessional ? ` · ${selectedProfessional.name}` : ""}</span><span className="booking-muted">{slotTimezone.replace(/_/g, " ")}</span></div><Check size={18} aria-hidden="true"/></div>;
 
-  return <main style={theme} className={`norium-booking${dark ? " booking-dark" : ""}`}>
+  return <main style={theme} data-preview={preview ? "true" : undefined} data-layout={page?.theme.layout || "sidebar"} data-card-style={page?.theme.cardStyle || "soft"} className={`norium-booking${dark ? " booking-dark" : ""}`}>
     <div className="booking-shell">
-      {brand}
+      {page?.theme.showHeader !== "false" && brand}
       {loading ? <section className="booking-state" aria-label="Carregando agendamento"><div className="booking-state-icon"><CalendarDays size={28}/></div><h1>Preparando seu agendamento</h1><p>Estamos buscando os serviços e horários.</p><div className="booking-skeleton" aria-hidden="true"/></section>
         : !page ? <section className="booking-state" role="alert"><div className="booking-state-icon"><CalendarDays size={28}/></div><h1>Página indisponível</h1><p>{error || "Este link não está disponível. Confira o endereço com quem compartilhou o agendamento."}</p><button type="button" className="booking-primary-button" onClick={() => setPageRetry((value) => value + 1)}>Tentar novamente</button></section>
-        : success ? <section className="booking-state booking-success"><div className="booking-success-icon"><CheckCircle2 size={38}/></div><p className="booking-eyebrow">Tudo pronto</p><h1>Agendamento confirmado</h1><p>Seu horário foi reservado. Confira os detalhes abaixo.</p><h2>{service?.name || page.title}</h2>{summary}<div className="booking-confirmation-id"><span>Identificador da reserva</span><strong>{success}</strong></div></section>
+        : success ? <section className="booking-state booking-success"><div className="booking-success-icon"><CheckCircle2 size={38}/></div><p className="booking-eyebrow">Tudo pronto</p><h1>{copy.confirmationTitle}</h1><p>{copy.confirmationDescription}</p><h2>{service?.name || page.title}</h2>{summary}<div className="booking-confirmation-id"><span>Identificador da reserva</span><strong>{success}</strong></div></section>
         : <>
           <div className="booking-intro">{copy.introEyebrow && <p className="booking-eyebrow">{copy.introEyebrow}</p>}{copy.introTitle && <h2>{copy.introTitle}</h2>}{copy.introDescription && <p>{copy.introDescription}</p>}</div>
           <div className="booking-card">
             <aside className="booking-service">
-              {page.logo_url ? <img src={`${apiBaseUrl()}${page.logo_url}`} alt={page.title} className="booking-custom-logo"/> : <div className="booking-service-icon"><CalendarDays size={27} aria-hidden="true"/></div>}
+              {logoUrl ? <img src={logoUrl} alt={page.title} className="booking-custom-logo"/> : <div className="booking-service-icon"><CalendarDays size={27} aria-hidden="true"/></div>}
               {copy.serviceLabel && <p className="booking-eyebrow">{copy.serviceLabel}</p>}<h1>{page.title}</h1>
               {service?.name && service.name !== page.title && <p className="booking-service-name">{service.name}</p>}
               {(page.description || service?.description) && <p className="booking-description">{page.description || service?.description}</p>}
-              <div className="booking-service-meta"><span><Clock3 size={17} aria-hidden="true"/>{service?.durations.length === 1 ? "Duração do serviço: " : ""}{duration} minutos</span>{service?.location_type === "online" && <span><Video size={17} aria-hidden="true"/> Atendimento online</span>}{service?.location && <span><MapPin size={17} aria-hidden="true"/>{service.location}</span>}</div>
-              {teamMode && <div className="booking-service-options"><h2>Escolha o profissional</h2><div className="booking-professionals">{professionals.map((item) => <button key={item.id} type="button" aria-pressed={responsibleId === item.id} onClick={() => selectProfessional(item.id)} className={`booking-professional${responsibleId === item.id ? " is-selected" : ""}`}>{item.avatarUrl ? <img src={item.avatarUrl} alt=""/> : <span className="booking-avatar">{item.name.slice(0, 2).toUpperCase()}</span>}<span><strong>{item.name}</strong><small>{item.profession || item.position || "Profissional"}</small></span>{responsibleId === item.id && <Check size={17} aria-hidden="true"/>}</button>)}</div>
-                <label className="booking-field">Escolha o serviço<select disabled={!responsibleId} value={service?.id || ""} onChange={(event) => { const next = availableServices.find((item) => item.id === event.target.value) || null; setService(next); if (next) setDuration(next.durations[0]); }}><option value="">Selecione</option>{availableServices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>}
+              <div className="booking-service-meta"><span><Clock3 size={17} aria-hidden="true"/>{service?.durations.length === 1 ? `${copy.durationLabel}: ` : ""}{duration} minutos</span>{service?.location_type === "online" && <span><Video size={17} aria-hidden="true"/> {copy.onlineLabel}</span>}{service?.location && <span><MapPin size={17} aria-hidden="true"/>{service.location}</span>}</div>
+              {teamMode && <div className="booking-service-options"><h2>{copy.professionalLabel}</h2><div className="booking-professionals">{professionals.map((item) => <button key={item.id} type="button" aria-pressed={responsibleId === item.id} onClick={() => selectProfessional(item.id)} className={`booking-professional${responsibleId === item.id ? " is-selected" : ""}`}>{item.avatarUrl ? <img src={item.avatarUrl} alt=""/> : <span className="booking-avatar">{item.name.slice(0, 2).toUpperCase()}</span>}<span><strong>{item.name}</strong><small>{item.profession || item.position || "Profissional"}</small></span>{responsibleId === item.id && <Check size={17} aria-hidden="true"/>}</button>)}</div>
+                <label className="booking-field">{copy.chooseServiceLabel}<select disabled={!responsibleId} value={service?.id || ""} onChange={(event) => { const next = availableServices.find((item) => item.id === event.target.value) || null; setService(next); if (next) setDuration(next.durations[0]); }}><option value="">Selecione</option>{availableServices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>}
               {service && service.durations.length > 1 && <div className="booking-service-options"><h2>Duração do serviço</h2><div className="booking-duration">{service.durations.map((item) => <button type="button" key={item} aria-pressed={duration === item} className={duration === item ? "is-selected" : ""} onClick={() => setDuration(item)}>{item} min</button>)}</div></div>}
-              {service?.instructions && <div className="booking-instructions"><h2>Antes do serviço</h2><p>{service.instructions}</p></div>}
+              {service?.instructions && <div className="booking-instructions"><h2>{copy.instructionsLabel}</h2><p>{service.instructions}</p></div>}
               {copy.closingNote && <div className="booking-service-note"><span className="booking-note-line"/><p style={{ whiteSpace: "pre-line" }}>{copy.closingNote}</p></div>}
             </aside>
             <section className="booking-workspace" aria-label="Reserve seu horário">
-              <ol className="booking-steps" aria-label="Etapas do agendamento"><li className={slot ? "is-complete" : "is-current"} aria-current={!slot ? "step" : undefined}><span>{slot ? <Check size={14}/> : "1"}</span>Data e horário</li><li className={slot ? "is-current" : ""} aria-current={slot ? "step" : undefined}><span>2</span>Seus dados</li><li><span>3</span>Confirmação</li></ol>
+              <ol className="booking-steps" aria-label="Etapas do agendamento"><li className={slot ? "is-complete" : "is-current"} aria-current={!slot ? "step" : undefined}><span>{slot ? <Check size={14}/> : "1"}</span>{copy.dateStepLabel}</li><li className={slot ? "is-current" : ""} aria-current={slot ? "step" : undefined}><span>2</span>{copy.detailsStepLabel}</li><li><span>3</span>{copy.confirmationStepLabel}</li></ol>
               <div className="booking-availability">
-                <div className="booking-calendar-panel"><div className="booking-section-heading"><h2>Escolha a data</h2><label className="booking-date-input"><span className="sr-only">Escolha a data</span><input aria-label="Escolha a data" type="date" min={today} max={maxDay} value={day} disabled={!selectionReady || sending} onChange={(event) => { if (event.target.value) setDay(event.target.value); }}/></label></div><BookingCalendar day={day} min={today} max={maxDay} disabled={!selectionReady || sending} onChange={setDay}/><p className="booking-timezone"><Globe2 size={14} aria-hidden="true"/> Horários em {slotTimezone.replace(/_/g, " ")}</p></div>
-                <div className="booking-time-panel"><h2>Horários disponíveis</h2><p className="booking-time-date">{dateLabel(day)}</p>
+                <div className="booking-calendar-panel"><div className="booking-section-heading"><h2>{copy.dateLabel}</h2><label className="booking-date-input"><span className="sr-only">Escolha a data</span><input aria-label="Escolha a data" type="date" min={today} max={maxDay} value={day} disabled={!selectionReady || sending} onChange={(event) => { if (event.target.value) setDay(event.target.value); }}/></label></div><BookingCalendar day={day} min={today} max={maxDay} disabled={!selectionReady || sending} onChange={setDay}/><p className="booking-timezone"><Globe2 size={14} aria-hidden="true"/> {copy.timezoneLabel} {slotTimezone.replace(/_/g, " ")}</p></div>
+                <div className="booking-time-panel"><h2>{copy.timesLabel}</h2><p className="booking-time-date">{dateLabel(day)}</p>
                   {!selectionReady ? <div className="booking-empty"><Clock3 size={23} aria-hidden="true"/><p>Escolha um profissional e um serviço para consultar os horários.</p></div>
                     : slotsLoading ? <div className="booking-times" aria-label="Carregando horários">{[0, 1, 2, 3, 4, 5].map((item) => <div key={item} className="booking-time-skeleton"/>)}</div>
                       : slotsError ? <div role="alert" className="booking-warning">{slotsError}<button type="button" className="booking-text-button" onClick={() => setSlotsRetry((value) => value + 1)}>Tentar novamente</button></div>
                         : slots.length ? <div className="booking-times">{slots.map((item) => <button type="button" key={item.startAt} disabled={sending} aria-pressed={slot?.startAt === item.startAt} className={`booking-time${slot?.startAt === item.startAt ? " is-selected" : ""}`} onClick={() => { bookingOperationKeyRef.current = newOperationKey(); setSlot(item); setFieldErrors({}); setError(""); }}><span>{clock(item.startAt)}{slot?.startAt === item.startAt && <Check size={14} aria-hidden="true"/>}</span><small>{item.remaining} vaga(s)</small></button>)}</div>
-                          : <div className="booking-empty"><CalendarDays size={25} aria-hidden="true"/><p>Nenhum horário disponível nesta data.</p><span>Selecione outro dia no calendário.</span></div>}
+                          : <div className="booking-empty"><CalendarDays size={25} aria-hidden="true"/><p>{copy.emptySlotsTitle}</p><span>{copy.emptySlotsHint}</span></div>}
                   {!calendarVerified && <p role="status" className="booking-warning">Calendário externo indisponível — os horários podem estar desatualizados. A reserva será validada na confirmação.</p>}
                 </div>
               </div>
               {slot ? <form className="booking-form" onSubmit={(event) => { event.preventDefault(); if (!sending) void confirm(); }} noValidate>
-                <div className="booking-form-heading"><div><p className="booking-eyebrow">Quase lá</p><h2>Como podemos chamar você?</h2><p>Preencha seus dados para confirmar o atendimento.</p></div></div>{summary}
+                <div className="booking-form-heading"><div><p className="booking-eyebrow">{copy.detailsEyebrow}</p><h2>{copy.detailsTitle}</h2><p>{copy.detailsDescription}</p></div></div>{summary}
                 <fieldset disabled={sending}><legend className="sr-only">Dados do agendamento</legend><div className="booking-fields">{bookingFields.map((field) => <Input key={field.id} id={`booking-${field.id}`} label={field.label} required={field.required} type={inputType(field.type)} value={form[field.id] || ""} maxLength={field.maxLength || 500} error={fieldErrors[field.id]} onChange={(value) => setFieldValue(field, value)}/>)}</div></fieldset>
                 {error && <p role="alert" className="booking-warning booking-error">{error}</p>}
-                <button type="submit" disabled={sending || !form.full_name || !form.email} className="booking-primary-button booking-confirm-button">{sending ? "Confirmando..." : "Confirmar agendamento"}{!sending && <ArrowRight size={18} aria-hidden="true"/>}</button>
-              </form> : <p className="booking-next-hint"><span>2</span>Depois de escolher um horário, você poderá preencher seus dados.</p>}
+                <button type="submit" disabled={Boolean(preview) || sending || !form.full_name || !form.email} className="booking-primary-button booking-confirm-button">{sending ? "Confirmando..." : copy.confirmButton}{!sending && <ArrowRight size={18} aria-hidden="true"/>}</button>
+              </form> : <p className="booking-next-hint"><span>2</span>{copy.nextHint}</p>}
             </section>
           </div>
         </>}
-      {footer}
+      {page?.theme.showFooter !== "false" && footer}
     </div>
   </main>;
 }

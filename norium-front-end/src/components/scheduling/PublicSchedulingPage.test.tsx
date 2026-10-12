@@ -22,6 +22,15 @@ const slotA = { startAt: "2026-10-01T12:00:00+00:00", endAt: "2026-10-01T12:30:0
 const slotB = { startAt: "2026-10-02T12:00:00+00:00", endAt: "2026-10-02T12:30:00+00:00", remaining: 2 };
 
 describe("PublicSchedulingPage", () => {
+  it("usa a logo própria no cabeçalho e no serviço, com textos e aparência configurados", async () => {
+    vi.mocked(schedulingApi.publicPage).mockResolvedValue({page:{...page,logo_url:"/api/public/scheduling/pages/public-1/logo?v=novo",theme:{headerLabel:"Atendimento técnico",confirmButton:"Reservar manutenção",fontFamily:"serif",layout:"stacked",cardStyle:"square",showFooter:"false"}},service});
+    render(<PublicSchedulingPage identifier="public-1"/>);
+    expect(await screen.findAllByRole("img", {name:"Consultoria"})).toHaveLength(2);
+    expect(screen.getAllByRole("img", {name:"Consultoria"})[0]).toHaveAttribute("src","http://test/api/public/scheduling/pages/public-1/logo?v=novo");
+    expect(screen.getByText("Atendimento técnico")).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveAttribute("data-layout","stacked");
+    expect(screen.queryByText("Agendamento organizado com Norium")).not.toBeInTheDocument();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(schedulingApi.publicPage).mockResolvedValue({ page, service });

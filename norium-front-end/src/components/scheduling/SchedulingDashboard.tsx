@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CalendarCheck, Clock3, Copy, ExternalLink, Link2, MapPin, Pencil, Plus, Trash2, Upload, Users, type LucideIcon } from "lucide-react";
 import { apiBaseUrl } from "../../core/api/config";
 import { schedulingApi, type AvailabilityPeriod, type Booking, type SchedulingPage, type SchedulingProfessional, type SchedulingService, type TeamSchedulingSettings } from "../../features/scheduling/api";
@@ -6,15 +6,15 @@ import { WEEKDAYS, defaultPeriods, periodsFromWeekly, weeklyFromPeriods, type Da
 import PagePreview from "./PagePreview";
 import RescheduleDialog from "./RescheduleDialog";
 import "./scheduling-v2.css";
-import { bookingCopy, DEFAULT_BOOKING_COPY } from "../../features/scheduling/pageCopy";
+import { bookingCopy, DEFAULT_BOOKING_COPY, BOOKING_COPY_LABELS, DEFAULT_BOOKING_DESIGN, bookingDesign } from "../../features/scheduling/pageCopy";
 
 const BUILTIN_FIELDS = [
   { id: "full_name", type: "full_name", label: "Nome completo", required: true, maxLength: 160 },
   { id: "email", type: "email", label: "E-mail", required: true, maxLength: 254 },
   { id: "phone", type: "phone", label: "WhatsApp", required: false, maxLength: 32 },
 ];
-const EMPTY_SERVICE_FORM = { name: "", description: "", durations: "30", capacity: 1, bufferBefore: 0, bufferAfter: 0, professionalIds: [] as string[] };
-const EMPTY_PAGE_FORM = { serviceId: "", title: "", slug: "", description: "", primary: "#6d5dfc", secondary: "#4338ca", accent: "#14b8a6", background: "#f7f7fb", text: "#171722", mode: "auto", ...DEFAULT_BOOKING_COPY };
+const EMPTY_SERVICE_FORM = { locationType: "online", location: "", instructions: "", name: "", description: "", durations: "30", capacity: 1, bufferBefore: 0, bufferAfter: 0, professionalIds: [] as string[] };
+const EMPTY_PAGE_FORM = { serviceId: "", title: "", slug: "", description: "", primary: "#6d5dfc", secondary: "#4338ca", accent: "#14b8a6", background: "#f7f7fb", text: "#171722", mode: "auto", ...DEFAULT_BOOKING_COPY, ...DEFAULT_BOOKING_DESIGN };
 
 function customFieldMaxLength(type: string) {
   if (type === "cpf") return 14;
@@ -31,6 +31,8 @@ export default function SchedulingDashboard() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [teamCalendar, setTeamCalendar] = useState<Booking[]>([]);
   const [teamSettings, setTeamSettings] = useState<TeamSchedulingSettings>({ enabled: false, professionals: [] });
+  const [bookingFilter, setBookingFilter] = useState("all");
+  const [savingBookingId, setSavingBookingId] = useState("");
   const [section, setSection] = useState("Agendamentos");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -41,6 +43,9 @@ export default function SchedulingDashboard() {
   const [editingPageId, setEditingPageId] = useState("");
   const [pageLogo, setPageLogo] = useState({ base64: "", preview: "", name: "" });
   const [currentLogoUrl, setCurrentLogoUrl] = useState("");
+  const [logoReading, setLogoReading] = useState(false);
+  const [pageSaving, setPageSaving] = useState(false);
+  const logoReadVersion = useRef(0);
   const [customField, setCustomField] = useState({ label: "CPF", type: "cpf", required: true });
   const [pageFields, setPageFields] = useState<Array<{id:string;type:string;label:string;required:boolean;maxLength:number}>>([]);
   const [availabilityService, setAvailabilityService] = useState("");
@@ -81,6 +86,20 @@ export default function SchedulingDashboard() {
     return () => { cancelled = true; };
   }, [availabilityResponsible, availabilityService, teamSettings.enabled]);
 
+  const visibleBookings = bookings.filter((item) => bookingFilter === "all" || (bookingFilter === "expired" && isExpiredBooking(item)) || (bookingFilter === "upcoming" && ["PENDING", "CONFIRMED"].includes(item.status) && !isExpiredBooking(item)) || (bookingFilter === "completed" && item.status === "COMPLETED") || (bookingFilter === "absent" && item.status === "NO_SHOW") || (bookingFilter === "cancelled" && item.status === "CANCELLED"));
+
+  async function finishBooking(item: Booking, outcome: "service" | "meeting" | "absent") {
+    if (savingBookingId) return;
+    setSavingBookingId(item.id); setError("");
+    try {
+      const saved = await schedulingApi.updateBookingStatus(item.id, outcome === "absent" ? "NO_SHOW" : "COMPLETED", outcome === "absent" ? undefined : outcome);
+      setBookings((current) => current.map((entry) => entry.id === item.id ? { ...entry, ...saved } : entry));
+      setTeamCalendar((current) => current.map((entry) => entry.id === item.id ? { ...entry, ...saved } : entry));
+      setNotice(outcome === "service" ? "Serviço marcado como realizado." : outcome === "meeting" ? "Reunião marcada como realizada." : "Ausência registrada.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível atualizar o agendamento."); }
+    finally { setSavingBookingId(""); }
+  }
+
   const today = new Date().toISOString().slice(0, 10);
   const counters = useMemo(() => ({ today: bookings.filter((item) => item.start_at.startsWith(today)).length, confirmed: bookings.filter((item) => item.status === "CONFIRMED").length, pending: bookings.filter((item) => item.status === "PENDING").length, cancelled: bookings.filter((item) => item.status === "CANCELLED").length }), [bookings, today]);
   const cards: Array<{ label: string; value: number; Icon: LucideIcon }> = [{label:"Hoje",value:counters.today,Icon:CalendarCheck},{label:"Confirmados",value:counters.confirmed,Icon:Clock3},{label:"Pendentes",value:counters.pending,Icon:Users},{label:"Cancelados",value:counters.cancelled,Icon:CalendarCheck}];
@@ -99,15 +118,15 @@ export default function SchedulingDashboard() {
         if (!current) { setError("Serviço não encontrado para edição."); return; }
         await schedulingApi.updateService(editingServiceId, {
           name: serviceForm.name.trim(), description: serviceForm.description.trim(), durations,
-          color: current.color, locationType: current.location_type || "online", location: current.location || "",
-          instructions: current.instructions || "", bufferBefore: serviceForm.bufferBefore, bufferAfter: serviceForm.bufferAfter,
+          color: current.color, locationType: serviceForm.locationType, location: serviceForm.location.trim(),
+          instructions: serviceForm.instructions.trim(), bufferBefore: serviceForm.bufferBefore, bufferAfter: serviceForm.bufferAfter,
           capacity: serviceForm.capacity, minimumNoticeMinutes: current.minimum_notice_minutes ?? 60,
           maximumDays: current.maximum_days ?? 60, slotInterval: current.slot_interval, active: current.active,
           professionalIds: serviceForm.professionalIds,
         });
         setNotice("Serviço atualizado.");
       } else {
-        await schedulingApi.createService({ ...serviceForm, name: serviceForm.name.trim(), description: serviceForm.description.trim(), durations, color: "#6d5dfc", locationType: "online", location: "", instructions: "", minimumNoticeMinutes: 60, maximumDays: 60, slotInterval: 15, active: true, professionalIds: serviceForm.professionalIds });
+        await schedulingApi.createService({ ...serviceForm, name: serviceForm.name.trim(), description: serviceForm.description.trim(), durations, color: "#6d5dfc", locationType: serviceForm.locationType, location: serviceForm.location.trim(), instructions: serviceForm.instructions.trim(), minimumNoticeMinutes: 60, maximumDays: 60, slotInterval: 15, active: true, professionalIds: serviceForm.professionalIds });
         setNotice("Serviço criado.");
       }
       setServiceForm(EMPTY_SERVICE_FORM); setEditingServiceId(""); setError(""); await reload();
@@ -116,7 +135,7 @@ export default function SchedulingDashboard() {
 
   function startEditService(item: SchedulingService) {
     setEditingServiceId(item.id);
-    setServiceForm({ name: item.name, description: item.description || "", durations: item.durations.join(", "), capacity: item.capacity, bufferBefore: item.buffer_before, bufferAfter: item.buffer_after, professionalIds: item.professionalIds || [] });
+    setServiceForm({ locationType: ["online", "in_person", "phone"].includes(item.location_type || "") ? item.location_type! : "online", location: item.location || "", instructions: item.instructions || "", name: item.name, description: item.description || "", durations: item.durations.join(", "), capacity: item.capacity, bufferBefore: item.buffer_before, bufferAfter: item.buffer_after, professionalIds: item.professionalIds || [] });
     setNotice(""); setError("");
   }
 
@@ -162,7 +181,7 @@ export default function SchedulingDashboard() {
       serviceId: item.service_id, title: item.title, slug: item.slug || "", description: item.description || "",
       primary: item.theme?.primary || "#6d5dfc", secondary: item.theme?.secondary || "#4338ca", accent: item.theme?.accent || "#14b8a6",
       background: item.theme?.background || "#f7f7fb", text: item.theme?.text || "#171722", mode: item.theme?.mode || "auto",
-      ...bookingCopy(item.theme),
+      ...bookingCopy(item.theme), ...bookingDesign(item.theme),
     });
     setPageFields((item.fields || []).filter((field) => !["full_name", "email", "phone"].includes(field.id)).map((field) => ({ id: field.id, type: field.type, label: field.label, required: Boolean(field.required), maxLength: field.maxLength || 500 })));
     setPageLogo({ base64: "", preview: "", name: "" });
@@ -176,9 +195,11 @@ export default function SchedulingDashboard() {
   }
 
   async function savePage() {
+    if (pageSaving || logoReading) return;
     if (!pageForm.serviceId || !pageForm.title.trim()) { setError("Escolha o serviço e informe o título da página."); return; }
-    const fields = [...BUILTIN_FIELDS, ...pageFields];
-    const theme = { primary: pageForm.primary, secondary: pageForm.secondary, accent: pageForm.accent, background: pageForm.background, text: pageForm.text, mode: pageForm.mode, ...bookingCopy(pageForm) };
+    const fields = [...BUILTIN_FIELDS.map((field) => ({...field, label: field.id === "full_name" ? pageForm.nameLabel || field.label : field.id === "email" ? pageForm.emailLabel || field.label : pageForm.phoneLabel || field.label})), ...pageFields];
+    const theme = { primary: pageForm.primary, secondary: pageForm.secondary, accent: pageForm.accent, background: pageForm.background, text: pageForm.text, mode: pageForm.mode, ...bookingCopy(pageForm), ...bookingDesign(pageForm) };
+    setPageSaving(true);
     try {
       if (editingPageId) {
         const current = pages.find((item) => item.id === editingPageId);
@@ -187,11 +208,15 @@ export default function SchedulingDashboard() {
         setNotice("Página atualizada.");
       } else {
         const created = await schedulingApi.createPage({ serviceId: pageForm.serviceId, title: pageForm.title.trim(), slug: pageForm.slug || null, description: pageForm.description.trim(), fields, theme, active: true });
+        // Keep the new page editable if the separate upload fails, avoiding duplicate links on retry.
+        setEditingPageId(created.id);
+        setPages((current) => [created, ...current]);
         if (pageLogo.base64) await schedulingApi.uploadLogo(created.id, pageLogo.base64);
         setNotice("Página publicada.");
       }
       resetPageForm(); setError(""); await reload();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao salvar página."); }
+    finally { setPageSaving(false); }
   }
 
   async function archivePage(id: string) {
@@ -202,13 +227,17 @@ export default function SchedulingDashboard() {
   }
 
   async function selectPageLogo(file?: File) {
-    if (!file) { setPageLogo({base64:"",preview:"",name:""}); return; }
+    const version = ++logoReadVersion.current;
+    if (!file) { setPageLogo({base64:"",preview:"",name:""}); setLogoReading(false); return; }
     if (file.size > 2_000_000) { setError("O logo deve possuir no máximo 2 MB."); return; }
     if (!["image/png","image/jpeg","image/webp"].includes(file.type)) { setError("Use um logo PNG, JPEG ou WebP."); return; }
+    setLogoReading(true);
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror=()=>reject(new Error("Falha ao ler logo.")); reader.onload=()=>resolve(String(reader.result)); reader.readAsDataURL(file); });
+      if (version !== logoReadVersion.current) return;
       setPageLogo({base64:dataUrl.split(",")[1]||"",preview:dataUrl,name:file.name}); setError("");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao ler logo."); }
+    } catch (reason) { if (version === logoReadVersion.current) setError(reason instanceof Error ? reason.message : "Falha ao ler logo."); }
+    finally { if (version === logoReadVersion.current) setLogoReading(false); }
   }
   async function uploadLogo(pageId: string, file?: File) {
     if (!file) return; if (file.size > 2_000_000) { setError("O logo deve possuir no máximo 2 MB."); return; }
@@ -250,7 +279,7 @@ export default function SchedulingDashboard() {
   }
 
   const previewService = services.find((item) => item.id === pageForm.serviceId);
-  const previewFields = [...BUILTIN_FIELDS.map((field) => ({ id: field.id, type: field.type, label: field.label, required: field.required })), ...pageFields];
+  const previewFields = [...BUILTIN_FIELDS.map((field) => ({ ...field, label: field.id === "full_name" ? pageForm.nameLabel || field.label : field.id === "email" ? pageForm.emailLabel || field.label : pageForm.phoneLabel || field.label })), ...pageFields];
   const pageLink = (item: SchedulingPage) => `${window.location.origin}/agendar/${item.slug || item.public_id}`;
   const headerPage = (section === "Páginas" && editingPageId ? pages.find((item) => item.id === editingPageId) : undefined) || pages.find((item) => item.active !== false) || pages[0];
   const headerLink = headerPage ? pageLink(headerPage) : "";
@@ -276,9 +305,10 @@ export default function SchedulingDashboard() {
     {notice && !error && <div role="status" className="nx-sc-ok">{notice}</div>}
     {loading ? <p className="nx-sc-loading">Carregando agendamentos...</p> : section === "Agendamentos" ? <>
       <div className="nx-kpis">{cards.map(({label,value,Icon}) => <article key={label} className="nx-card nx-kpi"><div className="nx-kpi-l"><Icon size={16}/>{label}</div><div className="nx-kpi-v">{value}</div></article>)}</div>
-      <div className="nx-card nx-sc-tablewrap"><table className="nx-table"><thead><tr><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Data</th><th>Status</th><th>E-mail</th><th>Telefone</th><th>Ações</th></tr></thead><tbody>{bookings.map((item) => { const status = bookingStatus(item.status); return <tr key={item.id}><td className="nx-sc-strong">{item.attendee_name}</td><td className="nx-muted">{serviceName(item)}</td><td className="nx-muted"><span className="nx-sc-who"><i className="nx-sc-dot" style={{background:item.professional_color||"var(--nx-primary)"}}/>{item.professional_name||"Responsável"}</span></td><td className="nx-muted" style={{whiteSpace:"nowrap"}}>{formatDateTime(item.start_at)}</td><td><span className={`nx-badge ${status.tone}`} title={item.status}>{status.label}</span></td><td className="nx-muted">{item.attendee_email}</td><td className="nx-muted" style={{whiteSpace:"nowrap"}}>{item.attendee_phone || "—"}</td><td><div className="nx-sc-acts">{item.status !== "CANCELLED" && <><button type="button" className="nx-btn is-sm" onClick={() => setRescheduling(item)}><Pencil size={14}/>Reagendar</button><button type="button" className="nx-btn is-sm is-ghost" onClick={() => void cancelBooking(item.id)}><Trash2 size={14}/>{pendingConfirm?.kind === "booking" && pendingConfirm.id === item.id ? "Confirmar cancelamento" : "Cancelar"}</button></>}</div></td></tr>; })}{!bookings.length && <tr><td colSpan={8} className="nx-sc-empty">Nenhum agendamento ainda.</td></tr>}</tbody></table></div>
+      <nav className="nx-tabs" aria-label="Filtrar agendamentos">{([["all", "Todos"], ["upcoming", "Próximos"], ["expired", "Vencidos"], ["completed", "Realizados"], ["absent", "Não compareceu"], ["cancelled", "Cancelados"]]).map(([value, label]) => <button key={value} type="button" className={`nx-tab ${bookingFilter === value ? "is-active" : ""}`} aria-pressed={bookingFilter === value} onClick={() => setBookingFilter(value)}>{label}{value === "expired" ? ` (${bookings.filter(isExpiredBooking).length})` : ""}</button>)}</nav>
+      <div className="nx-card nx-sc-tablewrap"><table className="nx-table"><thead><tr><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Data</th><th>Status</th><th>E-mail</th><th>Telefone</th><th>Ações</th></tr></thead><tbody>{visibleBookings.map((item) => { const status = item.status === "COMPLETED" ? { label: item.completion_type === "service" ? "Serviço realizado" : item.completion_type === "meeting" ? "Reunião realizada" : "Realizado", tone: "is-green" } : isExpiredBooking(item) ? { label: "Vencido · aguardando registro", tone: "is-amber" } : bookingStatus(item.status); return <tr key={item.id}><td className="nx-sc-strong">{item.attendee_name}</td><td className="nx-muted">{serviceName(item)}</td><td className="nx-muted"><span className="nx-sc-who"><i className="nx-sc-dot" style={{background:item.professional_color||"var(--nx-primary)"}}/>{item.professional_name||"Responsável"}</span></td><td className="nx-muted" style={{whiteSpace:"nowrap"}}>{formatDateTime(item.start_at)}</td><td><span className={`nx-badge ${status.tone}`} title={item.status}>{status.label}</span></td><td className="nx-muted">{item.attendee_email}</td><td className="nx-muted" style={{whiteSpace:"nowrap"}}>{item.attendee_phone || "—"}</td><td><div className="nx-sc-acts">{!["CANCELLED", "COMPLETED", "NO_SHOW"].includes(item.status) && <><select aria-label={`Registrar resultado de ${item.attendee_name}`} value="" disabled={Boolean(savingBookingId)} onChange={(event) => { if (event.target.value) void finishBooking(item, event.target.value as "service" | "meeting" | "absent"); }}><option value="">Registrar resultado</option><option value="service">Serviço realizado</option><option value="meeting">Reunião realizada</option><option value="absent">Não compareceu</option></select><button type="button" className="nx-btn is-sm" onClick={() => setRescheduling(item)}><Pencil size={14}/>Reagendar</button><button type="button" className="nx-btn is-sm is-ghost" onClick={() => void cancelBooking(item.id)}><Trash2 size={14}/>{pendingConfirm?.kind === "booking" && pendingConfirm.id === item.id ? "Confirmar cancelamento" : "Cancelar"}</button></>}</div></td></tr>; })}{!visibleBookings.length && <tr><td colSpan={8} className="nx-sc-empty">Nenhum agendamento neste filtro.</td></tr>}</tbody></table></div>
     </> : section === "Calendário da equipe" ? <TeamCalendar events={teamCalendar} professionals={teamSettings.professionals} onSelect={setSelectedBooking}/>
-    : section === "Serviços" ? <div className="nx-sc-split"><FormCard title={editingServiceId ? "Editar serviço" : "Novo serviço"}><Field label="Nome"><input value={serviceForm.name} maxLength={120} onChange={(e)=>setServiceForm({...serviceForm,name:e.target.value})}/></Field><Field label="Descrição"><textarea value={serviceForm.description} maxLength={2000} onChange={(e)=>setServiceForm({...serviceForm,description:e.target.value})}/></Field><Field label="Durações em minutos, separadas por vírgula"><input value={serviceForm.durations} onChange={(e)=>setServiceForm({...serviceForm,durations:e.target.value})}/></Field><div className="nx-sc-3"><Field label="Capacidade"><input type="number" min={1} max={500} value={serviceForm.capacity} onChange={(e)=>setServiceForm({...serviceForm,capacity:Number(e.target.value)})}/></Field><Field label="Buffer antes"><input type="number" min={0} value={serviceForm.bufferBefore} onChange={(e)=>setServiceForm({...serviceForm,bufferBefore:Number(e.target.value)})}/></Field><Field label="Buffer depois"><input type="number" min={0} value={serviceForm.bufferAfter} onChange={(e)=>setServiceForm({...serviceForm,bufferAfter:Number(e.target.value)})}/></Field></div>{teamSettings.enabled&&<div className="nx-sc-box"><p className="nx-sc-lbl" style={{margin:0}}>Profissionais que prestam este serviço</p><div style={{display:"grid",gap:8}}>{teamSettings.professionals.filter(item=>item.active).map(item=><label key={item.userId} className="nx-sc-check"><input type="checkbox" checked={serviceForm.professionalIds.includes(item.userId)} onChange={(event)=>setServiceForm({...serviceForm,professionalIds:event.target.checked?[...serviceForm.professionalIds,item.userId]:serviceForm.professionalIds.filter(id=>id!==item.userId)})}/><i className="nx-sc-dot" style={{background:item.color}}/>{item.name} · {item.profession||item.position}</label>)}</div>{!teamSettings.professionals.some(item=>item.active)&&<p className="nx-small" style={{margin:0,color:"var(--nx-warning)"}}>Ative ao menos um profissional em Modo equipe para criar vínculos.</p>}<p className="nx-small" style={{margin:0,color:"var(--nx-primary-text)"}}>{serviceForm.professionalIds.length} profissional(is) selecionado(s). O vínculo será gravado ao salvar o serviço.</p></div>}<div className="nx-sc-btns"><button type="button" className="nx-btn is-primary" disabled={!serviceForm.name||teamSaving} onClick={() => void saveService()}>{editingServiceId ? "Atualizar serviço" : "Criar serviço"}</button>{editingServiceId && <button type="button" className="nx-btn" onClick={() => { setEditingServiceId(""); setServiceForm(EMPTY_SERVICE_FORM); }}>Cancelar</button>}</div></FormCard><div className="nx-sc-services">{services.map((item)=><article key={item.id} className="nx-card nx-sc-svc" style={{borderLeftColor:item.color||"var(--nx-primary)"}}><h3>{item.name}</h3><p className="nx-muted nx-small" style={{margin:"4px 0 0"}}>{item.description || "Sem descrição"}</p><div className="nx-sc-meta"><span><Clock3 size={13}/>{item.durations.join(" / ")} min</span>{(item.location_type || item.location) && <span><MapPin size={13}/>{locationLabel(item)}</span>}<span><Users size={13}/>{item.capacity} vaga(s)</span></div><p className="nx-faint nx-small" style={{margin:"6px 0 0"}}>Buffers {item.buffer_before}/{item.buffer_after} min</p>{teamSettings.enabled&&<p className="nx-faint nx-small" style={{margin:"4px 0 0"}}>{item.professionalIds?.length||0} profissional(is) vinculado(s)</p>}<div className="nx-sc-svc-f"><span className={`nx-badge ${item.active === false ? "" : "is-green"}`}>{item.active === false ? "Fora do link" : "Visível no link"}</span><button type="button" className="nx-btn is-sm is-ghost" onClick={() => startEditService(item)}><Pencil size={14}/>Editar</button><button type="button" className="nx-btn is-sm is-ghost" onClick={() => void archiveService(item.id)}><Trash2 size={14}/>{pendingConfirm?.kind === "service" && pendingConfirm.id === item.id ? "Confirmar arquivamento" : "Arquivar"}</button></div></article>)}{!services.length && <div className="nx-card nx-sc-loading">Nenhum serviço ainda. Crie o primeiro ao lado.</div>}</div></div>
+    : section === "Serviços" ? <div className="nx-sc-split"><FormCard title={editingServiceId ? "Editar serviço" : "Novo serviço"}><Field label="Nome"><input value={serviceForm.name} maxLength={120} onChange={(e)=>setServiceForm({...serviceForm,name:e.target.value})}/></Field><Field label="Descrição"><textarea value={serviceForm.description} maxLength={2000} onChange={(e)=>setServiceForm({...serviceForm,description:e.target.value})}/></Field><Field label="Tipo de atendimento"><select value={serviceForm.locationType} onChange={(event)=>setServiceForm({...serviceForm,locationType:event.target.value})}><option value="online">Online</option><option value="in_person">Presencial</option><option value="phone">Por telefone</option></select></Field><Field label="Local ou orientação de acesso"><input maxLength={500} value={serviceForm.location} onChange={(event)=>setServiceForm({...serviceForm,location:event.target.value})}/></Field><Field label="Instruções antes do atendimento"><textarea maxLength={2000} value={serviceForm.instructions} onChange={(event)=>setServiceForm({...serviceForm,instructions:event.target.value})}/></Field><Field label="Durações em minutos, separadas por vírgula"><input value={serviceForm.durations} onChange={(e)=>setServiceForm({...serviceForm,durations:e.target.value})}/></Field><div className="nx-sc-3"><Field label="Capacidade"><input type="number" min={1} max={500} value={serviceForm.capacity} onChange={(e)=>setServiceForm({...serviceForm,capacity:Number(e.target.value)})}/></Field><Field label="Buffer antes"><input type="number" min={0} value={serviceForm.bufferBefore} onChange={(e)=>setServiceForm({...serviceForm,bufferBefore:Number(e.target.value)})}/></Field><Field label="Buffer depois"><input type="number" min={0} value={serviceForm.bufferAfter} onChange={(e)=>setServiceForm({...serviceForm,bufferAfter:Number(e.target.value)})}/></Field></div>{teamSettings.enabled&&<div className="nx-sc-box"><p className="nx-sc-lbl" style={{margin:0}}>Profissionais que prestam este serviço</p><div style={{display:"grid",gap:8}}>{teamSettings.professionals.filter(item=>item.active).map(item=><label key={item.userId} className="nx-sc-check"><input type="checkbox" checked={serviceForm.professionalIds.includes(item.userId)} onChange={(event)=>setServiceForm({...serviceForm,professionalIds:event.target.checked?[...serviceForm.professionalIds,item.userId]:serviceForm.professionalIds.filter(id=>id!==item.userId)})}/><i className="nx-sc-dot" style={{background:item.color}}/>{item.name} · {item.profession||item.position}</label>)}</div>{!teamSettings.professionals.some(item=>item.active)&&<p className="nx-small" style={{margin:0,color:"var(--nx-warning)"}}>Ative ao menos um profissional em Modo equipe para criar vínculos.</p>}<p className="nx-small" style={{margin:0,color:"var(--nx-primary-text)"}}>{serviceForm.professionalIds.length} profissional(is) selecionado(s). O vínculo será gravado ao salvar o serviço.</p></div>}<div className="nx-sc-btns"><button type="button" className="nx-btn is-primary" disabled={!serviceForm.name||teamSaving} onClick={() => void saveService()}>{editingServiceId ? "Atualizar serviço" : "Criar serviço"}</button>{editingServiceId && <button type="button" className="nx-btn" onClick={() => { setEditingServiceId(""); setServiceForm(EMPTY_SERVICE_FORM); }}>Cancelar</button>}</div></FormCard><div className="nx-sc-services">{services.map((item)=><article key={item.id} className="nx-card nx-sc-svc" style={{borderLeftColor:item.color||"var(--nx-primary)"}}><h3>{item.name}</h3><p className="nx-muted nx-small" style={{margin:"4px 0 0"}}>{item.description || "Sem descrição"}</p><div className="nx-sc-meta"><span><Clock3 size={13}/>{item.durations.join(" / ")} min</span>{(item.location_type || item.location) && <span><MapPin size={13}/>{locationLabel(item)}</span>}<span><Users size={13}/>{item.capacity} vaga(s)</span></div><p className="nx-faint nx-small" style={{margin:"6px 0 0"}}>Buffers {item.buffer_before}/{item.buffer_after} min</p>{teamSettings.enabled&&<p className="nx-faint nx-small" style={{margin:"4px 0 0"}}>{item.professionalIds?.length||0} profissional(is) vinculado(s)</p>}<div className="nx-sc-svc-f"><span className={`nx-badge ${item.active === false ? "" : "is-green"}`}>{item.active === false ? "Fora do link" : "Visível no link"}</span><button type="button" className="nx-btn is-sm is-ghost" onClick={() => startEditService(item)}><Pencil size={14}/>Editar</button><button type="button" className="nx-btn is-sm is-ghost" onClick={() => void archiveService(item.id)}><Trash2 size={14}/>{pendingConfirm?.kind === "service" && pendingConfirm.id === item.id ? "Confirmar arquivamento" : "Arquivar"}</button></div></article>)}{!services.length && <div className="nx-card nx-sc-loading">Nenhum serviço ainda. Crie o primeiro ao lado.</div>}</div></div>
     : section === "Disponibilidade" ? <FormCard title="Disponibilidade semanal">
       <div className={teamSettings.enabled ? "nx-sc-2" : ""}><Field label="Serviço"><select value={availabilityService} onChange={(e)=>setAvailabilityService(e.target.value)}>{services.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
       {teamSettings.enabled&&<Field label="Profissional"><select value={availabilityResponsible} onChange={(e)=>setAvailabilityResponsible(e.target.value)}><option value="">Selecione</option>{teamSettings.professionals.filter(item=>item.active&&services.find(service=>service.id===availabilityService)?.professionalIds?.includes(item.userId)).map(item=><option key={item.userId} value={item.userId}>{item.name} · {item.profession||item.position}</option>)}</select></Field>}</div>
@@ -311,6 +341,7 @@ export default function SchedulingDashboard() {
           <Field label="Orientação para agendar"><textarea value={pageForm.introDescription} maxLength={500} onChange={(e)=>setPageForm({...pageForm,introDescription:e.target.value})}/></Field>
           <Field label="Identificação do serviço"><input value={pageForm.serviceLabel} maxLength={80} onChange={(e)=>setPageForm({...pageForm,serviceLabel:e.target.value})}/></Field>
           <Field label="Mensagem abaixo do serviço"><textarea value={pageForm.closingNote} maxLength={500} onChange={(e)=>setPageForm({...pageForm,closingNote:e.target.value})}/></Field>
+          <details><summary>Calendário, formulário, botões e confirmação</summary><div className="nx-sc-box">{Object.entries(BOOKING_COPY_LABELS).map(([key, label]) => <Field key={key} label={label!}><input value={pageForm[key as keyof typeof BOOKING_COPY_LABELS]} maxLength={160} onChange={(event) => setPageForm({...pageForm, [key]:event.target.value})}/></Field>)}</div></details>
           <button type="button" className="nx-btn is-sm" onClick={()=>setPageForm({...pageForm,...DEFAULT_BOOKING_COPY})}>Restaurar textos padrão</button>
         </fieldset>
         <Field label="Slug opcional"><input value={pageForm.slug} maxLength={64} placeholder="consultoria" onChange={(e)=>setPageForm({...pageForm,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,"")})}/></Field>
@@ -321,6 +352,14 @@ export default function SchedulingDashboard() {
           {pageLogo.name && <span className="nx-small">Selecionado: {pageLogo.name}</span>}
           {!pageLogo.name && currentLogoUrl && <span className="nx-small">Logo atual mantido.</span>}
         </label>
+        <fieldset className="nx-sc-box"><legend>Layout e aparência</legend>
+          <Field label="Disposição"><select value={pageForm.layout} onChange={(event)=>setPageForm({...pageForm,layout:event.target.value})}><option value="sidebar">Serviço ao lado do calendário</option><option value="stacked">Serviço acima do calendário</option></select></Field>
+          <Field label="Fonte"><select value={pageForm.fontFamily} onChange={(event)=>setPageForm({...pageForm,fontFamily:event.target.value})}><option value="inter">Inter</option><option value="system">Sistema</option><option value="serif">Clássica</option></select></Field>
+          <Field label="Formato dos cartões"><select value={pageForm.cardStyle} onChange={(event)=>setPageForm({...pageForm,cardStyle:event.target.value})}><option value="soft">Suave</option><option value="round">Arredondado</option><option value="square">Reto</option></select></Field>
+          <label className="nx-sc-check"><input type="checkbox" checked={pageForm.showHeader !== "false"} onChange={(event)=>setPageForm({...pageForm,showHeader:String(event.target.checked)})}/>Mostrar cabeçalho</label>
+          <label className="nx-sc-check"><input type="checkbox" checked={pageForm.showFooter !== "false"} onChange={(event)=>setPageForm({...pageForm,showFooter:String(event.target.checked)})}/>Mostrar rodapé</label>
+          {([['surface','Fundo dos cartões'],['muted','Texto secundário'],['border','Bordas'],['darkBackground','Fundo escuro'],['darkText','Texto no tema escuro'],['darkSurface','Cartões no tema escuro'],['darkMuted','Texto secundário no tema escuro'],['darkBorder','Bordas no tema escuro']] as const).map(([key,label])=><Field key={key} label={label}><input type="color" value={pageForm[key]} onChange={(event)=>setPageForm({...pageForm,[key]:event.target.value})}/></Field>)}
+        </fieldset>
         <div>
           <p className="nx-sc-lbl" style={{margin:"0 0 8px"}}>Cores e tema</p>
           <div className="nx-sc-colors">
@@ -338,11 +377,11 @@ export default function SchedulingDashboard() {
           {pageFields.map((field)=><div key={field.id} className="nx-sc-fieldrow"><span className="nx-grow">{field.label} · {field.type}{field.required?" · obrigatório":""}</span><span className={`nx-badge ${field.required ? "is-blue" : ""}`}>{field.required ? "Obrigatório" : "Opcional"}</span><button type="button" className="nx-btn is-sm is-ghost" onClick={()=>setPageFields(pageFields.filter((item)=>item.id!==field.id))}>Remover</button></div>)}
         </div>
         <div className="nx-sc-box"><p className="nx-sc-lbl" style={{margin:0}}>Campo personalizado</p><div className="nx-sc-2"><input aria-label="Rótulo do campo" value={customField.label} maxLength={120} onChange={(e)=>setCustomField({...customField,label:e.target.value})}/><select aria-label="Tipo do campo" value={customField.type} onChange={(e)=>setCustomField({...customField,type:e.target.value})}><option value="text">Texto</option><option value="textarea">Texto longo</option><option value="cpf">CPF</option><option value="cnpj">CNPJ</option><option value="phone">Telefone / WhatsApp</option><option value="email">E-mail</option><option value="date">Data</option><option value="number">Número</option><option value="boolean">Sim/não</option></select></div><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}><label className="nx-sc-check"><input type="checkbox" checked={customField.required} onChange={(e)=>setCustomField({...customField,required:e.target.checked})}/> Obrigatório</label><button type="button" className="nx-btn is-sm" onClick={()=>{if(!customField.label.trim())return;setPageFields([...pageFields,{...customField,label:customField.label.trim(),id:`field_${crypto.randomUUID().slice(0,8)}`,maxLength:customFieldMaxLength(customField.type)}]);}}><Plus size={14}/>Adicionar</button></div></div>
-        <div className="nx-sc-btns"><button type="button" className="nx-btn is-primary" disabled={!pageForm.serviceId||!pageForm.title} onClick={() => void savePage()}>{editingPageId ? "Atualizar página" : "Gerar link com esta identidade"}</button>{editingPageId && <button type="button" className="nx-btn" onClick={resetPageForm}>Cancelar</button>}</div>
+        <div className="nx-sc-btns"><button type="button" className="nx-btn is-primary" disabled={!pageForm.serviceId||!pageForm.title||logoReading||pageSaving} onClick={() => void savePage()}>{pageSaving ? "Salvando página e logo…" : logoReading ? "Preparando logo…" : editingPageId ? "Atualizar página" : "Gerar link com esta identidade"}</button>{editingPageId && <button type="button" className="nx-btn" onClick={resetPageForm}>Cancelar</button>}</div>
       </FormCard>
       <div className="nx-sc-side">
-        <div className="nx-sc-sticky"><PagePreview serviceName={previewService?.name || ""} durations={previewService?.durations} title={pageForm.title} description={pageForm.description} copy={bookingCopy(pageForm)} identity={{ primary: pageForm.primary, secondary: pageForm.secondary, accent: pageForm.accent, background: pageForm.background, text: pageForm.text, mode: pageForm.mode }} logoSrc={pageLogo.preview || (currentLogoUrl ? `${apiBaseUrl()}${currentLogoUrl}` : "")} fields={previewFields} /></div>
-        {pages.map((item)=>{const link=pageLink(item);return <article key={item.id} className="nx-card nx-sc-page"><div style={{display:"flex",alignItems:"center",gap:8}}><h3 className="nx-grow">{item.title}</h3><span className={`nx-badge ${item.active === false ? "" : "is-green"}`}>{item.active === false ? "Arquivada" : "No ar"}</span></div><p className="nx-sc-link"><Link2 size={13}/>{link}</p><div className="nx-sc-btns" style={{marginTop:12}}><button type="button" className="nx-btn is-sm" onClick={()=>void navigator.clipboard.writeText(link)}><Copy size={14}/>Copiar</button><button type="button" className="nx-btn is-sm" onClick={()=>window.open(link,"_blank","noopener")}><ExternalLink size={14}/>Visualizar</button><button type="button" className="nx-btn is-sm" onClick={()=>startEditPage(item)}><Pencil size={14}/>Editar</button><button type="button" className="nx-btn is-sm is-ghost" onClick={()=>void archivePage(item.id)}><Trash2 size={14}/>{pendingConfirm?.kind === "page" && pendingConfirm.id === item.id ? "Confirmar arquivamento" : "Arquivar"}</button><label className="nx-btn is-sm is-ghost nx-sc-upload"><Upload size={14}/>Trocar logo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event)=>void uploadLogo(item.id,event.target.files?.[0])}/></label></div></article>})}
+        <div className="nx-sc-sticky"><PagePreview onThemeChange={(mode)=>setPageForm((current)=>({...current,mode}))} service={previewService} teamMode={teamSettings.enabled} professionals={teamSettings.professionals.filter((item) => item.active).map((item) => ({id:item.userId,name:item.name,avatarUrl:item.avatarUrl,profession:item.profession,position:item.position,color:item.color}))} serviceName={previewService?.name || ""} durations={previewService?.durations} title={pageForm.title} description={pageForm.description} copy={bookingCopy(pageForm)} identity={{ primary: pageForm.primary, secondary: pageForm.secondary, accent: pageForm.accent, background: pageForm.background, text: pageForm.text, mode: pageForm.mode, ...bookingDesign(pageForm) }} logoSrc={pageLogo.preview || (currentLogoUrl ? new URL(currentLogoUrl, `${apiBaseUrl()}/`).href : "")} fields={previewFields} /></div>
+        <div className="nx-sc-published" role="region" aria-label="Páginas criadas">{pages.map((item)=>{const link=pageLink(item);return <article key={item.id} className="nx-card nx-sc-page"><div style={{display:"flex",alignItems:"center",gap:8}}><h3 className="nx-grow">{item.title}</h3><span className={`nx-badge ${item.active === false ? "" : "is-green"}`}>{item.active === false ? "Arquivada" : "No ar"}</span></div><p className="nx-sc-link"><Link2 size={13}/>{link}</p><div className="nx-sc-btns" style={{marginTop:12}}><button type="button" className="nx-btn is-sm" onClick={()=>void navigator.clipboard.writeText(link)}><Copy size={14}/>Copiar</button><button type="button" className="nx-btn is-sm" onClick={()=>window.open(link,"_blank","noopener")}><ExternalLink size={14}/>Visualizar</button><button type="button" className="nx-btn is-sm" onClick={()=>startEditPage(item)}><Pencil size={14}/>Editar</button><button type="button" className="nx-btn is-sm is-ghost" onClick={()=>void archivePage(item.id)}><Trash2 size={14}/>{pendingConfirm?.kind === "page" && pendingConfirm.id === item.id ? "Confirmar arquivamento" : "Arquivar"}</button><label className="nx-btn is-sm is-ghost nx-sc-upload"><Upload size={14}/>Trocar logo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event)=>void uploadLogo(item.id,event.target.files?.[0])}/></label></div></article>})}</div>
       </div>
     </div>}
     {selectedBooking && (
@@ -370,6 +409,10 @@ const BOOKING_STATUS: Record<string, { label: string; tone: string }> = {
   RESCHEDULED: { label: "Reagendado", tone: "is-violet" },
   NO_SHOW: { label: "Não compareceu", tone: "is-red" },
 };
+
+export function isExpiredBooking(item: Booking) {
+  return ["PENDING", "CONFIRMED"].includes(item.status) && Number.isFinite(Date.parse(item.end_at)) && Date.parse(item.end_at) < Date.now();
+}
 
 function bookingStatus(status: string) {
   return BOOKING_STATUS[status] || { label: status, tone: "" };

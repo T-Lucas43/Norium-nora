@@ -4,6 +4,10 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 
 ## [Não publicado] — branch `feat/fase1-seguranca-voz`
 
+- fix(agendamentos): rolagem pública no PC, prévia com a página real sem cobrir páginas cadastradas e logo própria com atualização do cache.
+- feat(agendamentos): textos, cores, fontes, layout, cabeçalho/rodapé e rótulos editáveis; filtros de vencidos e marcação de serviço/reunião realizados ou ausência com histórico.
+- fix(perfil): fotos e nomes em projetos, tarefas e Estúdio; redução suave da foto e fallback seguro por pessoa.
+
 - fix(agendamentos): rota pública `/agendar/:slug` abre antes da sessão do painel e preserva links compartilhados, mesmo para quem já está conectado.
 - feat(agendamentos): nova página pública com calendário mensal, horários, resumo da reserva, logo oficial, temas claro/escuro, campos acessíveis e layout para celular.
 - feat(agendamentos): textos de boas-vindas e do serviço editáveis com prévia ao vivo; tempo fixo segue o cadastro do serviço, sem oferecer durações não cadastradas.

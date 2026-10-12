@@ -1,3 +1,4 @@
+import AvatarImage from "../profile/AvatarImage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -71,15 +72,7 @@ type SearchResult = {
   tab: string;
 };
 
-function initials(name: string) {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-}
+
 
 export default function Header({
   activeTab,
@@ -375,13 +368,7 @@ export default function Header({
             aria-expanded={profileMenuOpen}
           >
             <span className="norium-topbar-profile-avatar">
-              {profile?.fotoUrl ? (
-                <img src={profile.fotoUrl} alt="" />
-              ) : profileName ? (
-                initials(profileName)
-              ) : (
-                <UserCircle2 size={20} />
-              )}
+              <AvatarImage src={profile?.fotoUrl || currentUser?.fotoUrl} name={profileName || "Operador"} size={28}/>
             </span>
             <span className="norium-topbar-profile-name">{profileName.split(/\s+/)[0]}</span>
             <ChevronDown size={15} className={profileMenuOpen ? "rotate-180" : ""} />
@@ -391,7 +378,7 @@ export default function Header({
             <div className="norium-profile-dropdown" role="menu">
               <div className="norium-profile-dropdown-user">
                 <span className="norium-topbar-profile-avatar">
-                  {profile?.fotoUrl ? <img src={profile.fotoUrl} alt="" /> : initials(profileName)}
+                  <AvatarImage src={profile?.fotoUrl || currentUser?.fotoUrl} name={profileName || "Operador"} size={32}/>
                 </span>
                 <span>
                   <strong>{profileName}</strong>

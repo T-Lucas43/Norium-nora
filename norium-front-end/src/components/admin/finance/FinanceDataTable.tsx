@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import Button from "../../shared/Button";
+import {useAdminSearch,matchesAdminSearch} from "../layout/AdminSearch";
 import EmptyState from "../../shared/EmptyState";
 
 export interface FinanceColumn<T extends { id: string }> {
@@ -34,6 +35,7 @@ export default function FinanceDataTable<T extends { id: string }>({
   emptyDescription,
   pageSize = 12,
 }: FinanceDataTableProps<T>) {
+  const globalSearch=useAdminSearch();
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState(columns.find((column) => column.sortable)?.key || columns[0]?.key || "id");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -41,9 +43,10 @@ export default function FinanceDataTable<T extends { id: string }>({
 
   const filtered = useMemo(() => {
     const normalized = search.trim().toLocaleLowerCase("pt-BR");
+    const sourceItems=items.filter(item=>matchesAdminSearch(globalSearch,item));
     const values = normalized
-      ? items.filter((item) => columns.some((column) => (column.searchValue?.(item) || String(column.render(item) ?? "")).toLocaleLowerCase("pt-BR").includes(normalized)))
-      : [...items];
+      ? sourceItems.filter((item) => columns.some((column) => (column.searchValue?.(item) || String(column.render(item) ?? "")).toLocaleLowerCase("pt-BR").includes(normalized)))
+      : [...sourceItems];
     const column = columns.find((candidate) => candidate.key === sortKey);
     if (!column) return values;
     return values.sort((left, right) => {
@@ -51,7 +54,7 @@ export default function FinanceDataTable<T extends { id: string }>({
       const b = column.searchValue?.(right) || String(column.render(right) ?? "");
       return a.localeCompare(b, "pt-BR", { numeric: true }) * (sortDirection === "asc" ? 1 : -1);
     });
-  }, [columns, items, search, sortDirection, sortKey]);
+  }, [columns, items, search, sortDirection, sortKey, globalSearch]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pages);
@@ -76,7 +79,7 @@ export default function FinanceDataTable<T extends { id: string }>({
           <Search size={16} className="text-[var(--text-secondary)]" />
           <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={searchPlaceholder} className="h-10 min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" />
         </label>
-        <span className="text-xs font-bold text-[var(--text-secondary)]">{filtered.length} registro(s)</span>
+        <span className="text-xs font-medium text-[var(--text-secondary)]">{filtered.length} registro(s)</span>
       </div>
       {visible.length === 0 ? <EmptyState title={emptyTitle} description={emptyDescription} className="m-4" /> : (
         <div className="overflow-x-auto">
@@ -84,8 +87,8 @@ export default function FinanceDataTable<T extends { id: string }>({
             <thead className="bg-[var(--background)] text-xs uppercase text-[var(--text-secondary)]">
               <tr>
                 {onSelectedIdsChange && <th className="w-12 px-4 py-3"><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="Selecionar página" /></th>}
-                {columns.map((column) => <th key={column.key} className="whitespace-nowrap px-4 py-3 font-black">{column.sortable ? <button className="inline-flex items-center gap-1" onClick={() => toggleSort(column.key)}>{column.title}{sortKey === column.key ? sortDirection === "asc" ? <ArrowDownAZ size={14} /> : <ArrowUpAZ size={14} /> : null}</button> : column.title}</th>)}
-                {actions && <th className="px-4 py-3 text-right font-black">Ações</th>}
+                {columns.map((column) => <th key={column.key} className="whitespace-nowrap px-4 py-3 font-semibold">{column.sortable ? <button className="inline-flex items-center gap-1" onClick={() => toggleSort(column.key)}>{column.title}{sortKey === column.key ? sortDirection === "asc" ? <ArrowDownAZ size={14} /> : <ArrowUpAZ size={14} /> : null}</button> : column.title}</th>)}
+                {actions && <th className="px-4 py-3 text-right font-semibold">Ações</th>}
               </tr>
             </thead>
             <tbody>
@@ -100,7 +103,7 @@ export default function FinanceDataTable<T extends { id: string }>({
           </table>
         </div>
       )}
-      {pages > 1 && <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] p-3"><Button size="sm" iconOnly aria-label="Página anterior" disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={16} /></Button><span className="text-xs font-bold text-[var(--text-secondary)]">{safePage} de {pages}</span><Button size="sm" iconOnly aria-label="Próxima página" disabled={safePage >= pages} onClick={() => setPage((current) => Math.min(pages, current + 1))}><ChevronRight size={16} /></Button></div>}
+      {pages > 1 && <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] p-3"><Button size="sm" iconOnly aria-label="Página anterior" disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={16} /></Button><span className="text-xs font-medium text-[var(--text-secondary)]">{safePage} de {pages}</span><Button size="sm" iconOnly aria-label="Próxima página" disabled={safePage >= pages} onClick={() => setPage((current) => Math.min(pages, current + 1))}><ChevronRight size={16} /></Button></div>}
     </div>
   );
 }

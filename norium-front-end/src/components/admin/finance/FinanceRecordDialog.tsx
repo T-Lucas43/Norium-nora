@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { CircleDollarSign, X } from "lucide-react";
 import type { FinancePlan, FinanceReference } from "../../../features/admin-finance/types";
 import { toCents } from "../../../features/admin-finance/format";
 import Button from "../../shared/Button";
+import AdminOverlay from "../layout/AdminOverlay";
 
 export type FinanceRecordKind = "plan" | "subscription" | "payment" | "expense" | "reference" | "goal" | "budget";
 
@@ -139,7 +139,7 @@ const titles: Record<FinanceRecordKind, string> = {
 
 export default function FinanceRecordDialog({ kind, record, plans, categories, providers, referenceLabel, saving, onClose, onSubmit }: FinanceRecordDialogProps) {
   const [form, setForm] = useState<FormState>(() => initialState(kind, record));
-  const title = `${record ? "Editar" : "Novo"} ${referenceLabel || titles[kind]}`;
+  const title = `${record ? "Editar" : ["subscription", "payment", "expense", "goal"].includes(kind) ? "Nova" : "Novo"} ${referenceLabel || titles[kind]}`;
   const isEdit = Boolean(record?.id);
   const set = (key: string, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
   const content = useMemo(() => fieldsFor(kind, form, set, plans, categories, providers), [kind, form, plans, categories, providers]);
@@ -152,17 +152,13 @@ export default function FinanceRecordDialog({ kind, record, plans, categories, p
   }
 
   return (
-    <div className="fixed inset-0 z-[220] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
+    <AdminOverlay open title={title} width={880} closeLabel="Fechar" onClose={onClose}>
       <form onSubmit={(event) => void submit(event)} className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
-        <header className="flex items-center gap-3 border-b border-[var(--border)] p-5">
-          <span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><CircleDollarSign size={19} /></span>
-          <div className="min-w-0 flex-1"><h2 className="text-lg font-black">{title}</h2><p className="text-xs font-semibold text-[var(--text-secondary)]">Campos financeiros são armazenados em centavos para evitar perda de precisão.</p></div>
-          <Button variant="ghost" iconOnly aria-label="Fechar" onClick={onClose}><X size={18} /></Button>
-        </header>
+
         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 sm:grid-cols-2">{content}</div>
         <footer className="flex justify-end gap-2 border-t border-[var(--border)] p-4"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" type="submit" loading={saving}>{isEdit ? "Salvar alterações" : "Criar"}</Button></footer>
       </form>
-    </div>
+    </AdminOverlay>
   );
 }
 
@@ -171,7 +167,7 @@ function fieldsFor(kind: FinanceRecordKind, form: FormState, set: (key: string, 
     <label key={key} className={options?.span ? "sm:col-span-2" : ""}><span className="finance-label">{label}</span>{options?.textarea ? <textarea className="finance-field min-h-24 resize-y" required={options.required} value={String(form[key] ?? "")} placeholder={options.placeholder} onChange={(event) => set(key, event.target.value)} /> : <input className="finance-field" type={options?.type || "text"} required={options?.required} value={String(form[key] ?? "")} placeholder={options?.placeholder} onChange={(event) => set(key, event.target.value)} />}</label>
   );
   const select = (key: string, label: string, values: Array<[string, string]>) => <label key={key}><span className="finance-label">{label}</span><select className="finance-field" value={String(form[key] ?? "")} onChange={(event) => set(key, event.target.value)}>{values.map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>;
-  const check = (key: string, label: string) => <label key={key} className="flex min-h-11 items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold"><span>{label}</span><input type="checkbox" checked={Boolean(form[key])} onChange={(event) => set(key, event.target.checked)} /></label>;
+  const check = (key: string, label: string) => <label key={key} className="flex min-h-11 items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-medium"><span>{label}</span><input type="checkbox" checked={Boolean(form[key])} onChange={(event) => set(key, event.target.checked)} /></label>;
   const refOptions = (items: FinanceReference[]): Array<[string, string]> => [["", "Não definido"], ...items.map((item) => [item.id, item.name] as [string, string])];
 
   if (kind === "plan") return [field("name", "Nome", { required: true }), field("code", "Código", { required: true }), field("description", "Descrição", { textarea: true, span: true }), field("monthlyPrice", "Preço mensal (R$)", { type: "number" }), field("quarterlyPrice", "Preço trimestral (R$)", { type: "number" }), field("semiannualPrice", "Preço semestral (R$)", { type: "number" }), field("annualPrice", "Preço anual (R$)", { type: "number" }), field("lifetimePrice", "Preço vitalício (R$)", { type: "number" }), field("setupFee", "Taxa de adesão (R$)", { type: "number" }), field("cancellationFee", "Taxa de cancelamento (R$)", { type: "number" }), field("lateFeePercentage", "Multa por atraso (%)", { type: "number" }), field("trialDays", "Dias de teste", { type: "number" }), field("users", "Limite de usuários", { type: "number" }), field("noraCalls", "Chamadas da Nora", { type: "number" }), field("storageMb", "Armazenamento (MB)", { type: "number" }), field("features", "Recursos, um por linha", { textarea: true, span: true }), field("internalNotes", "Observações internas", { textarea: true, span: true }), check("active", "Plano ativo"), check("popular", "Destacar como popular")];

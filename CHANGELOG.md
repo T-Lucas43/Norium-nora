@@ -5,6 +5,7 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 ## [Não publicado] — painel administrativo, 12/10/2026
 
 - feat(admin): casca de 232/56 px, temas claro/escuro, menu móvel, contas em tabela/gaveta, custos/tarifas e limites/reset em overlays acessíveis.
+- feat(admin): financeiro com dez abas sublinhadas, cartões/tabelas, modais de registro/importação com foco e Escape e todos os campos/ações/exportações preservados.
 
 ## [Não publicado] — recuperação de carregamento, 12/10/2026
 

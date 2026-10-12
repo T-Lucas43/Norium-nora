@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { FileSpreadsheet, Upload, X } from "lucide-react";
+import { Upload } from "lucide-react";
 import type { ImportPreview } from "../../../features/admin-finance/types";
 import Button from "../../shared/Button";
+import AdminOverlay from "../layout/AdminOverlay";
 
 type ImportKind = "expenses" | "payments" | "jorro";
 
@@ -59,15 +60,11 @@ export default function FinanceImportDialog({ loading, onClose, onPreview, onCom
   }
 
   return (
-    <div className="fixed inset-0 z-[230] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Importar dados financeiros">
+    <AdminOverlay open title="Importar dados financeiros" subtitle="CSV ou Excel com prévia e mapeamento antes da gravação." width={880} closeLabel="Fechar" onClose={onClose}>
       <section className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
-        <header className="flex items-center gap-3 border-b border-[var(--border)] p-5">
-          <span className="grid h-10 w-10 place-items-center rounded-lg bg-emerald-500/12 text-emerald-400"><FileSpreadsheet size={19} /></span>
-          <div className="min-w-0 flex-1"><h2 className="text-lg font-black">Importar dados</h2><p className="text-xs font-semibold text-[var(--text-secondary)]">CSV ou Excel com prévia e mapeamento antes da gravação.</p></div>
-          <Button variant="ghost" iconOnly aria-label="Fechar" onClick={onClose}><X size={18} /></Button>
-        </header>
+
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-          {error && <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-sm font-bold text-red-300">{error}</div>}
+          {error && <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-sm font-medium text-red-300">{error}</div>}
           <div className="grid gap-4 md:grid-cols-[220px_1fr]">
             <label className="finance-label">Destino<select className="finance-field" value={kind} onChange={(event) => setKind(event.target.value as ImportKind)}><option value="expenses">Despesas</option><option value="payments">Receitas</option><option value="jorro">Consumo Jorro</option></select></label>
             <label className="grid cursor-pointer place-items-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] p-5 text-center hover:bg-[var(--surface-hover)]">
@@ -76,15 +73,15 @@ export default function FinanceImportDialog({ loading, onClose, onPreview, onCom
             </label>
           </div>
           {preview && <>
-            <div><h3 className="text-sm font-black">Mapeamento de colunas</h3><p className="mt-1 text-xs text-[var(--text-secondary)]">{preview.fileName} · {preview.totalRows} linha(s)</p></div>
+            <div><h3 className="text-sm font-semibold">Mapeamento de colunas</h3><p className="mt-1 text-xs text-[var(--text-secondary)]">{preview.fileName} · {preview.totalRows} linha(s)</p></div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {preview.headers.map((header) => <label key={header} className="finance-label"><span className="truncate" title={header}>{header}</span><select className="finance-field" value={mapping[header] || ""} onChange={(event) => setMapping((current) => ({ ...current, [header]: event.target.value }))}><option value="">Ignorar coluna</option>{targets.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>)}
             </div>
-            <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-[var(--background)]"><tr>{preview.headers.map((header) => <th key={header} className="px-3 py-2 font-black">{header}</th>)}</tr></thead><tbody>{preview.rows.slice(0, 5).map((row, index) => <tr key={index} className="border-t border-[var(--border)]">{preview.headers.map((header) => <td key={header} className="max-w-48 truncate px-3 py-2">{row[header]}</td>)}</tr>)}</tbody></table></div>
+            <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-[var(--background)]"><tr>{preview.headers.map((header) => <th key={header} className="px-3 py-2 font-semibold">{header}</th>)}</tr></thead><tbody>{preview.rows.slice(0, 5).map((row, index) => <tr key={index} className="border-t border-[var(--border)]">{preview.headers.map((header) => <td key={header} className="max-w-48 truncate px-3 py-2">{row[header]}</td>)}</tr>)}</tbody></table></div>
           </>}
         </div>
         <footer className="flex justify-end gap-2 border-t border-[var(--border)] p-4"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" disabled={!preview || loading} onClick={() => void commit()}>{loading ? "Importando..." : "Importar registros"}</Button></footer>
       </section>
-    </div>
+    </AdminOverlay>
   );
 }

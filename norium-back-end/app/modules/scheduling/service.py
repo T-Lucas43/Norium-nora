@@ -610,7 +610,8 @@ class SchedulingService:
         if completion_type not in {None, "service", "meeting"} or (completion_type and status != "COMPLETED"):
             raise HTTPException(422, "Tipo de conclusão inválido.")
         with self.repo.transaction() as db:
-            query = "SELECT id,status,completion_type FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?" + (" FOR UPDATE" if self.repo.postgres else "")
+            query = ("SELECT id,status,completion_type FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=? FOR UPDATE" if self.repo.postgres
+                     else "SELECT id,status,completion_type FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?")
             row = db.execute(query, (booking_id, *scope)).fetchone()
             if not row: raise HTTPException(404, "Agendamento nao encontrado.")
             if status == "COMPLETED" and row["status"] == "CANCELLED":

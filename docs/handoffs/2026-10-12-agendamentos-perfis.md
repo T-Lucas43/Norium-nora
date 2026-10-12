@@ -59,3 +59,5 @@ PR #55, aceita pelo usuário para Gmail. Nenhuma página/reserva real foi criada
 ou reconfigurada durante a conferência sintética.
 
 Último candidato: frontend focado 45/45 e TypeScript/Vite/bundle passaram; backend isolado 48/48. Tema alterado na prévia atualiza o modo salvo. Paleta clara/escura separada e atendimento presencial/online/telefone com local/instruções editáveis. Links públicos antigos não sobrescrevem um atendimento realizado/encerrado. Conferência responsiva em documento real de 375px dentro de iframe, conteúdo 1.692px e container de 812px com overflow auto; não é uma captura de telefone físico.
+
+PR #56 e run 38250707695: testes backend/empacotamento e imagem/PG passaram; SAST B608 apontou a construção do sufixo SQL FOR UPDATE na linha 613. Consulta usa apenas sufixo fixo, mas foi reescrita com duas strings literais completas; nenhum scanner/limite foi suprimido. Novos gates são obrigatórios antes do deploy.

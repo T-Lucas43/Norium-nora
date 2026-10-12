@@ -9,7 +9,7 @@ export type SchedulingService = {
 };
 export type SchedulingPage = { id: string; public_id: string; service_id: string; slug?: string; title: string; description: string; fields: BookingField[]; theme: Record<string,string>; logo_url?: string; active: boolean };
 export type BookingField = { id: string; type: string; label: string; required?: boolean; maxLength?: number };
-export type Booking = { id: string; service_id: string; responsible_id?: string; attendee_name: string; attendee_email: string; attendee_phone?: string | null; start_at: string; end_at: string; timezone?: string; status: string; service_name?: string; professional_name?: string; professional_color?: string };
+export type Booking = { id: string; service_id: string; responsible_id?: string; attendee_name: string; attendee_email: string; attendee_phone?: string | null; start_at: string; end_at: string; timezone?: string; status: string; completion_type?: "service" | "meeting" | null; service_name?: string; professional_name?: string; professional_color?: string };
 export type SchedulingProfessional = { userId: string; name: string; email: string; avatarUrl?: string; jobTitle?: string; active: boolean; profession: string; position: string; color: string };
 export type TeamSchedulingSettings = { enabled: boolean; professionals: SchedulingProfessional[] };
 export type AvailabilityPeriod = { start: string; end: string };
@@ -66,7 +66,7 @@ export const schedulingApi = {
   updatePage: (id: string, body: unknown) => request<SchedulingPage>(`/api/scheduling/pages/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
   archivePage: (id: string) => request<void>(`/api/scheduling/pages/${encodeURIComponent(id)}`, { method: "DELETE" }),
   uploadLogo: (pageId: string, dataBase64: string) => request<{logoUrl:string}>(`/api/scheduling/pages/${encodeURIComponent(pageId)}/logo`, { method: "POST", body: JSON.stringify({dataBase64}) }),
-  updateBookingStatus: (id: string, status: string) => request<Booking>(`/api/scheduling/bookings/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({status}) }),
+  updateBookingStatus: (id: string, status: string, completionType?: "service" | "meeting") => request<Booking>(`/api/scheduling/bookings/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({status, ...(completionType ? {completionType} : {})}) }),
   notifyPreview: (id: string, startAt: string, duration: number, responsibleId = "", signoff: "team" | "professional" = "team") => request<NotifyPreview>(`/api/scheduling/bookings/${encodeURIComponent(id)}/notify-preview?${new URLSearchParams({startAt,duration:String(duration),...(responsibleId?{responsibleId}:{}),signoff})}`, { timeoutMs: 6_000 }),
   adminReschedule: (id: string, body: {startAt:string;duration:number;responsibleId?:string|null;notifyGmail:boolean;notifyWhatsapp:boolean;gmailSubject:string;gmailBody:string;whatsappMessage:string;operationKey:string;signoff:"team"|"professional"}) => request<RescheduleResult>(`/api/scheduling/bookings/${encodeURIComponent(id)}/reschedule`, { method: "POST", body: JSON.stringify(body), timeoutMs: 8_000 }),
   teamSettings: () => request<TeamSchedulingSettings>("/api/scheduling/team-settings"),

@@ -293,7 +293,7 @@ class SchedulingService:
         else:
             folder = get_user_dir(scope[0]) / "scheduling_assets"; folder.mkdir(parents=True, exist_ok=True)
             target = folder / f"{entity_id}.{extension}"; target.write_bytes(raw)
-        url = f"/api/public/scheduling/pages/{page['public_id']}/logo"
+        url = f"/api/public/scheduling/pages/{page['public_id']}/logo?v={hashlib.sha256(raw).hexdigest()[:16]}"
         with self.repo.transaction() as db:
             db.execute("UPDATE scheduling_pages SET logo_url=?,updated_at=? WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (url, now_iso(), entity_id, *scope))
             self.repo.audit(db, scope, "page_logo_updated", "page", entity_id, {"mime": mime, "size": len(raw)})
@@ -603,15 +603,21 @@ class SchedulingService:
         query += " ORDER BY b.start_at"
         return self.repo.all(query, tuple(params))
 
-    def update_booking_status(self, scope: tuple[str, str, str], booking_id: str, status: str) -> dict[str, Any]:
+    def update_booking_status(self, scope: tuple[str, str, str], booking_id: str, status: str, completion_type: str | None = None) -> dict[str, Any]:
         allowed = {"PENDING", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"}
         if status not in allowed:
             raise HTTPException(422, "Status invalido.")
+        if completion_type not in {None, "service", "meeting"} or (completion_type and status != "COMPLETED"):
+            raise HTTPException(422, "Tipo de conclusão inválido.")
         with self.repo.transaction() as db:
-            row = db.execute("SELECT id FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (booking_id, *scope)).fetchone()
+            query = "SELECT id,status,completion_type FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?" + (" FOR UPDATE" if self.repo.postgres else "")
+            row = db.execute(query, (booking_id, *scope)).fetchone()
             if not row: raise HTTPException(404, "Agendamento nao encontrado.")
-            db.execute("UPDATE scheduling_bookings SET status=?,updated_at=? WHERE id=?", (status, now_iso(), booking_id))
-            self.repo.audit(db, scope, "booking_status_updated", "booking", booking_id, {"status": status})
+            if status == "COMPLETED" and row["status"] == "CANCELLED":
+                raise HTTPException(409, "Um agendamento cancelado não pode ser marcado como realizado.")
+            outcome = (completion_type or row["completion_type"]) if status == "COMPLETED" else None
+            db.execute("UPDATE scheduling_bookings SET status=?,completion_type=?,updated_at=? WHERE id=?", (status, outcome, now_iso(), booking_id))
+            self.repo.audit(db, scope, "booking_status_updated", "booking", booking_id, {"status": status, "completionType": outcome})
         return self.repo.one("SELECT * FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (booking_id, *scope)) or {}
 
     def get_booking(self, scope: tuple[str, str, str], booking_id: str) -> dict[str, Any]:
@@ -787,6 +793,8 @@ class SchedulingService:
             row = db.execute("SELECT * FROM scheduling_bookings WHERE cancel_token_hash=?", (token_hash(token),)).fetchone()
             if not row: raise HTTPException(404, "Link de cancelamento invalido.")
             if row["status"] == "CANCELLED": return {"status": "CANCELLED", "idempotentReplay": True}
+            if row["status"] in {"COMPLETED", "NO_SHOW"}:
+                raise HTTPException(409, "Este atendimento já foi encerrado. Contate o responsável.")
             db.execute("UPDATE scheduling_bookings SET status='CANCELLED',updated_at=? WHERE id=?", (stamp, row["id"]))
             self.repo.audit(db, (row["tenant_id"], row["workspace_id"], "public"), "booking_cancelled", "booking", row["id"])
         return {"status": "CANCELLED"}
@@ -796,6 +804,8 @@ class SchedulingService:
         with self.repo.transaction() as db:
             row = db.execute("SELECT * FROM scheduling_bookings WHERE reschedule_token_hash=?", (token_hash(token),)).fetchone()
             if not row: raise HTTPException(404, "Link de reagendamento invalido.")
+            if row["status"] in {"COMPLETED", "NO_SHOW"}:
+                raise HTTPException(409, "Este atendimento já foi encerrado. Contate o responsável.")
             service = self.repo.decode(db.execute("SELECT * FROM scheduling_services WHERE id=?", (row["service_id"],)).fetchone()) or {}
             page = self.repo.decode(db.execute("SELECT * FROM scheduling_pages WHERE id=?", (row["page_id"],)).fetchone()) or {}
             if duration not in service.get("durations", []): raise HTTPException(422, "Duracao nao permitida.")

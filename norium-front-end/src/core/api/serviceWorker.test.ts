@@ -7,10 +7,10 @@ import { describe, expect, it, vi } from "vitest";
 function worker() {
   const listeners: Record<string, (event: unknown) => void> = {};
   const fetch = vi.fn().mockResolvedValue(new Response("public", { status: 200 }));
-  const cache = { put: vi.fn(), addAll: vi.fn().mockResolvedValue(undefined) };
+  const cache = { match: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockResolvedValue(undefined), addAll: vi.fn().mockResolvedValue(undefined) };
   const caches = { match: vi.fn().mockResolvedValue(undefined), open: vi.fn().mockResolvedValue(cache), keys: vi.fn().mockResolvedValue([]), delete: vi.fn() };
   const self = { location: { origin: "https://norium.test" }, addEventListener: (name: string, fn: (event: unknown) => void) => { listeners[name] = fn; }, skipWaiting: vi.fn(), clients: { claim: vi.fn() } };
-  runInNewContext(readFileSync(resolve("public/sw.js"), "utf8"), { self, caches, fetch, URL, Set });
+  runInNewContext(readFileSync(resolve("public/sw.js"), "utf8"), { self, caches, fetch, URL, Response, Set });
   function request(path: string, headers: HeadersInit = {}) {
     const event = { request: { url: new URL(path, self.location.origin).href, method: "GET", mode: "cors", headers: new Headers(headers) }, respondWith: vi.fn(), waitUntil: vi.fn() };
     listeners.fetch(event);
@@ -29,7 +29,7 @@ describe("public asset cache", () => {
   it("reuses an immutable build asset without downloading it again", async () => {
     const w = worker();
     const cached = new Response("cached js");
-    w.caches.match.mockResolvedValue(cached);
+    w.cache.match.mockResolvedValue(cached);
     const event = w.request("/assets/app-abcdefgh.js");
     expect(await event.respondWith.mock.calls[0][0]).toBe(cached);
     expect(w.fetch).not.toHaveBeenCalled();

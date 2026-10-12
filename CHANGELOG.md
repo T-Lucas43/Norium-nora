@@ -2,6 +2,10 @@
 
 Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 
+## [Não publicado] — painel administrativo, 12/10/2026
+
+- feat(admin): casca de 232/56 px, temas claro/escuro, menu móvel, contas em tabela/gaveta, custos/tarifas e limites/reset em overlays acessíveis.
+
 ## [Não publicado] — recuperação de carregamento, 12/10/2026
 
 - fix(carregamento): service worker devolve Response também sem rede/cache, preserva uma geração pública anterior e não apaga caches pessoais ou intercepta API/recursos privados.

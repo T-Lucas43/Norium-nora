@@ -13,6 +13,14 @@ from app.modules.auth import router as auth
 
 
 class AuthStoreFailClosedTests(unittest.IsolatedAsyncioTestCase):
+    def test_public_user_adds_only_the_photo_from_its_own_profile(self):
+        user = {"id":"photo-user", "nome":"Pessoa sintética", "role":"member", "plan":"individual", "status":"ativo"}
+        with patch.object(auth,"read_profile_db",return_value={"fotoUrl":"/foto-sintetica.png","gmail":{"accessToken":"synthetic-private-token"}}) as read:
+            result = auth.sanitize_user(user)
+        read.assert_called_once_with("photo-user", {})
+        self.assertEqual("/foto-sintetica.png", result["fotoUrl"])
+        self.assertNotIn("gmail", result)
+        self.assertNotIn("accessToken", result)
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="audit-auth-storage-")
         self.addCleanup(temporary.cleanup)

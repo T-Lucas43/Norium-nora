@@ -41,6 +41,58 @@ class SchedulingTests(unittest.TestCase):
     def booking_payload(cls, start: datetime, key: str) -> BookingPayload:
         return BookingPayload(startAt=start.isoformat(), duration=60, name="Cliente Teste", email="CLIENTE@example.com", phone="+55 11 99999-9999", responses={"cpf": "529.982.247-25"}, idempotencyKey=key)
 
+    def test_completion_outcome_persists_and_is_scoped(self):
+        scope = ("tenant-a", "primary", "user-a")
+        _, page = self.configured(scope)
+        booking = self.scheduling.create_booking(page["public_id"], self.booking_payload(self.next_monday_at(8), "outcome-test"))["booking"]
+        result = self.scheduling.update_booking_status(scope, booking["id"], "COMPLETED", "service")
+        self.assertEqual("service", result["completion_type"])
+        self.assertEqual("COMPLETED", result["status"])
+        self.scheduling.repo.migrate()
+        self.assertEqual("service", self.scheduling.get_booking(scope, booking["id"])["completion_type"])
+        with self.assertRaises(HTTPException) as error:
+            self.scheduling.update_booking_status(("tenant-b", "primary", "user-b"), booking["id"], "COMPLETED", "meeting")
+        self.assertEqual(404, error.exception.status_code)
+        with self.assertRaises(HTTPException):
+            self.scheduling.update_booking_status(scope, booking["id"], "NO_SHOW", "service")
+        row = self.scheduling.repo.one("SELECT * FROM scheduling_bookings WHERE id=?", (booking["id"],))
+        # Public bearer links cannot overwrite an outcome recorded by the owner.
+        from app.modules.scheduling.repository import token_hash
+        for action in ("cancel", "reschedule"):
+            token = "synthetic-closed-link-" + action
+            column = "cancel_token_hash" if action == "cancel" else "reschedule_token_hash"
+            with self.scheduling.repo.transaction() as db:
+                db.execute(f"UPDATE scheduling_bookings SET {column}=? WHERE id=?", (token_hash(token), row["id"]))
+            with self.assertRaises(HTTPException) as closed:
+                if action == "cancel": self.scheduling.cancel(token)
+                else: self.scheduling.reschedule(token, self.next_monday_at(9).isoformat(), 60)
+            self.assertEqual(409, closed.exception.status_code)
+
+    def test_page_design_preserves_dark_palette_and_rejects_invalid_options(self):
+        item, _ = self.configured()
+        theme = {"fontFamily":"serif", "layout":"stacked", "cardStyle":"square", "darkBackground":"#101828", "darkSurface":"#182230", "darkText":"#ffffff", "darkMuted":"#ccd5e0", "darkBorder":"#334155", "showFooter":"false"}
+        page = self.scheduling.create_page(("tenant-a","primary","user-a"), PagePayload(serviceId=item["id"],title="Serviço sintético",theme=theme))
+        self.assertEqual(theme, self.scheduling.public_page(page["public_id"])["page"]["theme"])
+        for invalid in ({"fontFamily":[]}, {"layout":"javascript"}, {"background":"url(secret)"}, {"darkBackground":"#ffffff","darkText":"#ffffff"}):
+            with self.assertRaises(ValueError):
+                PagePayload(serviceId=item["id"],title="Teste",theme=invalid)
+
+    def test_uploaded_logo_public_bytes_and_version_change(self):
+        import base64
+        from app.modules.scheduling.service import get_user_dir
+        _, page = self.configured()
+        scope = ("tenant-a", "primary", "user-a")
+        first = b"\x89PNG\r\n\x1a\nsynthetic-a"
+        second = b"\x89PNG\r\n\x1a\nsynthetic-b"
+        with patch("app.modules.scheduling.service.get_user_dir", return_value=Path(self.temporary.name)):
+            url = self.scheduling.upload_logo(scope, page["id"], base64.b64encode(first).decode())["logoUrl"]
+            asset, mime = self.scheduling.logo_asset(page["public_id"])
+            self.assertEqual(first, Path(asset).read_bytes())
+            self.assertEqual("image/png", mime)
+            changed = self.scheduling.upload_logo(scope, page["id"], base64.b64encode(second).decode())["logoUrl"]
+            self.assertNotEqual(url, changed)
+            self.assertEqual(changed, self.scheduling.public_page(page["public_id"])["page"]["logo_url"])
+
     def test_weekly_periods_exclude_lunch(self):
         _item, page = self.configured()
         day = self.next_monday_at(8).astimezone(ZoneInfo("America/Sao_Paulo")).date()

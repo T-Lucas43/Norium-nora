@@ -98,8 +98,10 @@ export function imageFileToProfileDataUrl(file: File): Promise<string> {
           return;
         }
 
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
         context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.86));
+        resolve(canvas.toDataURL("image/jpeg", 0.94));
       };
       image.src = String(reader.result || "");
     };

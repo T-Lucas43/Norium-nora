@@ -101,7 +101,7 @@
 .nx-sc-fieldrow { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--nx-border); padding: 9px 0; font-size: 13.5px; }
 .nx-sc-fieldrow:first-of-type { border-top: 0; }
 .nx-sc-side { display: grid; align-content: start; gap: 14px; }
-.nx-sc-sticky { position: sticky; top: 16px; }
+.nx-sc-sticky { position: static; min-width: 0; }
 .nx-sc-page { padding: 16px; }
 .nx-sc-page h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .nx-sc-link { display: flex; align-items: center; gap: 6px; margin-top: 6px; overflow-wrap: anywhere; color: var(--nx-text-3); font-size: 12.5px; }
@@ -174,3 +174,9 @@
   .nx-sc-modal-h, .nx-sc-modal-b { padding-left: 16px; padding-right: 16px; }
   .nx-sc .nx-ph-actions .nx-btn { flex: 1 1 auto; }
 }
+
+.nx-sc-side { position: sticky; top: 16px; align-self: start; display: flex; flex-direction: column; max-height: calc(100dvh - 120px); min-height: 0; }
+.nx-sc-published { min-height: 0; overflow-y: auto; display: grid; gap: 12px; padding: 2px; }
+.nx-sc-sticky { flex-shrink: 0; }
+.nx-sc-side .norium-booking[data-preview] { height: min(440px, 45dvh); }
+@media (max-width: 900px) { .nx-sc-side { position: static; max-height: none; } .nx-sc-published { max-height: 350px; } .nx-sc-side .norium-booking[data-preview] { height: 560px; } }

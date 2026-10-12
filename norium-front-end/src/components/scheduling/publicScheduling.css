@@ -1,7 +1,7 @@
 .norium-booking {
   --booking-surface: #fff; --booking-soft: #f7f9fd; --booking-border: #e4eaf3; --booking-muted: #63728a;
-  min-height: 100dvh; background: var(--booking-bg); color: var(--booking-text); padding: 0 32px 24px;
-  font-family: 'Inter Variable', Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.6;
+  height: 100dvh; min-height: 0; overflow-y: auto; overflow-x: hidden; container: booking / inline-size; background: var(--booking-bg); color: var(--booking-text); padding: 0 32px 24px;
+  font-family: var(--booking-font); font-size: 14px; line-height: 1.6;
   background-image: radial-gradient(ellipse at 50% 0, color-mix(in srgb, var(--booking-primary) 7%, transparent), transparent 65%);
 }
 .norium-booking.booking-dark { --booking-surface: #151f30; --booking-soft: #1a273c; --booking-border: #2b3a50; --booking-muted: #a5b4cc; color-scheme: dark; }
@@ -127,6 +127,25 @@
 .booking-skeleton { height: 6px; width: 140px; margin: 0 auto; border-radius: 6px; background: var(--booking-primary); animation: booking-pulse 1.5s infinite; }
 @keyframes booking-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .norium-booking * { animation: none !important; transition: none !important; } }
-@media (max-width: 1050px) { .booking-card { grid-template-columns: 270px minmax(0, 1fr); } .booking-service { padding: 28px 24px; } .booking-workspace { padding: 28px 24px; } .booking-availability { gap: 18px; } }
-@media (max-width: 850px) { .booking-card { grid-template-columns: 1fr; } .booking-service { border-right: 0; border-bottom: 1px solid var(--booking-border); } .booking-service-icon { margin-bottom: 16px; width: 45px; height: 45px; } .booking-service h1 { font-size: 23px; } .booking-service-note { margin-top: 20px; } .booking-service-meta { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; } .booking-service-options { margin-top: 18px; padding-top: 16px; } .booking-professionals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 520px) { .norium-booking { padding: 0 16px 20px; } .booking-topbar { min-height: 72px; gap: 8px; } .booking-topbar-label { font-size: 10px; padding-left: 12px; gap: 5px; } .booking-topbar-label svg { display: none; } .booking-intro { padding-top: 28px; padding-bottom: 22px; } .booking-intro h2 { max-width: 260px; } .booking-card { border-radius: 16px; } .booking-service { padding: 24px 22px; } .booking-workspace { padding: 24px 20px; } .booking-steps { gap: 10px; padding-bottom: 20px; margin-bottom: 22px; justify-content: space-between; } .booking-steps li { font-size: 9px; gap: 4px; } .booking-steps li > span { width: 19px; height: 19px; font-size: 9px; } .booking-availability { grid-template-columns: 1fr; gap: 26px; } .booking-calendar-grid { gap: 7px; } .booking-day { height: 37px; } .booking-time-panel { border-top: 1px solid var(--booking-border); padding-top: 20px; } .booking-times { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: 236px; } .booking-fields, .booking-professionals { grid-template-columns: 1fr; } .booking-state { padding: 32px 22px; margin-top: 40px; } .booking-state h1 { font-size: 24px; } .booking-footer { font-size: 9px; } }
+@container booking (max-width: 1050px) { .booking-card { grid-template-columns: 270px minmax(0, 1fr); } .booking-service { padding: 28px 24px; } .booking-workspace { padding: 28px 24px; } .booking-availability { gap: 18px; } }
+@container booking (max-width: 850px) { .booking-card { grid-template-columns: 1fr; } .booking-service { border-right: 0; border-bottom: 1px solid var(--booking-border); } .booking-service-icon { margin-bottom: 16px; width: 45px; height: 45px; } .booking-service h1 { font-size: 23px; } .booking-service-note { margin-top: 20px; } .booking-service-meta { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; } .booking-service-options { margin-top: 18px; padding-top: 16px; } .booking-professionals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container booking (max-width: 520px) { .norium-booking { padding: 0 16px 20px; } .booking-topbar { min-height: 72px; gap: 8px; } .booking-topbar-label { font-size: 10px; padding-left: 12px; gap: 5px; } .booking-topbar-label svg { display: none; } .booking-intro { padding-top: 28px; padding-bottom: 22px; } .booking-intro h2 { max-width: 260px; } .booking-card { border-radius: 16px; } .booking-service { padding: 24px 22px; } .booking-workspace { padding: 24px 20px; } .booking-steps { gap: 10px; padding-bottom: 20px; margin-bottom: 22px; justify-content: space-between; } .booking-steps li { font-size: 9px; gap: 4px; } .booking-steps li > span { width: 19px; height: 19px; font-size: 9px; } .booking-availability { grid-template-columns: 1fr; gap: 26px; } .booking-calendar-grid { gap: 7px; } .booking-day { height: 37px; } .booking-time-panel { border-top: 1px solid var(--booking-border); padding-top: 20px; } .booking-times { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: 236px; } .booking-fields, .booking-professionals { grid-template-columns: 1fr; } .booking-state { padding: 32px 22px; margin-top: 40px; } .booking-state h1 { font-size: 24px; } .booking-footer { font-size: 9px; } }
+
+.booking-preview-panel { min-width: 0; border: 1px solid var(--nx-border); border-radius: 14px; overflow: hidden; isolation: isolate; }
+.booking-preview-panel > header { padding: 14px 16px; background: var(--nx-surface); }
+.booking-preview-panel > header strong { font-size: 12px; }
+.booking-preview-panel > header p { margin: 5px 0 0; font-size: 11px; color: var(--nx-text-3); }
+.norium-booking[data-preview] { height: 640px; padding: 0 16px 20px; overscroll-behavior: contain; }
+@media (max-width: 520px) { .norium-booking { padding: 0 16px 20px; } }
+.booking-header-logo { width: 150px; max-height: 58px; object-fit: contain; object-position: left; }
+.norium-booking[data-layout="stacked"] .booking-card { grid-template-columns: 1fr; }
+.norium-booking[data-layout="stacked"] .booking-service { border-right: 0; border-bottom: 1px solid var(--booking-border); }
+.norium-booking[data-card-style="square"] .booking-card { border-radius: 3px; }
+.norium-booking[data-card-style="round"] .booking-card { border-radius: 32px; }
+.norium-booking .booking-eyebrow { color: var(--booking-secondary); }
+.norium-booking .booking-service-icon { color: var(--booking-secondary); }
+.norium-booking .booking-steps .is-complete > span { background: var(--booking-accent); color: #101828; }
+
+@container booking (max-width: 520px) { .booking-header-logo { width: 120px; max-height: 48px; } .booking-topbar-label { min-width: 0; } }
+
+.norium-booking.booking-dark .booking-eyebrow, .norium-booking.booking-dark .booking-service-icon { color: color-mix(in srgb, var(--booking-secondary) 55%, white); }

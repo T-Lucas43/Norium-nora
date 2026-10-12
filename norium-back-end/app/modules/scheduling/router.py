@@ -237,11 +237,12 @@ def team_calendar(startAt: str | None = None, endAt: str | None = None, user: di
 
 class BookingStatusPayload(StrictModel):
     status: str = Field(min_length=1, max_length=20)
+    completionType: Literal["service", "meeting"] | None = None
 
 
 @router.patch("/bookings/{booking_id}/status")
 def update_booking_status(booking_id: str, payload: BookingStatusPayload, user: dict[str, Any] = Depends(current_user)):
-    return service().update_booking_status(authorized_scope(user), booking_id, payload.status)
+    return service().update_booking_status(authorized_scope(user), booking_id, payload.status, payload.completionType)
 
 
 def _gmail_connected(owner_id: str) -> bool:

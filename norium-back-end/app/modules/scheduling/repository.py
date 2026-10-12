@@ -135,12 +135,16 @@ class SchedulingRepository:
                     for statement in source.split(";"):
                         if statement.strip():
                             db.execute(statement)
+                db.execute("ALTER TABLE scheduling_bookings ADD COLUMN IF NOT EXISTS completion_type TEXT")
                 db.commit()
                 return
             # DELETE journaling is supported by Azure Files; WAL is not.
             db.execute("PRAGMA journal_mode = DELETE")
             for migration in migrations:
                 db.executescript(migration.read_text(encoding="utf-8"))
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(scheduling_bookings)").fetchall()}
+            if "completion_type" not in columns:
+                db.execute("ALTER TABLE scheduling_bookings ADD COLUMN completion_type TEXT")
         finally:
             db.close()
 

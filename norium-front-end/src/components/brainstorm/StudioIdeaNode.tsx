@@ -1,3 +1,4 @@
+import AvatarImage from "../profile/AvatarImage";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Check, MessageSquareText, ThumbsUp } from "lucide-react";
 
@@ -47,7 +48,7 @@ export default function IdeaCard({ data, selected }: NodeProps<IdeaNode>) {
       <Handle type="source" position={Position.Right} className="nxs-handle" />
       <p className="whitespace-pre-wrap break-words text-sm font-medium leading-[1.4]">{data.label || "Nova ideia"}</p>
       {data.description && <p className="mt-2 line-clamp-3 break-words text-xs opacity-75">{data.description}</p>}
-      {data.responsibleName && <p className="nxs-node-author">{data.responsibleName}</p>}
+      {data.responsibleName && <p className="nxs-node-author" style={{ display: "flex", alignItems: "center", gap: 6 }}><AvatarImage userId={data.responsibleId} name={data.responsibleName} size={22}/>{data.responsibleName}</p>}
       <div className="nxs-node-meta mt-3 flex flex-wrap items-center gap-1.5">
         {data.completed && <span className="inline-flex items-center gap-1"><Check size={12} /> Concluído</span>}
         {data.dueDate && <span>{new Date(`${data.dueDate}T12:00:00`).toLocaleDateString("pt-BR")}</span>}

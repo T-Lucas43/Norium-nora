@@ -1,3 +1,5 @@
+import AvatarImage from "../profile/AvatarImage";
+import { ProfilePeople } from "../profile/ProfilePeople";
 import "./TasksDashboard.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
@@ -158,30 +160,14 @@ function countLabel(value: number, singular: string, plural: string) {
   return `${value || 0} ${value === 1 ? singular : plural}`;
 }
 
-function initials(name?: string) {
-  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  return `${parts[0][0] || ""}${parts.length > 1 ? parts[parts.length - 1][0] : ""}`.toUpperCase();
-}
-
 function avatarColor(name?: string) {
   let hash = 0;
   for (const char of name || "") hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   return avatarColors[hash % avatarColors.length];
 }
 
-function Avatar({ name, size = 24 }: { name?: string; size?: number }) {
-  return (
-    <span
-      role="img"
-      aria-label={name || "Sem responsável"}
-      title={name || "Sem responsável"}
-      className="nx-av tasks-av"
-      style={{ width: size, height: size, fontSize: size < 30 ? 10.5 : 12, background: avatarColor(name) }}
-    >
-      {initials(name)}
-    </span>
-  );
+function Avatar({ name, userId, size = 24 }: { name?: string; userId?: string; size?: number }) {
+  return <AvatarImage userId={userId} name={name || "Sem responsável"} size={size} label={name || "Sem responsável"} className="nx-av tasks-av" style={{ background: avatarColor(name) }}/>;
 }
 
 function dateTimeLabel(value?: string | null) {
@@ -909,7 +895,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
       <p className="tasks-project-description" title={workspace.description || undefined}>{workspace.description || "Organize as próximas entregas deste projeto."}</p>
       <span className={`tasks-project-deadline nx-small ${projectDeadlineTone(workspace)}`}><CalendarClock size={14} />{projectDateRange(workspace)}</span>
       <footer>
-        <span className="tasks-project-owner"><Avatar name={responsible} size={24} /><span className="nx-ell">{responsible}</span></span>
+        <span className="tasks-project-owner"><Avatar userId={workspace.responsibleUserId || workspace.ownerUserId} name={responsible} size={24} /><span className="nx-ell">{responsible}</span></span>
         <button type="button" className="tasks-project-open" onClick={() => setActiveWorkspace(workspace)}>Abrir projeto <ArrowUpRight size={14} /></button>
       </footer>
     </article>;
@@ -1065,7 +1051,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
 
   if (!activeWorkspace) {
     return (
-      <div className="tasks-home">
+      <ProfilePeople people={teamMembers}><div className="tasks-home">
         <div className="tasks-home-inner nx-page">
           <header className="nx-ph">
             <div>
@@ -1140,7 +1126,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
         </div>
         {newProjectModal}
         {projectOverlays}
-      </div>
+      </div></ProfilePeople>
     );
   }
 
@@ -1154,7 +1140,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   ].filter(Boolean) as { key: keyof typeof filters; label: string }[];
 
   return (
-    <div className={`tasks-workspace ${mobileSidebarOpen ? "mobile-sidebar-open" : ""}`}>
+    <ProfilePeople people={teamMembers}><div className={`tasks-workspace ${mobileSidebarOpen ? "mobile-sidebar-open" : ""}`}>
       {mobileSidebarOpen && (
         <button
           type="button"
@@ -1322,7 +1308,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
               <span><span className={`nx-badge ${columnTone(task.status)}`}>{columnTitle(task.status)}</span></span>
               <span><span className={`nx-badge ${priorityTone[task.priority] || ""}`}>{priorityLabel(task.priority)}</span></span>
               <span className={isOverdue(task) ? "tasks-overdue" : "nx-muted"}>{dateLabel(task.dueDate)}</span>
-              <span className="tasks-list-assignee">{task.assigneeName ? <><Avatar name={task.assigneeName} size={26} /><span className="nx-ell">{task.assigneeName}</span></> : "Sem responsável"}</span>
+              <span className="tasks-list-assignee">{task.assigneeName ? <><Avatar userId={task.assigneeId} name={task.assigneeName} size={26} /><span className="nx-ell">{task.assigneeName}</span></> : "Sem responsável"}</span>
             </button>
           ))}
           {!tasks.length && <div className="tasks-empty is-inline"><ListTodo size={24} /><p>{loading ? "Carregando tarefas…" : "Nenhuma tarefa nesta seleção."}</p></div>}
@@ -1364,7 +1350,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           onSubmit={() => void createNewTask()}
         />
       )}
-    </div>
+    </div></ProfilePeople>
   );
 }
 
@@ -1607,7 +1593,7 @@ function TaskCard({
         </span>
         {task.attachments.length > 0 && <span title="Anexos"><Paperclip size={13} />{task.attachments.length}</span>}
         {task.comments.length > 0 && <span title="Comentários"><MessageSquare size={13} />{task.comments.length}</span>}
-        {task.assigneeName && <span className="tasks-card-assignee"><Avatar name={task.assigneeName} size={22} /></span>}
+        {task.assigneeName && <span className="tasks-card-assignee"><Avatar userId={task.assigneeId} name={task.assigneeName} size={22} /><span>{task.assigneeName}</span></span>}
       </span>
     </button>
   );

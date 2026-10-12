@@ -254,3 +254,6 @@ select.tasks-control{padding-right:8px}
   .tasks-modal-box{max-height:calc(100dvh - 16px)}
   .tasks-modal-box>header,.tasks-modal-body,.tasks-modal-box>footer{padding-right:16px;padding-left:16px}
 }
+
+.tasks-card-assignee { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.tasks-card-assignee > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; font-size: 11px; }

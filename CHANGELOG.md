@@ -2,6 +2,12 @@
 
 Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 
+## [Não publicado] — recuperação de carregamento, 12/10/2026
+
+- fix(carregamento): service worker devolve Response também sem rede/cache, preserva uma geração pública anterior e não apaga caches pessoais ou intercepta API/recursos privados.
+- fix(interface): página de entrada e falhas React/import exibem mensagem com logo oficial e tentativa explícita de carregar novamente, em vez de tela vazia; sem mudar autenticação ou reexecutar ações.
+- docs(operacao): recuperação do proxy HTTPS existente após colisão de reserva IP interna com a API; mesmo contêiner, portas, segurança, certificados e volumes preservados, PostgreSQL/HTTPS conferidos.
+
 ## [Não publicado] — branch `feat/fase1-seguranca-voz`
 
 - fix(agendamentos): rolagem pública no PC, prévia com a página real sem cobrir páginas cadastradas e logo própria com atualização do cache.

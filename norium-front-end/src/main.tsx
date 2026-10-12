@@ -9,14 +9,15 @@ import './styles/ui-v2.css'
 import App from './App.tsx'
 import { installNoriumFetchAuth } from './utils/api'
 import AppDialogProvider from './components/shared/AppDialogProvider.tsx'
+import AppErrorBoundary from './components/shared/AppErrorBoundary.tsx'
 
 installNoriumFetchAuth()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppDialogProvider>
+    <AppErrorBoundary><AppDialogProvider>
       <App />
-    </AppDialogProvider>
+    </AppDialogProvider></AppErrorBoundary>
   </StrictMode>,
 )
 

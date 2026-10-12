@@ -36,7 +36,7 @@ class CallStateAdapterTests(unittest.IsolatedAsyncioTestCase):
 
     def adapter(self, callback=None):
         return JsonCallStateStore(read_document=self.read, write_document=self.write,
-                                  lock=self.lock, on_call_removed=callback)
+                                  lock=lambda _team: self.lock, on_call_removed=callback)
 
     async def test_normal_save_uses_one_worker_and_preserves_other_document_fields(self):
         callback = AsyncMock()

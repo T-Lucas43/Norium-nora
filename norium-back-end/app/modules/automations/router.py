@@ -118,6 +118,10 @@ class EffectReconciliationPayload(StrictModel):
     note: str = Field(min_length=3, max_length=320)
 
 
+class AutomationEffectBlocked(ValueError):
+    """A verified precondition failed before the effect made any mutation."""
+
+
 class AutomationEffectUncertain(RuntimeError):
     def __init__(self, effect_id: str):
         self.effect_id = effect_id
@@ -347,16 +351,200 @@ def metrics(store: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def response_payload(store: dict[str, Any]) -> dict[str, Any]:
-    ordered = sorted(store.get("automations", []), key=lambda item: (not bool(item.get("favorite")), str(item.get("name", ""))))
-    history = sorted(store.get("history", []), key=lambda item: str(item.get("timestamp", "")), reverse=True)
+def execution_variable_projects(log: dict[str, Any]) -> dict[str, list[dict[str, str]] | None]:
+    inputs = log.get("input") or {}
+    return variable_projects({"variables": inputs.get("variables") or {}, "logs": [log],
+                              "variableTaskProjects": inputs.get("variableTaskProjects") or {}})
+
+
+def execution_visibility(user_id: str) -> Callable[[dict[str, Any]], bool]:
+    from app.services.task_activity import activity_visibility, is_task_activity
+    activity_check = activity_visibility(user_id)
+
+    def scoped_visible(metadata):
+        if is_task_activity(metadata) and not (metadata.get("taskProjects") or metadata.get("taskProject")):
+            return False
+        return activity_check(metadata)
+
+    def visible(log: dict[str, Any]) -> bool:
+        if not scoped_visible(log):
+            return False
+        event = (log.get("input") or {}).get("event") or {}
+        if not scoped_visible(event.get("metadata") or {}):
+            return False
+        for key, refs in execution_variable_projects(log).items():
+            if key in ((log.get("input") or {}).get("variables") or {}) and (
+                not isinstance(refs, list) or not activity_check({"taskProjects": refs})
+            ):
+                return False
+        for effect_id, checkpoint in (log.get("effectCheckpoints") or {}).items():
+            result = checkpoint.get("result") or {}
+            if effect_id == "task:create" and checkpoint.get("status") != "retryable" and not result.get("taskProject"):
+                # Older uncertain effects have no trustworthy destination scope.
+                if not log.get("taskProjects"):
+                    return False
+            if not scoped_visible(result):
+                return False
+        return True
+
+    return visible
+
+
+RUNTIME_VARIABLES = {"noraMailWorkId", "lastModelOutput", "lastEmailGrouping", "lastEmailGroupingSummary"}
+
+
+def retained_execution_projects(log: dict[str, Any], user_id: str) -> list[dict[str, str]]:
+    """A retry keeps every authorized source retained by its original execution."""
+    if not execution_visibility(user_id)(log):
+        raise HTTPException(status_code=404, detail="Execucao nao encontrada.")
+    references = []
+    metadata_items = [log, ((log.get("input") or {}).get("event") or {}).get("metadata") or {}]
+    metadata_items.extend((checkpoint.get("result") or {}) for checkpoint in (log.get("effectCheckpoints") or {}).values())
+    for metadata in metadata_items:
+        refs = metadata.get("taskProjects") or ([metadata["taskProject"]] if metadata.get("taskProject") else [])
+        for ref in refs:
+            if ref not in references:
+                references.append(copy.deepcopy(ref))
+    for key, refs in execution_variable_projects(log).items():
+        if key in ((log.get("input") or {}).get("variables") or {}):
+            for ref in refs:
+                if ref not in references:
+                    references.append(copy.deepcopy(ref))
+    return references
+
+
+def variable_projects(automation: dict[str, Any]) -> dict[str, list[dict[str, str]] | None]:
+    """Recover old output provenance conservatively; never modify retained evidence."""
+    scopes = copy.deepcopy(automation.get("variableTaskProjects") or {})
+    variables = automation.get("variables") or {}
+    from app.services.task_activity import is_task_activity
+    for key, value in variables.items():
+        if key in scopes:
+            continue
+        matches = []
+        for log in automation.get("logs") or []:
+            for checkpoint in (log.get("effectCheckpoints") or {}).values():
+                updates = (checkpoint.get("result") or {}).get("variableUpdates") or {}
+                if key in updates and updates[key] == value:
+                    matches.append(log)
+        if not matches:
+            if key in RUNTIME_VARIABLES:
+                scopes[key] = None
+            continue
+        references = []
+        uncertain = False
+        for log in matches:
+            metadata = (log.get("input") or {}).get("event") or {}
+            metadata = metadata.get("metadata") or {}
+            scoped = log if is_task_activity(log) else metadata
+            if is_task_activity(scoped):
+                refs = scoped.get("taskProjects") or ([scoped["taskProject"]] if scoped.get("taskProject") else None)
+                if not isinstance(refs, list) or not refs:
+                    uncertain = True
+                    break
+                for ref in refs:
+                    if ref not in references:
+                        references.append(ref)
+            if any(effect_id == "task:create" and checkpoint.get("status") != "retryable"
+                   for effect_id, checkpoint in (log.get("effectCheckpoints") or {}).items()) and not log.get("taskProjects"):
+                uncertain = True
+                break
+        scopes[key] = None if uncertain else references
+    return scopes
+
+
+def authorized_variable_projects(automation: dict[str, Any], user_id: str) -> list[dict[str, str]]:
+    from app.services.task_activity import activity_visibility
+    visible = activity_visibility(user_id)
+    references = []
+    for key, refs in variable_projects(automation).items():
+        if key not in (automation.get("variables") or {}):
+            continue
+        if not isinstance(refs, list) or not visible({"taskProjects": refs}):
+            raise HTTPException(status_code=403, detail="Variavel gerada sem acesso atual verificavel; execucao bloqueada.")
+        for ref in refs:
+            if ref not in references:
+                references.append(ref)
+    return references
+
+
+def configuration_variables(automation: dict[str, Any]) -> dict[str, Any]:
+    outputs = RUNTIME_VARIABLES | set(variable_projects(automation))
+    return {key: copy.deepcopy(value) for key, value in (automation.get("variables") or {}).items() if key not in outputs}
+
+
+def public_versions(automation: dict[str, Any]) -> list[dict[str, Any]]:
+    versions = []
+    outputs = RUNTIME_VARIABLES | set(variable_projects(automation))
+    for version in automation.get("versions") or []:
+        item = copy.deepcopy(version)
+        content = item.get("content") or {}
+        content.pop("variableTaskProjects", None)
+        content["variables"] = {key: value for key, value in configuration_variables(content).items() if key not in outputs}
+        item["content"] = content
+        versions.append(item)
+    return versions
+
+
+def public_execution(log: dict[str, Any], user_id: str) -> dict[str, Any]:
+    from app.services.task_activity import activity_visibility
+    visible = activity_visibility(user_id)
+    payload = copy.deepcopy(log)
+    inputs = payload.setdefault("input", {})
+    variables = inputs.get("variables") or {}
+    # Provenance belongs to the historical value, never to a newer automation
+    # output. Legacy values require evidence from this execution's checkpoints.
+    scopes = execution_variable_projects(log)
+    inputs.pop("variableTaskProjects", None)
+    payload.setdefault("input", {})["variables"] = {
+        key: value for key, value in variables.items()
+        if key not in scopes or isinstance(scopes[key], list) and visible({"taskProjects": scopes[key]})
+    }
+    return payload
+
+
+def public_automation(automation: dict[str, Any], user_id: str, *, visible=None) -> dict[str, Any]:
+    visible = visible or execution_visibility(user_id)
+    logs = automation.get("logs") or []
+    allowed = [public_execution(item, user_id) for item in logs if visible(item)]
+    from app.services.task_activity import activity_visibility
+    variable_visible = activity_visibility(user_id)
+    scopes = variable_projects(automation)
+    variables = {key: value for key, value in (automation.get("variables") or {}).items()
+                 if key not in scopes or isinstance(scopes[key], list) and variable_visible({"taskProjects": scopes[key]})}
+    payload = {**automation, "logs": allowed, "variables": variables, "versions": public_versions(automation)}
+    payload.pop("variableTaskProjects", None)
+    if len(allowed) != len(logs) or len(variables) != len(automation.get("variables") or {}):
+        payload.update(executions=len(allowed), savedMinutes=sum(int(item.get("savedMinutes") or 0) for item in allowed),
+                       lastRunAt=max((str(item.get("timestamp") or "") for item in allowed), default=None),
+                       updatedAt=automation.get("createdAt"))
+    return payload
+
+
+def execution_response(automation, log, store, user_id):
+    visible = execution_visibility(user_id)
+    if not visible(log):
+        raise HTTPException(status_code=404, detail="Execucao nao encontrada.")
+    return {"automation": public_automation(automation, user_id, visible=visible), "historyItem": public_execution(log, user_id),
+            "metrics": response_payload(store, user_id)["metrics"]}
+
+
+def response_payload(store: dict[str, Any], user_id: str) -> dict[str, Any]:
+    visible = execution_visibility(user_id)
+    automations = [public_automation(item, user_id, visible=visible) for item in store.get("automations", [])]
+    ordered = sorted(automations, key=lambda item: (not bool(item.get("favorite")), str(item.get("name", ""))))
+    history = sorted((public_execution(item, user_id) for item in store.get("history", []) if visible(item)), key=lambda item: str(item.get("timestamp", "")), reverse=True)
+    updated_at = store.get("updatedAt")
+    if len(history) != len(store.get("history", [])) or any(len(item.get("logs", [])) != len(raw.get("logs", [])) or len(item.get("variables", {})) != len(raw.get("variables", {})) for item, raw in zip(automations, store.get("automations", []))):
+        updated_at = max([str(item.get("updatedAt") or "") for item in automations]
+                         + [str(item.get("timestamp") or "") for item in history], default="") or None
     return {
         "automations": ordered,
         "history": history[:80],
         "templates": TEMPLATES,
         "integrations": [{"name": name, "status": "Disponível"} for name in INTEGRATIONS],
-        "metrics": metrics(store),
-        "updatedAt": store.get("updatedAt"),
+        "metrics": metrics({**store, "automations": automations, "history": history}),
+        "updatedAt": updated_at,
     }
 
 
@@ -407,7 +595,7 @@ def automation_from_payload(payload: AutomationPayload) -> dict[str, Any]:
         "version": 1,
         "environment": payload.environment,
         "versions": [],
-        "variables": payload.variables,
+        "variables": {key: value for key, value in payload.variables.items() if key not in RUNTIME_VARIABLES},
         "schedule": payload.schedule,
         "retryPolicy": payload.retryPolicy,
         "failureAction": payload.failureAction,
@@ -437,8 +625,9 @@ def automation_snapshot(automation: dict[str, Any], note: str = "") -> dict[str,
     content = {
         key: copy.deepcopy(value)
         for key, value in automation.items()
-        if key not in {"versions", "logs", "executions", "savedMinutes", "lastRunAt"}
+        if key not in {"versions", "logs", "executions", "savedMinutes", "lastRunAt", "variableTaskProjects"}
     }
+    content["variables"] = configuration_variables(automation)
     return {
         "id": slug_id("version"),
         "version": int(automation.get("version") or 1),
@@ -503,31 +692,92 @@ def classify_email_category(message: dict[str, Any]) -> str:
     return "principal"
 
 
+def task_creation_project(user_id: str, project_id: str, source_projects: list[dict[str, str]]) -> dict[str, str]:
+    from app.services import task_store
+    from app.services.task_activity import project_visible, read_directory
+    db, directory = task_store._read_db(), read_directory()
+    destination = task_store.resolve_project_workspace(db, user_id, project_id)
+    if not destination:
+        raise ValueError("Projeto de destino da tarefa sem acesso verificavel.")
+    reference = {"ownerId": destination[0], "projectId": str(destination[2]["id"])}
+    if not project_visible(reference, user_id, db=db, directory=directory):
+        raise ValueError("Projeto de destino da tarefa sem acesso verificavel.")
+    if source_projects and any(
+        project_visible(reference, str(item.get("id") or ""), db=db, directory=directory)
+        and not all(project_visible(source, str(item.get("id") or ""), db=db, directory=directory) for source in source_projects)
+        for item in directory.get("users", [])
+    ):
+        raise ValueError("Projeto de destino amplia o publico da atividade privada; criacao de tarefa bloqueada.")
+    return reference
+
+
 async def apply_automation_effects(
     user_id: str,
     automation: dict[str, Any],
     *,
+    event: dict[str, Any] | None = None,
+    retained_projects: list[dict[str, str]] | None = None,
     checkpoints: dict[str, dict[str, Any]] | None = None,
     save_checkpoint: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None = None,
+    save_scope: Callable[[list[dict[str, str]]], Awaitable[None]] | None = None,
 ) -> list[str]:
     # A trigger/name mentioning a task must not cause an unconfigured action.
     action_nodes = [item for item in (automation.get("flow") or {}).get("nodes", []) if item.get("kind") != "trigger"]
     text = normalize_text(" ".join(str(item.get("title") or "") for item in action_nodes)) if action_nodes else normalize_text(" ".join(automation.get("actions") or []))
     variables = automation.get("variables") if isinstance(automation.get("variables"), dict) else {}
     effects: list[str] = []
-    task_references: list[dict[str, str]] = []
-    has_task_effect = False
+    from app.modules.automations.events import task_event_projects
+    source_references = [dict(ref) for ref in task_event_projects(event, user_id)]
+    for reference in [*authorized_variable_projects(automation, user_id), *(retained_projects or [])]:
+        if reference not in source_references:
+            source_references.append(copy.deepcopy(reference))
+    from app.services.task_activity import activity_projects
+    if source_references and activity_projects(user_id, {"taskProjects": source_references}) is None:
+        raise ValueError("Atividade de tarefa sem acesso atual ao projeto.")
+    task_references = [dict(reference) for reference in source_references]
+    creates_task = "criar tarefa" in text or "tarefa" in text and "criar" in text
+    has_task_effect = bool(task_references) or creates_task
     effect_checkpoints = checkpoints or {}
+    if source_references and any(
+        normalize_text(str(item.get("title") or "")) == "preparar leitura paginada de e-mails"
+        or "navegador" in normalize_text(str(item.get("title") or ""))
+        for item in action_nodes
+    ):
+        raise AutomationEffectBlocked("Atividade de tarefa exige destino com escopo verificavel; operacao delegada bloqueada.")
+    if creates_task:
+        previous = effect_checkpoints.get("task:create") or {}
+        if previous.get("status") == "succeeded":
+            from app.services.task_activity import activity_project
+            result = previous.get("result") or {}
+            reference = activity_project(user_id, result)
+            if reference is None:
+                raise ValueError("Tarefa de execucao anterior sem projeto verificavel.")
+            if reference not in task_references:
+                task_references.append(reference)
+        destination_reference = task_creation_project(user_id, str(variables.get("taskProjectId") or "default"), source_references)
+        if destination_reference not in task_references:
+            task_references.append(destination_reference)
+    if task_references and save_scope is not None:
+        await save_scope(task_references)
 
     async def run_effect(
         effect_id: str,
         operation: Callable[[], Awaitable[dict[str, Any]]],
     ) -> dict[str, Any]:
+        task_event_projects(event, user_id)
+        authorized_variable_projects(automation, user_id)
+        from app.services.task_activity import activity_projects
+        if task_references and activity_projects(user_id, {"taskProjects": task_references}) is None:
+            raise ValueError("Atividade de tarefa sem acesso atual ao projeto.")
         previous = effect_checkpoints.get(effect_id) or {}
         if previous.get("status") == "succeeded":
             result = previous.get("result") if isinstance(previous.get("result"), dict) else {}
             updates = result.get("variableUpdates") if isinstance(result.get("variableUpdates"), dict) else {}
             automation.setdefault("variables", {}).update(updates)
+            for key in updates:
+                automation.setdefault("variableTaskProjects", {})[key] = copy.deepcopy(task_references)
+            if save_checkpoint is not None:
+                await save_checkpoint(effect_id, "succeeded", result)
             description = str(result.get("description") or "Efeito concluido em tentativa anterior.")
             effects.append(description)
             return result
@@ -537,12 +787,14 @@ async def apply_automation_effects(
             await save_checkpoint(effect_id, "running", None)
         try:
             result = await operation()
-        except Exception:
+        except Exception as exc:
             if save_checkpoint is not None:
-                await save_checkpoint(effect_id, "uncertain", None)
+                await save_checkpoint(effect_id, "retryable" if isinstance(exc, AutomationEffectBlocked) else "uncertain", None)
             raise
         updates = result.get("variableUpdates") if isinstance(result.get("variableUpdates"), dict) else {}
         automation.setdefault("variables", {}).update(updates)
+        for key in updates:
+            automation.setdefault("variableTaskProjects", {})[key] = copy.deepcopy(task_references)
         if save_checkpoint is not None:
             await save_checkpoint(effect_id, "succeeded", result)
         effects.append(str(result.get("description") or "Efeito concluido."))
@@ -593,6 +845,9 @@ async def apply_automation_effects(
             if not str(config.get("message") or "").strip():
                 raise ValueError(f'{item.get("title")}: informe a mensagem.')
             if action_type == "send_whatsapp":
+                completed = (effect_checkpoints.get(f"message:{item.get('id') or 'configured'}") or {}).get("status") == "succeeded"
+                if source_references and not completed:
+                    raise ValueError("Atividade de tarefa exige destinatario verificavel no projeto; envio externo bloqueado.")
                 from app.modules.chat.router import assert_channel_permission
                 assert_channel_permission(actor, "whatsapp")
                 recipient = str(config.get("recipient") or "").strip()
@@ -607,9 +862,13 @@ async def apply_automation_effects(
                 scope = config.get("scope") or "team"
                 if scope not in {"team", "direct", "subteam"}:
                     raise ValueError("Destino de chat inválido.")
-                await thread_participant_ids(actor, read_chat_store(team_id_for(actor)), scope,
-                                             config.get("recipientId") if scope == "direct" else None,
-                                             config.get("recipientId") if scope == "subteam" else None)
+                participants = await thread_participant_ids(actor, read_chat_store(team_id_for(actor)), scope,
+                                                          config.get("recipientId") if scope == "direct" else None,
+                                                          config.get("recipientId") if scope == "subteam" else None)
+                if task_references and scope != "team":
+                    from app.services.task_activity import project_visible
+                    if not all(project_visible(reference, participant) for participant in participants for reference in task_references):
+                        raise ValueError("Destino do chat sem acesso atual ao projeto da tarefa.")
         for item, config, action_type in message_nodes:
             message = str(config["message"]).strip()
             async def send_configured_message(
@@ -626,6 +885,20 @@ async def apply_automation_effects(
                         EnviarMensagemPayload(conversa_id=recipient, texto=current_message), actor
                     )
                     return {"description": "Mensagem enviada no WhatsApp."}
+                if task_references:
+                    activity_metadata = {"taskProjects": task_references, "automationId": automation.get("id")}
+                    if current_config.get("scope", "team") == "team":
+                        await append_team_message_for_user(user_id, current_message, metadata=activity_metadata)
+                    else:
+                        from app.modules.team.router import persist_message
+                        await persist_message(
+                            scope=current_config.get("scope") or "team",
+                            recipient_id=current_config.get("recipientId") if current_config.get("scope") == "direct" else None,
+                            subteam_id=current_config.get("recipientId") if current_config.get("scope") == "subteam" else None,
+                            text=current_message, attachment_payloads=[], user=actor,
+                            activity_metadata=activity_metadata,
+                        )
+                    return {"description": "Mensagem enviada aos participantes autorizados do projeto."}
                 from app.modules.team.router import (
                     SendSubteamMessagePayload,
                     SendTeamMessagePayload,
@@ -753,12 +1026,18 @@ async def apply_automation_effects(
 
         await run_effect(f"model:{model_node.get('id') or 'completion'}", run_model)
 
-    if "criar tarefa" in text or "tarefa" in text and "criar" in text:
+    if creates_task:
         project_id = str(variables.get("taskProjectId") or "default")
         project_name = str(variables.get("taskProjectName") or project_id or "Operacao Norium")
         task_category = str(variables.get("taskCategory") or "geral")
         async def create_configured_task() -> dict[str, Any]:
             from app.services.task_activity import activity_project
+            try:
+                current_destination = task_creation_project(user_id, project_id, source_references)
+            except ValueError as exc:
+                raise AutomationEffectBlocked(str(exc)) from exc
+            if current_destination != destination_reference:
+                raise AutomationEffectBlocked("Projeto de destino da tarefa mudou durante a execucao.")
             task = create_task(
                 user_id,
                 {
@@ -779,6 +1058,7 @@ async def apply_automation_effects(
                 metadata={
                     "action": "automation_task_created", "userId": user_id,
                     "automationId": automation.get("id"), "taskId": task.get("id"),
+                    "taskProjects": task_references,
                     "projectId": project_id, "projectName": project_name, "category": task_category,
                 },
             )
@@ -793,6 +1073,7 @@ async def apply_automation_effects(
                 metadata={
                     "action": "automation_task_created", "automationId": automation.get("id"),
                     "automationName": automation.get("name") or "Fluxo sem nome",
+                    "taskProjects": task_references,
                     "taskId": task.get("id"), "taskTitle": task.get("title"),
                     "projectId": project_id, "projectName": project_name,
                     "summary": {
@@ -817,7 +1098,7 @@ async def apply_automation_effects(
         from app.services.task_activity import activity_project
         reference = task_effect.get("taskProject") or activity_project(user_id, {"taskId": task_effect.get("taskId")})
         has_task_effect = True
-        if reference is not None:
+        if reference is not None and reference not in task_references:
             task_references.append(reference)
 
     if "agrupar e-mails" in text or "agrupar emails" in text or "categoria" in text and ("email" in text or "e-mail" in text):
@@ -845,6 +1126,7 @@ async def apply_automation_effects(
                         "action": "automation_email_grouped", "userId": user_id,
                         "automationId": automation.get("id"), "groups": groups,
                         "targetCategory": target_category,
+                        **({"taskProjects": task_references} if task_references else {}),
                     },
                 )
                 return {
@@ -907,6 +1189,7 @@ async def simulate_automation(user_id: str, automation_id: str, executed_by: str
         raise HTTPException(status_code=404, detail="Automacao nao encontrada.")
     timestamp = now_iso()
     steps = execution_steps(automation)
+    references = authorized_variable_projects(automation, user_id)
     variables = automation.get("variables") if isinstance(automation.get("variables"), dict) else {}
     preview = [
         {
@@ -934,16 +1217,18 @@ async def simulate_automation(user_id: str, automation_id: str, executed_by: str
         "executedBy": executed_by,
         "savedMinutes": 0,
         "attempt": 1,
-        "input": {"trigger": automation.get("trigger"), "variables": variables},
+        "input": {"trigger": automation.get("trigger"), "variables": copy.deepcopy(variables),
+                  "variableTaskProjects": variable_projects(automation)},
         "steps": preview,
         "sideEffects": False,
+        **({"taskProjects": references} if references else {}),
     }
     store.setdefault("history", []).insert(0, log)
     automation.setdefault("logs", []).insert(0, log)
     automation["logs"] = automation["logs"][:50]
     store["history"] = store["history"][:250]
     write_store(user_id, store)
-    return {"automation": automation, "historyItem": log, "metrics": metrics(store)}
+    return execution_response(automation, log, store, user_id)
 
 
 async def execute_automation(
@@ -960,6 +1245,14 @@ async def execute_automation(
         raise HTTPException(status_code=404, detail="Automacao nao encontrada.")
     if not automation.get("active"):
         raise HTTPException(status_code=400, detail="Automacao desativada. Ative antes de executar.")
+    if event is None and resume_from:
+        event = (resume_from.get("input") or {}).get("event")
+    from app.modules.automations.events import task_event_projects
+    source_projects = [dict(ref) for ref in task_event_projects(event, user_id)]
+    retained_projects = retained_execution_projects(resume_from, user_id) if resume_from else []
+    for reference in [*authorized_variable_projects(automation, user_id), *retained_projects]:
+        if reference not in source_projects:
+            source_projects.append(reference)
     if resume_from and resume_from.get("automationVersion") not in {None, automation.get("version")}:
         raise HTTPException(
             status_code=409,
@@ -1008,7 +1301,8 @@ async def execute_automation(
         "attempt": int((resume_from or {}).get("attempt") or 0) + 1,
         "input": {
             "trigger": automation.get("trigger"),
-            "variables": automation.get("variables") if isinstance(automation.get("variables"), dict) else {},
+            "variables": copy.deepcopy(automation.get("variables") or {}),
+            "variableTaskProjects": variable_projects(automation),
             "event": event,
         },
         "steps": steps,
@@ -1017,6 +1311,7 @@ async def execute_automation(
         "effectCheckpoints": previous_checkpoints,
         "leaseExpiresAt": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
         "resumedFromLogId": (resume_from or {}).get("id"),
+        **({"taskProjects": source_projects} if source_projects else {}),
     }
     store.setdefault("history", []).insert(0, copy.deepcopy(log))
     automation.setdefault("logs", []).insert(0, copy.deepcopy(log))
@@ -1032,7 +1327,7 @@ async def execute_automation(
         checkpoint = {
             "status": status,
             "updatedAt": now_iso(),
-            "result": copy.deepcopy(result) if result is not None else None,
+            "result": copy.deepcopy(result) if result is not None else copy.deepcopy((previous_checkpoints.get(effect_id) or {}).get("result")),
         }
         previous_checkpoints[effect_id] = checkpoint
         current = read_store(user_id)
@@ -1044,12 +1339,32 @@ async def execute_automation(
             raise RuntimeError("Registro duravel da execucao nao encontrado.")
         for target in targets:
             target.setdefault("effectCheckpoints", {})[effect_id] = copy.deepcopy(checkpoint)
+            reference = (checkpoint.get("result") or {}).get("taskProject")
+            if reference and reference not in target.get("taskProjects", []):
+                target.setdefault("taskProjects", []).append(copy.deepcopy(reference))
             target["sideEffects"] = True
             target["requiresReconciliation"] = any(
                 value.get("status") == "uncertain"
                 for value in target["effectCheckpoints"].values()
             )
+        updates = (checkpoint.get("result") or {}).get("variableUpdates") or {}
+        if current_automation and updates:
+            current_automation.setdefault("variables", {}).update(copy.deepcopy(updates))
+            for key in updates:
+                current_automation.setdefault("variableTaskProjects", {})[key] = copy.deepcopy(targets[0].get("taskProjects") or [])
         write_store(user_id, current)
+    async def save_activity_scope(references: list[dict[str, str]]) -> None:
+        current = read_store(user_id)
+        current_automation = find_automation(current, automation_id)
+        targets = [item for item in current.get("history", []) if item.get("id") == log_id]
+        if current_automation:
+            targets.extend(item for item in current_automation.get("logs", []) if item.get("id") == log_id)
+        if not targets:
+            raise RuntimeError("Registro duravel da execucao nao encontrado.")
+        for target in targets:
+            target["taskProjects"] = copy.deepcopy(references)
+        write_store(user_id, current)
+
     effects: list[str] = []
     failure: Exception | None = None
     from app.modules.automations.events import automation_origin
@@ -1058,8 +1373,11 @@ async def execute_automation(
         effects = await apply_automation_effects(
             user_id,
             automation,
+            event=event,
+            retained_projects=retained_projects,
             checkpoints=previous_checkpoints,
             save_checkpoint=save_effect_checkpoint,
+            save_scope=save_activity_scope,
         )
     except Exception as exc:
         failure = exc
@@ -1102,7 +1420,8 @@ async def execute_automation(
         "savedMinutes": 0 if failure else saved,
         "input": {
             "trigger": automation.get("trigger"),
-            "variables": automation.get("variables") if isinstance(automation.get("variables"), dict) else {},
+            "variables": copy.deepcopy(automation.get("variables") or {}),
+            "variableTaskProjects": variable_projects(automation),
             "event": event,
         },
         "steps": steps,
@@ -1121,6 +1440,8 @@ async def execute_automation(
     log = history_log
     write_store(user_id, store)
 
+    if not execution_visibility(user_id)(log):
+        raise HTTPException(status_code=404, detail="Execucao nao encontrada.")
     await record_event(
         source="automacoes",
         title=f"Automacao {'com erro' if failure else 'executada'}: {automation.get('name')}",
@@ -1131,14 +1452,15 @@ async def execute_automation(
             "automationId": automation.get("id"),
             "logId": log["id"],
             "status": status,
+            **({"taskProjects": log["taskProjects"]} if log.get("taskProjects") else {}),
         },
     )
-    return {"automation": automation, "historyItem": log, "metrics": metrics(store)}
+    return execution_response(automation, log, store, user_id)
 
 
 @router.get("")
 async def listar_automacoes(user: dict[str, Any] = Depends(current_user)):
-    return response_payload(read_store(tenant_id(user)))
+    return response_payload(read_store(tenant_id(user)), tenant_id(user))
 
 
 @router.get("/eventos/fila")
@@ -1162,7 +1484,7 @@ async def criar_automacao(payload: AutomationPayload, user: dict[str, Any] = Dep
         description=f"A automacao '{automation.get('name')}' foi criada com gatilho {automation.get('trigger')}.",
         metadata={"action": "automation_created", "userId": user_id, "automationId": automation.get("id")},
     )
-    return response_payload(store)
+    return response_payload(store, user_id)
 
 
 @router.patch("/{automation_id}")
@@ -1211,7 +1533,7 @@ async def atualizar_automacao(automation_id: str, payload: AutomationUpdatePaylo
             "active": current_active,
         },
     )
-    return response_payload(store)
+    return response_payload(store, user_id)
 
 
 @router.delete("/{automation_id}")
@@ -1230,25 +1552,27 @@ async def apagar_automacao(automation_id: str, user: dict[str, Any] = Depends(cu
         description=f"A automacao {(removed or {}).get('name') or automation_id} foi removida da lista de fluxos.",
         metadata={"action": "automation_deleted", "userId": user_id, "automationId": automation_id},
     )
-    return response_payload(store)
+    return response_payload(store, user_id)
 
 
 @router.post("/{automation_id}/executar")
 async def executar_automacao(automation_id: str, user: dict[str, Any] = Depends(current_user)):
+    user_id = tenant_id(user)
     result = await execute_automation(tenant_id(user), automation_id, str(user.get("nome") or user.get("email") or "Operador"))
     store = read_store(tenant_id(user))
-    return {**response_payload(store), "lastExecution": result}
+    return {**response_payload(store, user_id), "lastExecution": result}
 
 
 @router.post("/{automation_id}/simular")
 async def simular_automacao(automation_id: str, user: dict[str, Any] = Depends(current_user)):
+    user_id = tenant_id(user)
     result = await simulate_automation(
         tenant_id(user),
         automation_id,
         str(user.get("nome") or user.get("email") or "Operador"),
     )
     store = read_store(tenant_id(user))
-    return {**response_payload(store), "lastExecution": result}
+    return {**response_payload(store, user_id), "lastExecution": result}
 
 
 @router.post("/{automation_id}/reexecutar/{log_id}")
@@ -1268,7 +1592,7 @@ async def reexecutar_automacao(
         ),
         None,
     )
-    if previous is None:
+    if previous is None or not execution_visibility(user_id)(previous):
         raise HTTPException(status_code=404, detail="Execucao nao encontrada.")
     if previous.get("status") == "executando":
         try:
@@ -1324,7 +1648,7 @@ async def reexecutar_automacao(
             }
         )
         write_store(user_id, refreshed)
-    return {**response_payload(read_store(user_id)), "lastExecution": result}
+    return {**response_payload(read_store(user_id), user_id), "lastExecution": result}
 
 
 @router.post("/{automation_id}/execucoes/{log_id}/efeitos/{effect_id}/conciliar")
@@ -1348,7 +1672,7 @@ async def reconcile_automation_effect(
         (item for item in automation.get("logs", []) if item.get("id") == log_id),
         None,
     )
-    if history_log is None or automation_log is None:
+    if history_log is None or automation_log is None or not execution_visibility(user_id)(history_log):
         raise HTTPException(status_code=404, detail="Execucao nao encontrada.")
     checkpoint = (history_log.get("effectCheckpoints") or {}).get(effect_id)
     if not isinstance(checkpoint, dict) or checkpoint.get("status") != "uncertain":
@@ -1382,9 +1706,10 @@ async def reconcile_automation_effect(
             "action": "automation_effect_reconciled", "userId": user_id,
             "automationId": automation_id, "logId": log_id,
             "effectId": effect_id, "outcome": payload.outcome,
+            **({"taskProjects": history_log["taskProjects"]} if history_log.get("taskProjects") else {}),
         },
     )
-    return {"log": history_log, "effectId": effect_id, "status": status}
+    return {"log": public_execution(history_log, user_id), "effectId": effect_id, "status": status}
 
 
 @router.post("/{automation_id}/duplicar")
@@ -1395,6 +1720,8 @@ async def duplicar_automacao(automation_id: str, user: dict[str, Any] = Depends(
     if not automation:
         raise HTTPException(status_code=404, detail="Automacao nao encontrada.")
     clone = copy.deepcopy(automation)
+    clone["variables"] = configuration_variables(automation)
+    clone.pop("variableTaskProjects", None)
     clone["id"] = slug_id()
     clone["name"] = f"{automation.get('name')} (copia)"
     clone["executions"] = 0
@@ -1416,7 +1743,7 @@ async def duplicar_automacao(automation_id: str, user: dict[str, Any] = Depends(
         description=f"Uma copia de {automation.get('name')} foi criada para edicao.",
         metadata={"action": "automation_duplicated", "userId": user_id, "automationId": clone.get("id"), "originalAutomationId": automation_id},
     )
-    return response_payload(store)
+    return response_payload(store, user_id)
 
 
 @router.get("/{automation_id}/versoes")
@@ -1428,7 +1755,7 @@ async def listar_versoes_automacao(automation_id: str, user: dict[str, Any] = De
         "automationId": automation_id,
         "currentVersion": int(automation.get("version") or 1),
         "environment": automation.get("environment") or "rascunho",
-        "versions": automation.get("versions") if isinstance(automation.get("versions"), list) else [],
+        "versions": public_versions(automation),
     }
 
 
@@ -1465,7 +1792,7 @@ async def promover_automacao(
             "version": automation["version"],
         },
     )
-    return response_payload(store)
+    return response_payload(store, user_id)
 
 
 @router.post("/{automation_id}/restaurar/{version_id}")
@@ -1494,8 +1821,16 @@ async def restaurar_versao_automacao(
         "lastRunAt": automation.get("lastRunAt"),
         "versions": versions,
     }
+    outputs = RUNTIME_VARIABLES | set(variable_projects(automation))
+    runtime_values = {key: value for key, value in (automation.get("variables") or {}).items() if key in outputs}
+    scopes = variable_projects(automation)
+    content = copy.deepcopy(version["content"])
+    content.pop("variableTaskProjects", None)
+    content["variables"] = {key: value for key, value in configuration_variables(content).items() if key not in outputs}
+    content["variables"].update(runtime_values)
+    content["variableTaskProjects"] = scopes
     automation.clear()
-    automation.update(copy.deepcopy(version["content"]))
+    automation.update(content)
     automation.update(preserved)
     automation["version"] = max(
         int(item.get("version") or 1) for item in versions if isinstance(item, dict)
@@ -1518,7 +1853,7 @@ async def restaurar_versao_automacao(
             "version": automation["version"],
         },
     )
-    return response_payload(store)
+    return response_payload(store, user_id)
 
 
 @router.post("/importar")
@@ -1558,7 +1893,7 @@ async def importar_automacoes(payload: AutomationImportPayload, user: dict[str, 
         description="Fluxos importados para a biblioteca de automacoes do Norium.",
         metadata={"action": "automation_imported", "userId": user_id, "count": len(imported)},
     )
-    return {**response_payload(store), "imported": len(imported)}
+    return {**response_payload(store, user_id), "imported": len(imported)}
 
 
 @router.post("/agente/mensagem")
@@ -1584,7 +1919,7 @@ async def handle_automation_agent(user_id: str, message: str, executed_by: str =
         normalized = normalize_text(message)
 
     if any(term in normalized for term in ("listar", "mostre", "quais", "ver automacoes", "minhas automacoes", "resumo")):
-        data = response_payload(store)
+        data = response_payload(store, user_id)
         active = data["metrics"]["active"]
         total = data["metrics"]["total"]
         names = ", ".join(item.get("name", "Automacao") for item in data["automations"][:5])
@@ -1618,7 +1953,7 @@ async def handle_automation_agent(user_id: str, message: str, executed_by: str =
         automation["updatedAt"] = now_iso()
         automation["version"] = int(automation.get("version") or 1) + 1
         write_store(user_id, store)
-        return {"status": "desativada", "response": f"Pronto, desativei a automacao {automation.get('name')}.", "automation": automation}
+        return {"status": "desativada", "response": f"Pronto, desativei a automacao {automation.get('name')}.", "automation": public_automation(automation, user_id)}
 
     if any(term in normalized for term in ("ativar", "ligar", "reativar")):
         automation = find_automation_by_text(store, message)
@@ -1629,7 +1964,7 @@ async def handle_automation_agent(user_id: str, message: str, executed_by: str =
         automation["updatedAt"] = now_iso()
         automation["version"] = int(automation.get("version") or 1) + 1
         write_store(user_id, store)
-        return {"status": "ativada", "response": f"Pronto, ativei a automacao {automation.get('name')}.", "automation": automation}
+        return {"status": "ativada", "response": f"Pronto, ativei a automacao {automation.get('name')}.", "automation": public_automation(automation, user_id)}
 
     if any(term in normalized for term in ("criar", "crie", "nova automacao", "automatizar", "automacao para")):
         bare_create = normalized.strip() in {
@@ -1681,7 +2016,7 @@ async def handle_automation_agent(user_id: str, message: str, executed_by: str =
     return {
         "status": "ajuda",
         "response": "Posso listar automacoes, criar uma nova, ativar/desativar ou executar uma automacao existente. Exemplo: 'Nora, execute a automacao Novo gasto registrado'.",
-        "automacoes": response_payload(store),
+        "automacoes": response_payload(store, user_id),
     }
 
 

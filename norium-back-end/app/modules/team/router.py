@@ -1401,6 +1401,7 @@ async def persist_message(
     attachment_payloads: list[AttachmentPayload],
     user: dict[str, Any],
     mentioned_user_ids: list[str] | None = None,
+    activity_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
@@ -1410,6 +1411,14 @@ async def persist_message(
     team_id = team_id_for(user)
     store = await asyncio.to_thread(read_chat_store, team_id)
     participant_ids = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
+    activity_metadata = dict(activity_metadata or {})
+    if activity_metadata:
+        from app.services.task_activity import activity_projects, project_visible
+        references = activity_projects(user_id, activity_metadata)
+        if not references or not all(project_visible(reference, participant)
+                                     for participant in participant_ids for reference in references):
+            raise HTTPException(status_code=403, detail="Atividade sem projeto autorizado para os participantes.")
+        activity_metadata["taskProjects"] = references
     mentions = await validated_mentions(text, mentioned_user_ids or [], participant_ids, user)
     mentioned_ids = {item["userId"] for item in mentions} - {user_id}
     thread_id = normalize_thread_id(scope, user_id, recipient_id, subteam_id)
@@ -1429,6 +1438,7 @@ async def persist_message(
         "text": text.strip(),
         "attachments": attachments,
         "metadata": {
+            **activity_metadata,
             "noraMentioned": nora_mentioned,
             "noraTriggered": nora_triggered,
             "readBy": {},
@@ -1443,6 +1453,8 @@ async def persist_message(
         store["messages"] = store["messages"][-2000:]
         await asyncio.to_thread(write_chat_store, team_id, store)
 
+    if activity_metadata:
+        participant_ids = {participant for participant in participant_ids if message_visible(message, participant)}
     await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": message})
     await record_team_event(
         team_id,
@@ -1452,6 +1464,7 @@ async def persist_message(
             f"Anexos: {len(attachments)}."
         ),
         {
+            **activity_metadata,
             "action": "team_message_created",
             "messageId": message["id"],
             "senderId": user_id,
@@ -1468,7 +1481,7 @@ async def persist_message(
     if mentioned_ids:
         await record_team_event(
             team_id, f"{message['senderName']} mencionou você", short_text(message["text"], 300),
-            {"action": "team_member_mentioned", "messageId": message["id"], "senderId": user_id,
+            {**activity_metadata, "action": "team_member_mentioned", "messageId": message["id"], "senderId": user_id,
              "senderName": message["senderName"], "threadId": thread_id, "scope": scope,
              "recipientId": recipient_id, "subteamId": subteam_id, "mentionedUserIds": sorted(mentioned_ids)},
             user_ids=mentioned_ids,

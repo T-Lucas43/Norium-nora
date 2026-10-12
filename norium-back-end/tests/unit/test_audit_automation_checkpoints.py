@@ -2,15 +2,36 @@
 from __future__ import annotations
 
 import copy
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
 from app.modules.automations import router
+from app.core.tenant import get_system_db_path, write_json_file
+from app.modules.auth import router as auth
+from app.services import task_store
 
 
 class AuditAutomationCheckpointTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        environment = patch.dict(os.environ, {"NORIUM_DATA_DIR": directory.name,
+                                              "NORIUM_DATABASE_URL": "", "NORIUM_POSTGRES_REQUIRED": "0"})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.actor = {"id": "owner", "status": "ativo", "role": "owner", "plan": "equipe"}
+        user_path = Path(get_system_db_path("usuarios"))
+        user_path_patch = patch.object(auth, "USERS_DB_PATH", user_path)
+        user_path_patch.start()
+        self.addCleanup(user_path_patch.stop)
+        write_json_file(user_path, {"users": [self.actor]})
+        task_store.create_project("owner", {"id": "private", "name": "Synthetic private"})
+
     async def test_failure_after_send_requires_reconciliation_and_does_not_resend(self):
         automation = {
             "id": "automation-a", "name": "Synthetic", "active": True,
@@ -36,7 +57,12 @@ class AuditAutomationCheckpointTests(unittest.IsolatedAsyncioTestCase):
             persisted.clear()
             persisted.update(copy.deepcopy(value))
 
-        actor = {"id": "owner", "status": "ativo", "permissions": {"chat": True}}
+        actor = self.actor
+
+        def create_with_first_failure(*args, **kwargs):
+            if create.call_count == 1:
+                raise RuntimeError("synthetic failure")
+            return task_store.create_task(*args, **kwargs)
         with (
             patch.object(router, "read_store", side_effect=read_store),
             patch.object(router, "write_store", side_effect=write_store),
@@ -45,7 +71,7 @@ class AuditAutomationCheckpointTests(unittest.IsolatedAsyncioTestCase):
             patch("app.modules.chat.router.enviar_mensagem", AsyncMock()) as send,
             patch.object(
                 router, "create_task",
-                side_effect=[RuntimeError("synthetic failure"), {"id": "task-1", "title": "Task"}],
+                side_effect=create_with_first_failure,
             ) as create,
             patch.object(router, "append_team_message_for_user", AsyncMock()),
             patch.object(router, "record_event", AsyncMock()),

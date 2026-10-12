@@ -147,10 +147,31 @@ def matches(automation, event):
     return not contains or contains in f'{event.get("title", "")} {event.get("description", "")}'.casefold()
 
 
+def task_event_projects(event, user_id):
+    """Recheck the source activity against the current directory and project ACL."""
+    from app.services.task_activity import activity_project, activity_projects, is_task_activity
+    metadata = (event or {}).get("metadata") or {}
+    if not is_task_activity(metadata):
+        return []
+    references = activity_projects(user_id, metadata)
+    if not (metadata.get("taskProjects") or metadata.get("taskProject")):
+        raise ValueError("Atividade de tarefa sem referencia persistida verificavel.")
+    if str(metadata.get("userId") or "") != user_id or not references:
+        raise ValueError("Atividade de tarefa sem acesso atual ao projeto.")
+    if event_type(event) in {"task.created", "task.updated", "task.comment"}:
+        # Deleted-task snapshots can still authorize deletion activity, but an
+        # older create/update/comment must not run after its task disappeared.
+        current = activity_project(user_id, {"taskId": metadata.get("taskId")})
+        if current is None or current not in references:
+            raise ValueError("Atividade de tarefa sem referencia atual verificavel.")
+    return references
+
+
 def enqueue_event(event, workspace_id):
     user_id = str((event.get("metadata") or {}).get("userId") or "")
     if not user_id or not event_type(event):
         return
+    task_event_projects(event, user_id)
     # Never create demonstration automations as a side effect of an event.
     store = read_user_db(user_id, "automacoes", {})
     eligible = [item for item in store.get("automations", []) if matches(item, event)]
@@ -248,11 +269,25 @@ async def heartbeat(job_id):
 
 
 def recent_jobs(user_id, workspace_id):
+    from app.services.task_activity import activity_visibility, is_task_activity
+    visible = activity_visibility(user_id)
     db = connection()
     try:
-        return [dict(row) for row in db.execute(
-            "SELECT id,automation_id,status,created_at,finished_at,error FROM jobs WHERE user_id=? AND workspace_id=? ORDER BY created_at DESC LIMIT 30",
-            (user_id, workspace_id))]
+        result = []
+        for row in db.execute(
+            "SELECT id,automation_id,status,created_at,finished_at,error,event FROM jobs WHERE user_id=? AND workspace_id=? ORDER BY created_at DESC LIMIT 30",
+            (user_id, workspace_id),
+        ):
+            item = dict(row)
+            try:
+                metadata = json.loads(item.pop("event")).get("metadata") or {}
+            except (ValueError, TypeError, AttributeError):
+                continue
+            if is_task_activity(metadata) and not (metadata.get("taskProjects") or metadata.get("taskProject")):
+                continue
+            if visible(metadata):
+                result.append(item)
+        return result
     finally:
         db.close()
 
@@ -278,6 +313,11 @@ async def process_job(job):
         event = json.loads(job["event"])
         if not automation or fingerprint(automation) != job["fingerprint"] or not matches(automation, event):
             await asyncio.to_thread(finish_job, job["id"], "cancelled")
+            return
+        try:
+            task_event_projects(event, job["user_id"])
+        except ValueError:
+            await asyncio.to_thread(finish_job, job["id"], "cancelled", "Atividade de tarefa sem acesso atual verificavel.")
             return
         result = await execute_automation(job["user_id"], job["automation_id"], "Gatilho automático", event=event)
         log = result["historyItem"]

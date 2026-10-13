@@ -1,0 +1,20 @@
+{
+  "state": "review_only",
+  "base_commit": "9176971",
+  "ubuntu_release": "24.04",
+  "package": "coturn",
+  "apt_candidate": "4.6.1-1build4",
+  "coturn_installed": false,
+  "required_review": {
+    "package_origin_patches_and_exact_artifact": null,
+    "public_ipv4_on_host_and_dns": null,
+    "tls_chain_hostname_expiry_key_match_and_renewal": null,
+    "root_owned_secret_and_key_permissions": null,
+    "service_privileges_and_egress_isolation": null,
+    "quota_capacity_bandwidth_and_cost": null,
+    "private_logs_aggregate_counters_and_alerts": null,
+    "rollback_and_application_regressions": null,
+    "specialist_human_review": null,
+    "external_auth_peer_denial_and_relay_acceptance": null
+  }
+}

@@ -13,6 +13,7 @@ from app.routers.team_chat_router import append_team_message_for_user
 from app.modules.commercial.nora_agent import handle_commercial_agent
 from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.services.email_agent import EmailAgent
+from app.services.nora_action_prefill import extract_action_parameters
 from app.services.nora_team_meetings import is_team_meeting_intent, team_meeting_agent
 
 
@@ -271,7 +272,8 @@ async def execute_agent_step(user: dict[str, Any], step: dict[str, Any]) -> dict
     if agent == "tarefas":
         return await handle_task_agent(user_id, instruction)
     if agent == "email":
-        return await EmailAgent().handle(message=instruction, session_id=None, user_id=user_id)
+        return await EmailAgent().handle(message=instruction, session_id=None, user_id=user_id,
+                                         prefill=extract_action_parameters("email", instruction))
     if agent == "agenda":
         if is_team_meeting_intent(instruction):
             return await team_meeting_agent.handle(message=instruction, session_id=None, user=user)

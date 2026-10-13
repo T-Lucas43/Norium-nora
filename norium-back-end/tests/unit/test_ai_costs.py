@@ -114,6 +114,15 @@ class AiCostTests(unittest.IsolatedAsyncioTestCase):
             costs.reserve(GROQ, "a", 10, 10)
         self.assertEqual(402, exc.exception.status_code)
 
+    def test_legacy_dollar_only_account_requires_token_allocation(self):
+        costs.save_limit("a", {"monthlyBudgetUsd": 1, "monthlyTokenLimit": None}, "admin")
+        with self.assertRaises(HTTPException) as caught:
+            costs.reserve(GROQ, "a", 10, 10)
+        self.assertIn("definir a franquia", caught.exception.detail)
+        account = costs.overview(USERS, "all", "a")["users"][0]
+        self.assertTrue(account["tokenAllocationRequired"])
+        self.assertEqual(0, account["remainingTokens"])
+
     def test_admin_prices_update_existing_model_routing(self):
         costs.save_rate({**GROQ, "unitTokens": 1000, "inputUsd": 2, "outputUsd": 4}, "admin")
         providers = service.all_providers("a")
@@ -121,11 +130,11 @@ class AiCostTests(unittest.IsolatedAsyncioTestCase):
         route = service.route_model(USERS[0], {"requiredCapabilities": ["text"]})
         self.assertEqual("gemini-runtime", route["selected"]["id"])
 
-    def test_explicit_zero_budget_blocks_even_a_free_model(self):
+    def test_legacy_zero_dollar_reference_does_not_block_allocated_tokens(self):
         costs.save_rate({**GROQ, "unitTokens": 1000, "inputUsd": 0, "outputUsd": 0}, "admin")
-        costs.save_limit("a", {"monthlyBudgetUsd": 0, "monthlyTokenLimit": None}, "admin")
-        with self.assertRaises(HTTPException):
-            costs.reserve(GROQ, "a", 10, 100)
+        costs.save_limit("a", {"monthlyBudgetUsd": 0, "monthlyTokenLimit": 100}, "admin")
+        _, output, _ = costs.reserve(GROQ, "a", 10, 100)
+        self.assertEqual(90, output)
 
     async def test_request_crossing_month_stays_in_reserved_month(self):
         with patch.object(costs, "now", return_value="2026-08-31T23:59:59-03:00"):
@@ -141,15 +150,16 @@ class AiCostTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, sum(isinstance(r, tuple) for r in results))
         self.assertEqual(3, sum(isinstance(r, HTTPException) for r in results))
 
-    async def test_budget_reduces_provider_output_and_releases_unused_reservation(self):
+    async def test_tokens_reduce_provider_output_and_release_unused_reservation(self):
         costs.save_rate({**GROQ, "unitTokens": 1000, "inputUsd": 1, "outputUsd": 2}, "admin")
-        costs.save_limit("a", {"monthlyBudgetUsd": 0.2, "monthlyTokenLimit": None}, "admin")
+        costs.save_limit("a", {"monthlyBudgetUsd": 0.2, "monthlyTokenLimit": 100}, "admin")
         async with costs.Meter(GROQ, "", 1400, user_id="a") as meter:
-            self.assertEqual(67, meter.max_output)
+            self.assertEqual(34, meter.max_output)
             meter.sent()
             await meter.record({"usage": {"prompt_tokens": 5, "completion_tokens": 3}})
         result = costs.overview(USERS, "all")["users"][0]
         self.assertAlmostEqual(0.189, result["remainingUsd"])
+        self.assertEqual(92, result["remainingTokens"])
         self.assertEqual(0, result["pendingRequests"])
 
     async def test_error_release_and_missing_usage_estimate(self):
@@ -231,13 +241,15 @@ class AiCostTests(unittest.IsolatedAsyncioTestCase):
                 tariff.update(unitTokens=1000, baseUrl="https://secret:password@example.test/v1")
                 self.assertEqual(422, (await client.post("/api/auth/admin/ai-costs/tariffs", json=tariff)).status_code)
 
-    def test_unknown_prices_cannot_bypass_budget(self):
-        costs.save_limit("a", {"monthlyBudgetUsd": 1, "monthlyTokenLimit": None}, "admin")
-        with self.assertRaises(HTTPException):
-            costs.reserve({**GROQ, "model": "unknown"}, "a", 10, 20)
+    def test_unknown_prices_do_not_block_tokens_or_bypass_their_limit(self):
+        costs.save_limit("a", {"monthlyBudgetUsd": 1, "monthlyTokenLimit": 2000}, "admin")
+        _, output, _ = costs.reserve({**GROQ, "model": "unknown"}, "a", 10, 20)
+        self.assertEqual(20, output)
         self.record({**GROQ, "model": "unknown"})
+        _, output, _ = costs.reserve(GROQ, "a", 10, 20)
+        self.assertEqual(20, output)
         with self.assertRaises(HTTPException):
-            costs.reserve(GROQ, "a", 10, 20)
+            costs.reserve(GROQ, "a", 2000, 20)
 
 
 if __name__ == "__main__":

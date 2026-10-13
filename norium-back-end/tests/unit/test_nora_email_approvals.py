@@ -1,5 +1,6 @@
 """Guided email sending through Nora with exact, digest-bound approvals."""
 
+import asyncio
 import hashlib
 import json
 import os
@@ -121,7 +122,7 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
             session_id = result["session_id"]
         return result
 
-    async def test_guided_collection_asks_each_missing_field(self) -> None:
+    async def test_guided_collection_asks_only_required_missing_fields(self) -> None:
         agent = EmailAgent()
         first = await agent.handle(message="mande um e-mail", session_id=None, user_id="owner-mail")
         self.assertEqual("coletando", first["status"])
@@ -129,12 +130,8 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
         session_id = first["session_id"]
         self.assertTrue(session_id)
         steps = [
-            ("contato@empresa.com", "cópia (Cc)"),
-            ("pular", "cópia oculta (Cco)"),
-            ("oculto@empresa.com", "assunto"),
-            ("Proposta comercial", "mensagem"),
-            ("Segue a proposta combinada ontem.", "anexar"),
-            ("pular", "Prévia pronta"),
+            ("contato@empresa.com", "mensagem"),
+            ("Segue a proposta combinada ontem.", "Prévia pronta"),
         ]
         result = first
         for text, expected in steps:
@@ -142,14 +139,14 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
             session_id = result["session_id"]
             with self.subTest(step=expected):
                 self.assertIn(expected, result["response"])
-        self.assertEqual("confirmar", result["status"])
+        self.assertEqual("pronto_para_aprovacao", result["status"])
         preview = result["preview"]
         self.assertEqual(["contato@empresa.com"], preview["to"])
         self.assertEqual([], preview["cc"])
-        self.assertEqual(["oculto@empresa.com"], preview["bcc"])
-        self.assertEqual("Proposta comercial", preview["subject"])
+        self.assertEqual([], preview["bcc"])
+        self.assertEqual("Segue a proposta combinada ontem", preview["subject"])
         self.assertIn("- Para: contato@empresa.com", result["response"])
-        self.assertIn("- Cco: oculto@empresa.com", result["response"])
+        self.assertIn("(sugerido)", result["response"])
         self.assertEqual([], FakeGmail.sent)
 
     async def test_complete_natural_request_goes_directly_to_preview(self) -> None:
@@ -159,7 +156,7 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
             session_id=None,
             user_id="owner-mail",
         )
-        self.assertEqual("confirmar", result["status"])
+        self.assertEqual("pronto_para_aprovacao", result["status"])
         self.assertEqual(["a@x.com"], result["preview"]["to"])
         self.assertEqual([], result["preview"]["cc"])
         self.assertEqual([], result["preview"]["bcc"])
@@ -168,13 +165,13 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
     async def test_preview_edit_updates_draft(self) -> None:
         agent = EmailAgent()
         ready = await self.drive_to_preview(agent)
-        self.assertEqual("confirmar", ready["status"])
+        self.assertEqual("pronto_para_aprovacao", ready["status"])
         session_id = ready["session_id"]
         edit = await agent.handle(message="editar assunto", session_id=session_id, user_id="owner-mail")
         self.assertEqual("coletando", edit["status"])
         self.assertIn("assunto", edit["response"].lower())
         updated = await agent.handle(message="Novo assunto urgente", session_id=session_id, user_id="owner-mail")
-        self.assertEqual("confirmar", updated["status"])
+        self.assertEqual("pronto_para_aprovacao", updated["status"])
         self.assertEqual("Novo assunto urgente", updated["preview"]["subject"])
         confirmed = await agent.handle(message="sim", session_id=session_id, user_id="owner-mail")
         self.assertEqual("pronto_para_aprovacao", confirmed["status"])
@@ -429,7 +426,7 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
         for text in ["pular", "pular", "pular"]:
             result = await agent.handle(message=text, session_id=session_id, user_id="owner-mail")
             session_id = result["session_id"]
-        self.assertEqual("confirmar", result["status"])
+        self.assertEqual("pronto_para_aprovacao", result["status"])
         self.assertEqual("nota.txt", result["preview"]["attachments"][0]["fileName"])
         confirmed = await agent.handle(message="sim", session_id=session_id, user_id="owner-mail")
         finalized = await ops.finalize_email_agent_result(owner(), agent, confirmed)
@@ -497,15 +494,99 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
             owner(),
         )
         session_id = first["session_id"]
+        self.assertEqual("aguardando_aprovacao", first["status"])
+        self.assertNotIn("Diga 'sim'", first["response"])
         result = first
         for text in ["pular", "pular", "pular"]:
             result = await conversar_com_agente_email(EmailAgentPayload(message=text, session_id=session_id), owner())
             session_id = result["session_id"]
-        self.assertEqual("confirmar", result["status"])
+        self.assertEqual("aguardando_aprovacao", result["status"])
         ready = await conversar_com_agente_email(EmailAgentPayload(message="sim", session_id=session_id), owner())
         self.assertEqual("aguardando_aprovacao", ready["status"])
         self.assertIn("Central de aprovações", ready["response"])
         self.assertTrue(ready["approval"]["digest"])
+        self.assertEqual(first["approval"]["id"], ready["approval"]["id"])
+        self.assertEqual(1, len(await list_items("owner-mail", APPROVAL_DB)))
+        self.assertEqual([], FakeGmail.sent)
+
+    async def test_concurrent_preview_finalization_reuses_one_exact_card(self) -> None:
+        agent = EmailAgent()
+        ready = await agent.handle(message='Envie para a@example.test mensagem: "Confirmo a reunião."', session_id=None, user_id="owner-mail")
+        results = await asyncio.gather(*(ops.finalize_email_agent_result(owner(), agent, ready) for _ in range(4)))
+        self.assertEqual(1, len({item["approval"]["id"] for item in results}))
+        self.assertEqual(1, len(await list_items("owner-mail", APPROVAL_DB)))
+        self.assertEqual([], FakeGmail.sent)
+
+    async def test_edit_revokes_old_card_and_binds_replacement(self) -> None:
+        agent = EmailAgent()
+        ready = await self.drive_to_preview(agent)
+        old = (await ops.finalize_email_agent_result(owner(), agent, ready))["approval"]
+        edit = await agent.handle(message="editar assunto", session_id=ready["session_id"], user_id="owner-mail")
+        await ops.finalize_email_agent_result(owner(), agent, edit)
+        denied = await ops.decide_approval(owner(), old["id"], ApprovalDecision(decision="approved", expectedDigest=old["digest"]))
+        self.assertEqual("cancelled", denied["status"])
+        updated = await agent.handle(message="Novo assunto", session_id=ready["session_id"], user_id="owner-mail")
+        new = (await ops.finalize_email_agent_result(owner(), agent, updated))["approval"]
+        self.assertNotEqual(old["id"], new["id"])
+        self.assertNotEqual(old["digest"], new["digest"])
+        self.assertEqual("Novo assunto", new["payload"]["emailExact"]["subject"])
+        self.assertEqual([], FakeGmail.sent)
+
+    async def test_completed_or_uncertain_preview_never_rearms_send(self) -> None:
+        for behavior, expected in [("ok", "executed"), (("raise", FakeHttpError(500)), "failed")]:
+            with self.subTest(status=expected):
+                agent = EmailAgent()
+                ready = await self.drive_to_preview(agent)
+                initial = await ops.finalize_email_agent_result(owner(), agent, ready)
+                approval = initial["approval"]
+                FakeGmail.send_behavior = behavior
+                done = await ops.decide_approval(owner(), approval["id"], ApprovalDecision(decision="approved", expectedDigest=approval["digest"]))
+                self.assertEqual(expected, done["status"])
+                count = len(await list_items("owner-mail", APPROVAL_DB))
+                repeat = await agent.handle(message="sim", session_id=ready["session_id"], user_id="owner-mail")
+                repeated = await ops.finalize_email_agent_result(owner(), agent, repeat)
+                self.assertEqual("aprovacao_concluida", repeated["status"])
+                self.assertEqual(approval["id"], repeated["approval"]["id"])
+                self.assertEqual(count, len(await list_items("owner-mail", APPROVAL_DB)))
+
+    async def test_reuse_fails_closed_after_payload_tampering(self) -> None:
+        agent = EmailAgent()
+        ready = await self.drive_to_preview(agent)
+        old = (await ops.finalize_email_agent_result(owner(), agent, ready))["approval"]
+        tampered = {**old["payload"], "emailExact": {**old["payload"]["emailExact"], "to": ["wrong@example.test"]}}
+        await replace_item("owner-mail", APPROVAL_DB, old["id"], {"payload": tampered})
+        repeated = await ops.finalize_email_agent_result(owner(), agent, ready)
+        self.assertEqual("falha_validacao", repeated["status"])
+        self.assertEqual(1, len(await list_items("owner-mail", APPROVAL_DB)))
+        self.assertEqual([], FakeGmail.sent)
+
+    async def test_stale_preview_cannot_be_finalized_after_edit_or_cancel(self) -> None:
+        agent = EmailAgent()
+        ready = await self.drive_to_preview(agent)
+        await agent.handle(message="editar assunto", session_id=ready["session_id"], user_id="owner-mail")
+        self.assertEqual("falha_validacao", (await ops.finalize_email_agent_result(owner(), agent, ready))["status"])
+        agent.cancel_session(ready["session_id"], user_id="owner-mail")
+        self.assertEqual("falha_validacao", (await ops.finalize_email_agent_result(owner(), agent, ready))["status"])
+        self.assertEqual([], await list_items("owner-mail", APPROVAL_DB))
+
+    async def test_negative_natural_turn_revokes_the_pending_card(self) -> None:
+        natural_email_gates(self)
+        agent = EmailAgent()
+        ready = await self.drive_to_preview(agent)
+        old = (await ops.finalize_email_agent_result(owner(), agent, ready))["approval"]
+        with patch.object(nora_router, "email_agent", agent), patch.object(nora_router.nora_service, "perguntar_nora", AsyncMock(return_value="Explicação sem envio.")):
+            await nora_router._execute_natural_conversation(NoraNaturalPayload(message="Não envie nada; apenas explique.", email_session_id=ready["session_id"]), owner())
+        current = next(item for item in await list_items("owner-mail", APPROVAL_DB) if item["id"] == old["id"])
+        self.assertEqual("cancelled", current["status"])
+        self.assertNotIn(ready["session_id"], agent.sessions)
+        self.assertEqual([], FakeGmail.sent)
+
+    async def test_cancellation_storage_failure_is_not_reported_as_success(self) -> None:
+        with patch.object(ops, "decide_approval", AsyncMock(side_effect=OSError("synthetic storage failure"))):
+            result = await ops.finalize_email_agent_result(owner(), None, {"status": "cancelado", "session_id": None, "cancelApprovalId": "approval-test", "response": "Rascunho cancelado."})
+        self.assertEqual("falha_cancelamento", result["status"])
+        self.assertIn("Não consegui revogar", result["response"])
+        self.assertEqual([], FakeGmail.sent)
 
 
 if __name__ == "__main__":

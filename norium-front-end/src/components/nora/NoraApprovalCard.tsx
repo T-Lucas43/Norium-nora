@@ -40,6 +40,14 @@ export function normalizeApprovalCard(raw: unknown): NoraApprovalSnapshot | null
   const metadata = (item.metadata ?? {}) as ApprovalItem;
   const execution = (item.execution ?? {}) as ApprovalItem;
   const recipients = [...asStringList(exact.to), ...asStringList(exact.cc), ...asStringList(exact.bcc)].slice(0, 25);
+  const exactEmailSummary = item.action === "nora_email_send_exact" && typeof exact.body === "string" ? [
+    `Para: ${asStringList(exact.to).join(", ")}`,
+    ...(asStringList(exact.cc).length ? [`Cc: ${asStringList(exact.cc).join(", ")}`] : []),
+    ...(asStringList(exact.bcc).length ? [`Cco: ${asStringList(exact.bcc).join(", ")}`] : []),
+    `Assunto: ${asString(exact.subject).slice(0, 180)}`,
+    ...(Array.isArray(exact.attachments) && exact.attachments.length ? [`Anexos: ${exact.attachments.slice(0, 8).map(file => asString((file as ApprovalItem)?.fileName).slice(0, 300)).join(", ")}`] : []),
+    "", exact.body.slice(0, 12000),
+  ].join("\n") : "";
   return {
     id: item.id,
     action: typeof item.action === "string" ? item.action : null,
@@ -50,7 +58,7 @@ export function normalizeApprovalCard(raw: unknown): NoraApprovalSnapshot | null
     expiresAt: typeof item.expiresAt === "string" && item.expiresAt ? item.expiresAt.slice(0, 64) : null,
     workspace: typeof metadata.workspace === "string" && metadata.workspace ? metadata.workspace.slice(0, 80) : null,
     version: typeof metadata.version === "string" && metadata.version ? metadata.version.slice(0, 40) : null,
-    summary: asString(item.description).slice(0, 2000),
+    summary: exactEmailSummary || asString(item.description).slice(0, 2000),
     recipients,
     decidedAt: typeof item.decidedAt === "string" && item.decidedAt ? item.decidedAt.slice(0, 64) : null,
     outcome: (asString(execution.response) || asString(item.decisionNote) || asString(item.executionError)).slice(0, 2000) || null,
@@ -174,8 +182,8 @@ export default function NoraApprovalCard({
         )}
         {approval.summary && (
           <>
-            <dt className="font-medium text-[var(--nx-text)]">Detalhes</dt>
-            <dd className="whitespace-pre-wrap break-words">{approval.summary}</dd>
+            <dt className="col-span-2 font-medium text-[var(--nx-text)]">Detalhes</dt>
+            <dd aria-label="Detalhes da ação" tabIndex={0} className="col-span-2 min-w-0 max-h-72 overflow-y-auto whitespace-pre-wrap break-words">{approval.summary}</dd>
           </>
         )}
         {approval.workspace && (

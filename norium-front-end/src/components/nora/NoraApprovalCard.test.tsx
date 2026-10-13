@@ -36,6 +36,28 @@ function approvalItem(overrides: Record<string, unknown> = {}) {
 }
 
 describe("normalizeApprovalCard", () => {
+  it("preserves the entire exact email body instead of the short description", () => {
+    const body = `${"Mensagem completa. ".repeat(100)}Fim do conteúdo exato.`;
+    const raw = approvalItem();
+    raw.description = "Prévia curta que não contém o final.";
+    raw.payload.emailExact.body = body;
+    const snapshot = normalizeApprovalCard(raw)!;
+    expect(snapshot.summary).toContain(body);
+    expect(snapshot.summary).toContain("Cc: copia@empresa.com");
+    expect(snapshot.summary).not.toContain(raw.description);
+    render(<NoraApprovalCard approval={snapshot} onDecision={vi.fn()} />);
+    expect(screen.getByLabelText("Detalhes da ação")).toHaveTextContent("Fim do conteúdo exato.");
+    expect(screen.getByRole("button", { name: "Permitir esta ação" })).toBeEnabled();
+  });
+
+  it("shows blind-copy targets and attachment names before approval", () => {
+    const raw = approvalItem();
+    const payload = { ...raw.payload, emailExact: { ...raw.payload.emailExact, bcc: ["oculto@example.test"], attachments: [{ fileName: "proposta.pdf" }] } };
+    const snapshot = normalizeApprovalCard({ ...raw, payload })!;
+    expect(snapshot.summary).toContain("Cco: oculto@example.test");
+    expect(snapshot.summary).toContain("Anexos: proposta.pdf");
+  });
+
   it("rejects garbage and extracts the email snapshot", () => {
     expect(normalizeApprovalCard(null)).toBeNull();
     expect(normalizeApprovalCard({})).toBeNull();

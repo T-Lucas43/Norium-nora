@@ -21,16 +21,20 @@ describe("AiCostsDashboard", () => {
     await user.click(screen.getByRole("button", { name: /Ana/ }));
     expect(screen.getByRole("heading", { name: "Detalhamento por modelo" })).toBeInTheDocument();
     expect(within(screen.getByRole("dialog")).getByText("openai/gpt-oss-20b")).toBeInTheDocument();
-    expect(screen.getByText(/75% de entrada/)).toBeInTheDocument();
+    expect(screen.getByText(/A franquia em tokens é compartilhada/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Orçamento por ciclo (USD)")).not.toBeInTheDocument();
+    expect(screen.getByText("98.500 tokens")).toBeInTheDocument();
   });
   it("salva zero como bloqueio e campo vazio como ilimitado", async () => {
     setup(); const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Ana/ }));
-    await user.clear(screen.getByLabelText("Orçamento por ciclo (USD)"));
-    await user.type(screen.getByLabelText("Orçamento por ciclo (USD)"), "0");
+    await user.clear(screen.getByLabelText("Limite de tokens por ciclo"));
+    await user.type(screen.getByLabelText("Limite de tokens por ciclo"), "0");
+    await user.click(screen.getByRole("button", { name: "Salvar limites" }));
+    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", { method: "PUT", body: JSON.stringify({ monthlyBudgetUsd: null, monthlyTokenLimit: 0, period: "monthly", startDate: null, autoRenew: true }) }));
     await user.clear(screen.getByLabelText("Limite de tokens por ciclo"));
     await user.click(screen.getByRole("button", { name: "Salvar limites" }));
-    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", { method: "PUT", body: JSON.stringify({ monthlyBudgetUsd: 0, monthlyTokenLimit: null, period: "monthly", startDate: null, autoRenew: true }) }));
+    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", { method: "PUT", body: JSON.stringify({ monthlyBudgetUsd: null, monthlyTokenLimit: null, period: "monthly", startDate: null, autoRenew: true }) }));
   });
   it("salva ciclo semanal e data escolhida e permite reset explícito", async () => {
     setup(); const user = userEvent.setup();
@@ -39,7 +43,7 @@ describe("AiCostsDashboard", () => {
     fireEvent.change(screen.getByLabelText("Data de início"), { target: { value: "2026-09-14" } });
     await user.selectOptions(screen.getByLabelText("Renovação"), "manual");
     await user.click(screen.getByRole("button", { name: "Salvar limites" }));
-    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", expect.objectContaining({ body: JSON.stringify({ monthlyBudgetUsd: 5, monthlyTokenLimit: 100000, period: "weekly", startDate: "2026-09-14", autoRenew: false }) })));
+    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", expect.objectContaining({ body: JSON.stringify({ monthlyBudgetUsd: null, monthlyTokenLimit: 100000, period: "weekly", startDate: "2026-09-14", autoRenew: false }) })));
     await user.click(screen.getByRole("button", { name: "Resetar saldo" }));
     expect(authJson).not.toHaveBeenCalledWith(expect.stringContaining("/reset"), expect.anything(), expect.anything());
     await user.selectOptions(screen.getByLabelText("Calendário após o reset"), "keep");

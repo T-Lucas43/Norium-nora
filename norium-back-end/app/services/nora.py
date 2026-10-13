@@ -13,7 +13,7 @@ import httpx
 from fastapi import HTTPException
 from dotenv import load_dotenv
 
-from app.services.nora_system_prompt import NORA_SYSTEM_PROMPT
+from app.services.nora_system_prompt import NORA_SYSTEM_PROMPT, NORA_EMAIL_DRAFT_PROMPT
 from app.core.ai_guardrails import minimize_for_ai
 from app.services.ai_costs import Meter
 
@@ -133,10 +133,10 @@ class NoraIAService:
             return "A Nora atingiu o limite temporario do provedor de IA. Tente novamente em instantes. Nenhuma acao foi executada."
         return f"A Nora nao conseguiu acessar o provedor de IA ({status_code}). Nenhuma acao foi executada."
 
-    def _build_payload_messages(self, mensagens: list[dict[str, str]], screen_context: str | None) -> list[dict[str, str]]:
+    def _build_payload_messages(self, mensagens: list[dict[str, str]], screen_context: str | None, *, purpose: str = "routine") -> list[dict[str, str]]:
         now = datetime.now(ZoneInfo("America/Sao_Paulo"))
         system_content = (
-            f"{self.system_prompt}\n\n"
+            f"{NORA_EMAIL_DRAFT_PROMPT if purpose == 'email-draft' else self.system_prompt}\n\n"
             f"DATA ATUAL DO SISTEMA: {now.strftime('%d/%m/%Y')} ({now.strftime('%Y')}), "
             "fuso America/Sao_Paulo. Use esta data para interpretar hoje, amanhã, prazos, "
             "documentos e exemplos. Nunca reutilize um ano antigo como se fosse o atual."
@@ -155,13 +155,13 @@ class NoraIAService:
             )
         return payload_messages
 
-    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False, user_id: str | None = None) -> str:
+    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False, user_id: str | None = None, purpose: str = "routine") -> str:
         if not self.api_key:
             if research:
                 raise NoraResearchUnavailable("configuration")
             return "A Nora está temporariamente sem acesso ao provedor de IA. Configure OPENAI_API_KEY ou GROQ_API_KEY no backend."
 
-        built_messages = self._build_payload_messages(mensagens, screen_context)
+        built_messages = self._build_payload_messages(mensagens, screen_context, purpose=purpose)
         output_budget = max(256, min(6000, max_tokens))
         payload = self._request_payload(built_messages, output_budget)
 

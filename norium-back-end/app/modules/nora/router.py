@@ -41,6 +41,7 @@ from app.services.conversation_store import (
 )
 
 from app.services.email_agent import shared_email_agent
+from app.services.nora_action_prefill import extract_action_parameters
 from app.services.nora import NoraIAService
 from app.services.nora_module_help import answer_module_help
 from app.services.nora_team_meetings import is_team_meeting_intent, team_meeting_agent
@@ -1313,7 +1314,11 @@ async def _execute_natural_conversation(
             # routing, context continuation and every specialist writer.
             agenda_agent.cancel_session(payload.agenda_session_id)
             team_meeting_agent.cancel_session(payload.agenda_session_id)
-            email_agent.cancel_session(payload.email_session_id)
+            cancelled_email_id = email_agent.cancel_session(payload.email_session_id, user_id=require_user_id(user))
+            if isinstance(cancelled_email_id, str) and cancelled_email_id:
+                cancellation = await finalize_email_agent_result(user, email_agent, {"status": "cancelado", "session_id": None, "cancelApprovalId": cancelled_email_id, "response": "Rascunho cancelado."})
+                if cancellation["status"] == "falha_cancelamento":
+                    return resposta_agente("email", cancellation, "email", resolution)
             cancel_commercial_session(payload.commercial_session_id)
             payload.agenda_session_id = payload.email_session_id = payload.commercial_session_id = None
             read_query = resolve_read_query(texto, payload.messages)
@@ -1362,7 +1367,11 @@ async def _execute_natural_conversation(
         if interrompe_sessao_ativa(texto):
             agenda_agent.cancel_session(payload.agenda_session_id)
             team_meeting_agent.cancel_session(payload.agenda_session_id)
-            email_agent.cancel_session(payload.email_session_id)
+            cancelled_email_id = email_agent.cancel_session(payload.email_session_id, user_id=require_user_id(user))
+            if isinstance(cancelled_email_id, str) and cancelled_email_id:
+                cancellation = await finalize_email_agent_result(user, email_agent, {"status": "cancelado", "session_id": None, "cancelApprovalId": cancelled_email_id, "response": "Rascunho cancelado."})
+                if cancellation["status"] == "falha_cancelamento":
+                    return resposta_agente("email", cancellation, "email", resolution)
             cancel_commercial_session(payload.commercial_session_id)
             payload.agenda_session_id = None
             payload.email_session_id = None
@@ -1540,12 +1549,12 @@ async def _execute_natural_conversation(
         if payload.email_session_id and resolution.skill_id in {"email", "chat"}:
             # Email sessions own their flow end to end: the guided agent collects
             # the draft and finalize_email_agent_result binds the exact approval.
-            email_message = await message_with_memory(user, texto, {"communication", "client", "process"})
             result = await email_agent.handle(
-                message=email_message,
+                message=texto,
                 session_id=payload.email_session_id,
                 user_id=resolved_user_id,
                 attachment_ids=payload.attachment_ids,
+                prefill=extract_action_parameters("email", texto),
             )
             result = await finalize_email_agent_result(user, email_agent, result)
             return resposta_agente("email", result, "email")
@@ -1642,12 +1651,12 @@ async def _execute_natural_conversation(
             return resposta_agente("comercial", result, "commercial", resolution)
 
         if intent == "email":
-            email_message = await message_with_memory(user, texto, {"communication", "client", "process"})
             result = await email_agent.handle(
-                message=email_message,
+                message=texto,
                 session_id=None,
                 user_id=resolved_user_id,
                 attachment_ids=payload.attachment_ids,
+                prefill=extract_action_parameters("email", texto),
             )
             result = await finalize_email_agent_result(user, email_agent, result)
             return resposta_agente("email", result, "email", resolution)

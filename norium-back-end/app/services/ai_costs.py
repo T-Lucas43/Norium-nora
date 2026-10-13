@@ -5,7 +5,6 @@ import asyncio
 import calendar
 import hashlib
 import json
-import math
 import os
 import sqlite3
 import threading
@@ -310,26 +309,21 @@ def reserve(provider, user_id, input_bound, max_output, started_at=None):
         cycle = cycle_for(limit, started_at)
         if not cycle["active"]:
             raise HTTPException(402, "O ciclo de IA ainda não iniciou ou já encerrou. Peça ao administrador para ajustar o início ou reiniciar o ciclo.")
-        if limit["monthlyBudgetUsd"] == 0 or limit["monthlyTokenLimit"] == 0:
+        if limit["monthlyTokenLimit"] == 0:
             raise HTTPException(402, "Uso de IA bloqueado pelo limite do ciclo. Peça ao administrador para ajustar seu saldo.")
+        if limit["monthlyTokenLimit"] is None and limit["monthlyBudgetUsd"] is not None:
+            # Do not silently convert a legacy monetary cap into unlimited AI.
+            raise HTTPException(402, "O administrador precisa definir a franquia desta conta em tokens. O orçamento antigo em dólares não autoriza novas solicitações.")
         db.execute("DELETE FROM reservations WHERE expires < ?", (time.time(),))
         usage = [r for r in db.execute("SELECT * FROM usage WHERE user_id=?", (user_id,)) if in_cycle(r["created_at"], cycle)]
-        used = (sum(r["input_tokens"] + r["output_tokens"] for r in usage), sum(r["cost_nano"] or 0 for r in usage), sum(r["cost_nano"] is None for r in usage))
+        used_tokens = sum(r["input_tokens"] + r["output_tokens"] for r in usage)
         reservations = [r for r in db.execute("SELECT * FROM reservations WHERE user_id=?", (user_id,)) if not r["created_at"] or in_cycle(r["created_at"], cycle)]
-        pending = (sum(r["tokens"] for r in reservations), sum(r["cost_nano"] for r in reservations))
+        pending_tokens = sum(r["tokens"] for r in reservations)
         output = max_output
         if limit["monthlyTokenLimit"] is not None:
-            output = min(output, limit["monthlyTokenLimit"] - used[0] - pending[0] - input_bound)
-        if limit["monthlyBudgetUsd"] is not None:
-            if rate.get("inputUsd") is None or used[2]:
-                raise HTTPException(402, "Há consumo ou modelo sem tarifa. Peça ao administrador para cadastrar o custo antes de usar seu orçamento de IA.")
-            remaining = Decimal(str(limit["monthlyBudgetUsd"])) * NANO - used[1] - pending[1]
-            input_price = max(Decimal(str(rate.get(k) or 0)) for k in ("inputUsd", "cachedInputUsd", "cacheWriteUsd"))
-            remaining -= Decimal(input_bound) * input_price * NANO / Decimal(rate["unitTokens"])
-            if remaining < 0:
-                output = 0
-            elif rate["outputUsd"]:
-                output = min(output, int(remaining * Decimal(rate["unitTokens"]) / (Decimal(str(rate["outputUsd"])) * NANO)))
+            output = min(output, limit["monthlyTokenLimit"] - used_tokens - pending_tokens - input_bound)
+        # Franchise authority is tokens. Dollar tariffs remain reporting data;
+        # an unavailable price or a legacy monetary reference cannot block AI.
         if output < 1:
             raise HTTPException(402, "Saldo do ciclo de IA insuficiente para esta solicitação. Reduza o contexto ou peça ao administrador para ajustar seus limites.")
         reservation = uuid.uuid4().hex
@@ -509,6 +503,9 @@ def overview(users: list[dict], month: str, user_filter="", model_filter=""):
             limit = get_limit(db, uid)
             remaining_usd = max(0, limit["monthlyBudgetUsd"] - current["costUsd"] - sum(r["cost_nano"] for r in pending) / 1e9) if limit["monthlyBudgetUsd"] is not None else None
             remaining_tokens = max(0, limit["monthlyTokenLimit"] - current["totalTokens"] - sum(r["tokens"] for r in pending)) if limit["monthlyTokenLimit"] is not None else None
+            allocation_required = limit["monthlyTokenLimit"] is None and limit["monthlyBudgetUsd"] is not None
+            if allocation_required:
+                remaining_tokens = 0
             models = []
             for model in catalog["models"]:
                 if model_filter and model["id"] != model_filter:
@@ -517,12 +514,9 @@ def overview(users: list[dict], month: str, user_filter="", model_filter=""):
                 def capacity(input_ratio):
                     if not cycle["active"]:
                         return 0
-                    if model["inputUsd"] is None or remaining_usd is None:
-                        return None
-                    price = (model["inputUsd"] * input_ratio + model["outputUsd"] * (1 - input_ratio)) / model["unitTokens"]
-                    return min(math.floor(remaining_usd / price), remaining_tokens if remaining_tokens is not None else 10**15) if price else remaining_tokens
+                    return remaining_tokens
                 models.append({"modelId": model["id"], **_totals(model_rows), "capacityInputOnly": capacity(1), "capacityOutputOnly": capacity(0), "capacityMixed": capacity(0.75)})
-            results.append({**account, **_totals(user_rows), "limits": limit, "cycle": cycle, "currentCycle": current, "currentMonth": current, "remainingUsd": remaining_usd if cycle["active"] else 0, "remainingTokens": remaining_tokens if cycle["active"] else 0, "pendingRequests": len(pending), "models": models})
+            results.append({**account, **_totals(user_rows), "limits": limit, "cycle": cycle, "currentCycle": current, "currentMonth": current, "remainingUsd": remaining_usd if cycle["active"] else 0, "remainingTokens": remaining_tokens if cycle["active"] else 0, "tokenAllocationRequired": allocation_required, "pendingRequests": len(pending), "models": models})
         audit = [dict(r) for r in db.execute("SELECT created_at,actor,action,target FROM audit ORDER BY id DESC LIMIT 30")]
         started = db.execute("SELECT value FROM metadata WHERE key='trackingStartedAt'").fetchone()[0]
     return {"month": month, "currentMonth": month_for(), "trackingStartedAt": started, "updatedAt": now(), "totals": _totals(rows),

@@ -966,7 +966,7 @@ async function askEmailAgent(message: string, sessionId: string | null, userId: 
   if (!res.ok) throw new Error(data?.detail || "Erro no Agente de E-mails.");
   return data as {
     session_id: string | null;
-    status: "desconectado" | "consulta" | "resumo" | "categorias" | "coletando" | "confirmar" | "enviado" | "cancelado" | "ajuda";
+    status: "desconectado" | "consulta" | "resumo" | "categorias" | "coletando" | "confirmar" | "aguardando_aprovacao" | "aprovacao_concluida" | "falha_validacao" | "falha_cancelamento" | "enviado" | "cancelado" | "ajuda";
     response: string;
     messages?: NoraEmailMessage[];
   };
@@ -1501,8 +1501,8 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
     }
 
     if (intent === "email") {
-      setEmailSessionId(result.session_id);
-      setEmailAgentActive(Boolean(result.session_id && !["enviado", "cancelado", "consulta", "resumo", "desconectado", "ajuda"].includes(status)));
+      setEmailSessionId(status === "aprovacao_concluida" ? null : result.session_id);
+      setEmailAgentActive(Boolean(result.session_id && !["enviado", "cancelado", "consulta", "resumo", "desconectado", "ajuda", "aprovacao_concluida"].includes(status)));
       if (status === "enviado") window.dispatchEvent(new Event("emails:changed"));
     }
 
@@ -1630,8 +1630,8 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
         responseStatus = result.status;
         responseEmailMessages = normalizeEmailMessages(result.messages);
         responseApproval = normalizeApprovalCard((result as { approval?: unknown }).approval);
-        setEmailSessionId(result.session_id);
-        setEmailAgentActive(Boolean(result.session_id && !["enviado", "cancelado", "consulta", "resumo", "desconectado"].includes(result.status)));
+        setEmailSessionId(result.status === "aprovacao_concluida" ? null : result.session_id);
+        setEmailAgentActive(Boolean(result.session_id && !["enviado", "cancelado", "consulta", "resumo", "desconectado", "aprovacao_concluida"].includes(result.status)));
         if (result.status === "enviado") {
           window.dispatchEvent(new Event("emails:changed"));
         }

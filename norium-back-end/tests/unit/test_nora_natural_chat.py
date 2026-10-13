@@ -43,7 +43,7 @@ class NoraNaturalChatTests(unittest.IsolatedAsyncioTestCase):
             await nora_router._execute_natural_conversation(payload, owner())
         agenda.assert_called_once_with("agenda-test")
         team.assert_called_once_with("agenda-test")
-        email.assert_called_once_with("email-test")
+        email.assert_called_once_with("email-test", user_id="owner")
         commercial.assert_called_once_with("commercial-test")
         self.assertIsNone(payload.agenda_session_id)
         self.assertIsNone(payload.email_session_id)

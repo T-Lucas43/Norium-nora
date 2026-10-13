@@ -114,7 +114,7 @@ class CostCycleTests(unittest.IsolatedAsyncioTestCase):
         text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(content)).pages)
         self.assertIn("Ana <Teste> & Equipe", text)
         self.assertIn("openai/gpt-oss-20b", text)
-        self.assertIn("Limites por ciclo", text)
+        self.assertIn("Franquia por ciclo", text)
         self.assertIn("US$ 0,000225", text)
 
     async def test_cycle_api_access_validation_and_pdf(self):

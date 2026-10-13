@@ -22,6 +22,7 @@ from app.routers.auth_router import current_user
 from app.modules.operations.schemas import ReceiptCreate
 from app.modules.operations.service import finalize_email_agent_result, record_receipt
 from app.services.email_agent import shared_email_agent
+from app.services.nora_action_prefill import extract_action_parameters
 from app.services.gmail_service import GmailConfigError, GmailService
 
 router = APIRouter(tags=["Gmail"])
@@ -526,8 +527,12 @@ async def conversar_com_agente_email(payload: EmailAgentPayload, user: dict[str,
             message=payload.message,
             session_id=payload.session_id,
             user_id=tenant_id(user),
+            prefill=extract_action_parameters("email", payload.message),
         )
         return await finalize_email_agent_result(user, email_agent, result, surface="mail")
+    except HTTPException:
+        # Quota/permission failures retain their actionable status and detail.
+        raise
     except Exception as exc:
         logger.exception("Agente de e-mail falhou.")
         raise HTTPException(status_code=500, detail="O agente de e-mail falhou temporariamente.") from exc

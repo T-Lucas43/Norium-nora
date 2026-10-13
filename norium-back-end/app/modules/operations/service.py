@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextvars
+from contextlib import AsyncExitStack
 import hashlib
 import hmac
 import json
@@ -782,6 +783,23 @@ def _normalize_exact_attachments(values: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _normalize_exact_email(exact: dict[str, Any]) -> dict[str, Any]:
+    recipients = _normalize_exact_recipients(exact.get("to"))
+    if not recipients:
+        raise ValueError("Informe ao menos um destinatário válido.")
+    body = str(exact.get("body") or "").strip()
+    if not body:
+        raise ValueError("O corpo do e-mail não pode ficar vazio.")
+    return {
+        "to": recipients,
+        "cc": _normalize_exact_recipients(exact.get("cc")),
+        "bcc": _normalize_exact_recipients(exact.get("bcc")),
+        "subject": str(exact.get("subject") or "(sem assunto)").strip()[:180] or "(sem assunto)",
+        "body": body[:12000],
+        "attachments": _normalize_exact_attachments(exact.get("attachments")),
+    }
+
+
 async def create_exact_email_approval(
     user: dict[str, Any],
     exact: dict[str, Any],
@@ -790,20 +808,8 @@ async def create_exact_email_approval(
     """Create a digest-bound approval authorizing one exact Gmail send."""
     user_id = require_user_id(user)
     workspace = current_workspace_id()
-    recipients = _normalize_exact_recipients(exact.get("to"))
-    if not recipients:
-        raise ValueError("Informe ao menos um destinatário válido.")
-    body = str(exact.get("body") or "").strip()
-    if not body:
-        raise ValueError("O corpo do e-mail não pode ficar vazio.")
-    email_exact = {
-        "to": recipients,
-        "cc": _normalize_exact_recipients(exact.get("cc")),
-        "bcc": _normalize_exact_recipients(exact.get("bcc")),
-        "subject": str(exact.get("subject") or "(sem assunto)").strip()[:180] or "(sem assunto)",
-        "body": body[:12000],
-        "attachments": _normalize_exact_attachments(exact.get("attachments")),
-    }
+    email_exact = _normalize_exact_email(exact)
+    recipients = email_exact["to"]
     payload = {
         "kind": "nora_email_exact",
         "sessionId": session_id,
@@ -1184,20 +1190,101 @@ async def finalize_email_agent_result(
         cancel_id = result.get("cancelApprovalId")
         if cancel_id:
             try:
-                await decide_approval(user, str(cancel_id), ApprovalDecision(decision="cancelled", note="Rascunho cancelado no chat."))
+                current = await decide_approval(user, str(cancel_id), ApprovalDecision(decision="cancelled", note="Rascunho cancelado no chat."))
+                if current is None:
+                    raise ValueError("Aprovação não encontrada.")
+                if current.get("status") != "cancelled":
+                    return {**result, "status": "aprovacao_concluida", "response": "O rascunho foi encerrado, mas este pedido já teve uma decisão ou tentativa de envio. Confira o resultado em Operações; envios incertos precisam de verificação.", "approval": current}
             except Exception:
                 logger.warning("email_cancel_approval_failed")
+                return {**result, "status": "falha_cancelamento", "response": "Não consegui revogar o cartão de aprovação. Verifique a Central de aprovações antes de continuar; não preparei outro envio."}
         return result
     if status != "pronto_para_aprovacao":
+        invalidate_id = result.get("invalidateApprovalId")
+        if invalidate_id:
+            user_id = require_user_id(user)
+            async with approval_decision_lock(user_id, str(invalidate_id)):
+                current = next((item for item in await list_items(user_id, APPROVAL_DB) if item.get("id") == invalidate_id), None)
+                if current is None:
+                    raise ValueError("Não encontrei a aprovação para editar este rascunho.")
+                _verify_email_preview_binding(user_id, current, session_id)
+                await _decide_approval_unlocked(user, str(invalidate_id), ApprovalDecision(decision="cancelled", note="Rascunho em edição no chat."))
         return result
-    supersedes = result.get("supersedes")
-    if supersedes:
-        try:
-            await decide_approval(user, str(supersedes), ApprovalDecision(decision="cancelled", note="Substituída por nova prévia do chat."))
-        except Exception:
-            logger.warning("email_supersede_failed")
+    user_id = require_user_id(user)
+    sessions = getattr(agent, "sessions", None)
+    linked = sessions.get(session_id) if isinstance(sessions, dict) else None
+    # One transient draft prepares one persistent approval in this process.
+    # Persisted sessionId lookup also prevents a replay from creating another key.
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(approval_decision_lock(user_id, f"email-preview:{current_workspace_id()}:{session_id}"))
+        if linked is not None and hasattr(linked, "lock"):
+            await stack.enter_async_context(linked.lock)
+        return await _finalize_email_ready(user, agent, linked, result, surface)
+
+
+def _verify_email_preview_binding(user_id: str, current: dict[str, Any], session_id: str) -> None:
+    metadata = current.get("metadata") if isinstance(current.get("metadata"), dict) else {}
+    payload = current.get("payload") if isinstance(current.get("payload"), dict) else {}
+    requested_by = current.get("requestedBy") if isinstance(current.get("requestedBy"), dict) else {}
+    workspace = current_workspace_id()
+    if (
+        current.get("action") != "nora_email_send_exact"
+        or current.get("source") != "email"
+        or payload.get("kind") != "nora_email_exact"
+        or payload.get("sessionId") != session_id
+        or requested_by.get("id") != user_id
+        or metadata.get("workspace") != workspace
+        or metadata.get("version") != EMAIL_EXACT_VERSION
+    ):
+        raise ValueError("Esta aprovação não pertence ao rascunho neste ambiente.")
+    expected = approval_digest("nora_email_send_exact", "email", current.get("title") or "", current.get("description") or "", payload, workspace, user_id)
+    if not hmac.compare_digest(str(current.get("digest") or ""), expected):
+        raise ValueError("A aprovação foi alterada. Inicie um novo pedido para revisar o conteúdo exato.")
+
+
+async def _finalize_email_ready(user: dict[str, Any], agent: Any | None, linked: Any | None, result: dict[str, Any], surface: str) -> dict[str, Any]:
+    session_id = result.get("session_id")
+    user_id = require_user_id(user)
     try:
-        approval = await create_exact_email_approval(user, result.get("emailExact") or {}, session_id)
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError("O rascunho não possui uma sessão válida. Inicie um novo pedido.")
+        exact = _normalize_exact_email(result.get("emailExact") or {})
+        if agent is not None and (
+            linked is None or linked.cancelled or linked.user_id != user_id
+            or linked.workspace_id != current_workspace_id()
+            or linked.awaiting != "confirmacao"
+            or _normalize_exact_email(agent._exact_payload(linked)) != exact
+        ):
+            raise ValueError("O rascunho mudou ou foi cancelado. Revise a prévia atual antes de aprovar.")
+        items = await list_items(user_id, APPROVAL_DB)
+        approval_id = (linked.fields.get("_approval_id") if linked else None) or result.get("supersedes")
+        current = next((item for item in items if str(item.get("id")) == str(approval_id)), None) if approval_id else next((item for item in items if (item.get("payload") or {}).get("sessionId") == session_id and item.get("action") == "nora_email_send_exact"), None)
+        if approval_id and current is None:
+            raise ValueError("Não encontrei a aprovação deste rascunho. Inicie um novo pedido.")
+        approval = None
+        if current:
+            # Serialize replacement with the actual decision/send of the old card.
+            async with approval_decision_lock(user_id, str(current["id"])):
+                current = next(item for item in await list_items(user_id, APPROVAL_DB) if item.get("id") == current["id"])
+                _verify_email_preview_binding(user_id, current, session_id)
+                expiry = _parse_expiry(current.get("expiresAt"))
+                if expiry is None or expiry <= datetime.now(timezone.utc):
+                    raise ValueError("Esta aprovação expirou. Inicie um novo pedido para revisar a prévia.")
+                if current.get("status") == "pending":
+                    if current["payload"]["emailExact"] == exact:
+                        approval = current
+                    else:
+                        await _decide_approval_unlocked(user, str(current["id"]), ApprovalDecision(decision="cancelled", note="Substituída por nova prévia do chat."))
+                elif current.get("status") == "cancelled" and current.get("decisionNote") == "Rascunho em edição no chat.":
+                    pass  # Editing revoked the old card before collecting new data.
+                else:
+                    return {
+                        "session_id": session_id, "status": "aprovacao_concluida",
+                        "response": "Este pedido já tem uma decisão ou tentativa de envio registrada. Confira o resultado em Operações; para envio incerto, use Verificar envio. Nenhum novo envio foi preparado.",
+                        "fields": result.get("fields"), "preview": result.get("preview"), "approval": current,
+                    }
+        if approval is None:
+            approval = await create_exact_email_approval(user, exact, session_id)
     except ValueError as exc:
         return {
             "session_id": session_id,
@@ -1206,14 +1293,8 @@ async def finalize_email_agent_result(
             "fields": result.get("fields"),
             "preview": result.get("preview"),
         }
-    if agent is not None and session_id:
-        try:
-            sessions = getattr(agent, "sessions", None)
-            linked = sessions.get(session_id) if isinstance(sessions, dict) else None
-            if linked is not None:
-                linked.fields["_approval_id"] = approval["id"]
-        except Exception:
-            logger.warning("email_link_approval_failed")
+    if linked is not None:
+        linked.fields["_approval_id"] = approval["id"]
     if surface == "mail":
         response = "Prévia pronta. Aprove em Operações > Central de aprovações para enviar, ou peça um ajuste no chat."
     else:

@@ -7,9 +7,12 @@ All unknown findings and all other package versions remain blocking in Trivy.
 import argparse
 from datetime import datetime, timezone
 import hashlib
+from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
+import time
+import urllib.error
 import urllib.request
 
 CVE = "CVE-2026-92392"
@@ -17,22 +20,57 @@ PACKAGE = "libcurl3t64-gnutls"
 VERSION = "8.18.0-1ubuntu2.8"
 PURL = f"pkg:deb/ubuntu/{PACKAGE}@{VERSION}?arch=amd64&distro=ubuntu-26.04"
 EXPIRES = datetime(2026, 10, 15, 20, 33, tzinfo=timezone.utc)
-TRACKER = f"https://git.launchpad.net/ubuntu-cve-tracker/plain/active/{CVE}"
 CHANGELOG = f"https://changelogs.ubuntu.com/changelogs/pool/main/c/curl/curl_{VERSION}/changelog"
 NOTICE = "https://ubuntu.com/security/notices/USN-8927-1"
 
 
 def fetch(url):
-    with urllib.request.urlopen(url, timeout=45) as response:
-        if response.geturl() != url:
-            raise ValueError("Unexpected vendor redirect")
-        data = response.read(1024 * 1024 + 1)
+    for attempt in range(3):
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "Norium-release-verification/1.0"})
+            with urllib.request.urlopen(request, timeout=20) as response:
+                if response.geturl() != url:
+                    raise ValueError("Unexpected vendor redirect")
+                data = response.read(1024 * 1024 + 1)
+            break
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 2:
+                raise
+            time.sleep(attempt + 1)
     if len(data) > 1024 * 1024:
         raise ValueError("Vendor document exceeds limit")
     return data.decode("utf-8")
 
 
-def verify(report, provenance, installed_version, tracker, changelog, now):
+class NoticeParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.rows = []
+        self.text = []
+        self.row = None
+        self.ignored = 0
+        self.table = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style"}: self.ignored += 1
+        if tag == "table": self.table += 1
+        if tag == "tr": self.row = []
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style"}: self.ignored = max(0, self.ignored - 1)
+        if tag == "tr" and self.row is not None:
+            self.rows.append((self.table, " ".join(self.row)))
+            self.row = None
+
+    def handle_data(self, data):
+        if self.ignored: return
+        clean = " ".join(data.split())
+        if clean:
+            self.text.append(clean)
+            if self.row is not None: self.row.append(clean)
+
+
+def verify(report, provenance, installed_version, notice, changelog, now):
     if report.get("Metadata", {}).get("ImageID") != provenance["dockerImageId"]:
         raise ValueError("Scanner report does not match exact image")
     if not re.fullmatch(r"[0-9a-f]{40}", provenance["commitSha"]):
@@ -56,9 +94,22 @@ def verify(report, provenance, installed_version, tracker, changelog, now):
         raise ValueError("Unexpected image platform")
     if installed_version.strip() != VERSION:
         raise ValueError("Installed package is not the reviewed version")
-    if not re.search(rf"^Candidate: {CVE}$", tracker, re.M):
-        raise ValueError("Wrong vendor advisory")
-    if not re.search(rf"^resolute_curl: released \({re.escape(VERSION)}\)$", tracker, re.M):
+    parsed = NoticeParser()
+    parsed.feed(notice)
+    text = " ".join(parsed.text)
+    if "USN-8927-1: curl vulnerabilities" not in text or CVE not in text:
+        raise ValueError("Wrong vendor notice")
+    release, previous_table = "", None
+    rows = []
+    for table, row in parsed.rows:
+        if table != previous_table: release = ""
+        previous_table = table
+        match = re.search(r"\b(\d{2}\.\d{2} LTS [a-z]+)\b", row)
+        if match: release = match.group(1)
+        # Canonical uses rowspan: subsequent package rows inherit the release.
+        if release == "26.04 LTS resolute" and re.search(rf"\b{PACKAGE}\s*[–-]\s*{re.escape(VERSION)}\b", row):
+            rows.append(row)
+    if len(rows) != 1:
         raise ValueError("Vendor no longer confirms correction")
     first_release = changelog.split("\ncurl (", 1)[0]
     if not first_release.startswith(f"curl ({VERSION}) resolute-security;"):
@@ -88,12 +139,12 @@ def main():
     provenance = json.loads((root / "image-provenance.json").read_text())
     needed = any(item.get("VulnerabilityID") == CVE and item.get("PkgName") == PACKAGE
                  for result in report.get("Results", []) for item in result.get("Vulnerabilities") or [])
-    tracker, changelog = (fetch(TRACKER), fetch(CHANGELOG)) if needed else ("", "")
+    notice, changelog = (fetch(NOTICE), fetch(CHANGELOG)) if needed else ("", "")
     now = datetime.now(timezone.utc)
-    vex = verify(report, provenance, args.installed_version, tracker, changelog, now)
+    vex = verify(report, provenance, args.installed_version, notice, changelog, now)
     sources = [{"url": url, "text": content,
                 "sha256": hashlib.sha256(content.encode()).hexdigest()}
-               for url, content in ((TRACKER, tracker), (CHANGELOG, changelog)) if content]
+               for url, content in ((NOTICE, notice), (CHANGELOG, changelog)) if content]
     (root / "ubuntu-vendor-fix.openvex.json").write_text(json.dumps(vex, indent=2) + "\n")
     (root / "ubuntu-vendor-fix-receipt.json").write_text(json.dumps({
         "commitSha": provenance["commitSha"], "dockerImageId": provenance["dockerImageId"],

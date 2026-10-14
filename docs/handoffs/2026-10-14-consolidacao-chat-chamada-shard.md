@@ -114,3 +114,13 @@ pendências operacionais C–E, jurídicas ou de ativação dos workers.
   de operação, sem SDP, candidatos, IP, mídia, tickets ou conteúdo. O ensaio
   focado antecipado não substitui o gate obrigatório de 54 cenários e carga.
 - O deploy ainda não foi realizado; homologação permanece em `637106e` saudável.
+- A apresentação travava com `screenChangePending=true`, sem erro RTC: o
+  recebimento de SDP/ICE do peer existente aguardava a fila de replaceTrack /
+  setParameters, que podia aguardar essa mesma resposta SDP. A atualização de
+  mídia fica na criação do peer e nos comandos próprios de mídia; sinais de
+  peer existente entram diretamente na fila SDP. Regressão reproduz troca de
+  vídeo pendente até a resposta remota; 8 testes focados e TypeScript passaram.
+- O tracker Canonical retornou 503 no runner. A comprovação agora usa o aviso
+  USN oficial e o changelog oficial, com três tentativas limitadas, TLS e URLs
+  fixos. O pacote é vinculado à seção Ubuntu 26.04 da tabela, incluindo rowspan.
+  Não utiliza espelhos de terceiros nem documentos locais como fallback.

@@ -2,7 +2,7 @@ import copy
 from datetime import datetime, timezone
 import unittest
 
-from verify_ubuntu_curl_fix import CVE, EXPIRES, PACKAGE, PURL, VERSION, verify
+from scripts.verify_ubuntu_curl_fix import CVE, EXPIRES, PACKAGE, PURL, VERSION, verify
 
 
 class CanonicalFixVerificationTests(unittest.TestCase):
@@ -14,13 +14,13 @@ class CanonicalFixVerificationTests(unittest.TestCase):
                        "Results": [{"Vulnerabilities": [{"VulnerabilityID": CVE, "PkgName": PACKAGE,
                            "InstalledVersion": VERSION, "PkgIdentifier": {"PURL": PURL},
                            "DataSource": {"ID": "ubuntu"}}]}]}
-        self.tracker = f"Candidate: {CVE}\nresolute_curl: released ({VERSION})\n"
+        self.notice = f"<h1>USN-8927-1: curl vulnerabilities</h1><p>{CVE}</p><table><tr><td>26.04 LTS resolute</td><td>{PACKAGE} – {VERSION}</td></tr></table>"
         self.changelog = f"curl ({VERSION}) resolute-security; urgency=medium\n - debian/patches/{CVE}.patch: cleanup\n"
         self.now = datetime(2026, 10, 14, 22, tzinfo=timezone.utc)
 
     def call(self, **overrides):
         args = dict(report=self.report, provenance=self.provenance, installed_version=VERSION,
-                    tracker=self.tracker, changelog=self.changelog, now=self.now)
+                    notice=self.notice, changelog=self.changelog, now=self.now)
         args.update(overrides)
         return verify(**args)
 
@@ -43,7 +43,15 @@ class CanonicalFixVerificationTests(unittest.TestCase):
     def test_updated_database_needs_no_statement(self):
         self.report["Results"][0]["Vulnerabilities"] = None
         self.assertEqual(self.call()["statements"], [])
-        self.assertEqual(self.call(now=EXPIRES.replace(day=16), tracker="", changelog="")["statements"], [])
+        self.assertEqual(self.call(now=EXPIRES.replace(day=16), notice="", changelog="")["statements"], [])
+
+    def test_real_rowspan_layout_keeps_package_bound_to_its_release(self):
+        notice = f"<h1>USN-8927-1: curl vulnerabilities</h1><p>{CVE}</p><table><tr><td rowspan='2'>26.04 LTS resolute</td><td>curl – {VERSION}</td></tr><tr><td>{PACKAGE} – {VERSION}</td></tr></table>"
+        self.assertEqual(len(self.call(notice=notice)["statements"]), 1)
+        with self.assertRaises(ValueError):
+            self.call(notice=notice.replace("<tr><td>" + PACKAGE, "<tr><td>24.04 LTS noble</td><td>" + PACKAGE))
+        with self.assertRaises(ValueError):
+            self.call(notice=notice.replace("</tr><tr><td>" + PACKAGE, "</tr></table><table><tr><td>" + PACKAGE))
 
     def test_old_package_different_platform_or_image_fail_closed(self):
         for modification in ("version", "platform", "image", "purl", "source", "duplicate"):
@@ -59,8 +67,9 @@ class CanonicalFixVerificationTests(unittest.TestCase):
                 with self.assertRaises(ValueError): self.call(report=report, provenance=provenance)
 
     def test_vendor_disagreement_expiration_or_installed_mismatch_fail_closed(self):
-        for overrides in ({"tracker": self.tracker.replace("released", "needed")},
-                          {"tracker": self.tracker.replace(CVE, "CVE-2026-00000")},
+        for overrides in ({"notice": self.notice.replace(VERSION, "8.18.0-1ubuntu2.7")},
+                          {"notice": self.notice.replace(CVE, "CVE-2026-00000")},
+                          {"notice": self.notice.replace("26.04", "24.04")},
                           {"changelog": self.changelog.replace(CVE, "CVE-2026-00000")},
                           {"installed_version": "8.18.0-1ubuntu2.7"},
                           {"now": EXPIRES.replace(day=16)},

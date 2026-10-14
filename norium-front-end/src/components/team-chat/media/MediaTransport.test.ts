@@ -89,6 +89,57 @@ describe("MediaTransport", () => {
     );
   });
 
+  it("processa a resposta SDP mesmo quando a troca de video aguarda essa resposta", async () => {
+    let peer!: PendingMediaPeer;
+    let releaseReplacement!: () => void;
+    const pendingReplacement = new Promise<void>((resolve) => { releaseReplacement = resolve; });
+    class PendingMediaPeer {
+      signalingState: RTCSignalingState = "stable";
+      localDescription: RTCSessionDescription | null = null;
+      remoteDescription: RTCSessionDescription | null = null;
+      onicecandidate = null;
+      oniceconnectionstatechange = null;
+      ontrack = null;
+      onconnectionstatechange = null;
+      onnegotiationneeded = null;
+      senders: RTCRtpSender[] = [];
+      createOffer = vi.fn().mockResolvedValue({ type: "offer", sdp: "local" });
+      createAnswer = vi.fn().mockResolvedValue({ type: "answer", sdp: "answer" });
+      setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        this.localDescription = description as RTCSessionDescription;
+        this.signalingState = description.type === "offer" ? "have-local-offer" : "stable";
+      });
+      setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        this.remoteDescription = description as RTCSessionDescription;
+        this.signalingState = description.type === "offer" ? "have-remote-offer" : "stable";
+        releaseReplacement();
+      });
+      addIceCandidate = vi.fn().mockResolvedValue(undefined);
+      close = vi.fn();
+      addTransceiver() {
+        const sender = { track: null, replaceTrack: vi.fn().mockResolvedValue(undefined) } as unknown as RTCRtpSender;
+        this.senders.push(sender);
+        return { sender } as RTCRtpTransceiver;
+      }
+      constructor() { peer = this; }
+    }
+    vi.stubGlobal("RTCPeerConnection", PendingMediaPeer);
+    const transport = new MeshMediaTransport({ emitSignal: vi.fn().mockReturnValue(true), onConnected: vi.fn(), onStatus: vi.fn() }, {});
+    const media = { localStream: null, screenStream: null, screenShareQuality: "1080p" as const, screenShareFps: 30 as const };
+    await transport.open({ callId: "call", selfUserId: "owner", clientId: "owner-tab" }, media);
+    await transport.receive({ type: "participant-joined", callId: "call", userId: "member", clientId: "member-tab" });
+    vi.mocked(peer.senders[2].replaceTrack).mockReturnValueOnce(pendingReplacement);
+    const camera = { kind: "video", enabled: true, readyState: "live" } as MediaStreamTrack;
+    const updating = transport.updateLocalMedia({ ...media, outgoingVideoTrack: camera });
+    await vi.waitFor(() => expect(peer.senders[2].replaceTrack).toHaveBeenCalledWith(camera));
+    await transport.receive({ type: "signal", callId: "call", userId: "member", clientId: "member-tab", signal: { type: "answer", sdp: "remote" } });
+    await updating;
+    expect(peer.setRemoteDescription).toHaveBeenCalledWith({ type: "answer", sdp: "remote" });
+    expect(peer.createOffer).toHaveBeenCalledTimes(2);
+    expect(peer.close).not.toHaveBeenCalled();
+    await transport.close();
+  });
+
   it.each(["negotiation", "failed"] as const)("substitui a aba e ignora sinal, saida e rejeicao atrasados (%s)", async (failureEvent) => {
     const peers: TestPeer[] = [];
     class TestPeer {

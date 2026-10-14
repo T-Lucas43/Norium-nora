@@ -356,6 +356,7 @@ export class MeshMediaTransport implements MediaTransport {
     const callId = this.call?.callId;
     if (!callId || userId === this.call?.selfUserId) return null;
     let peer = this.peers.get(userId);
+    const created = !peer;
     if (!peer) {
       peer = new RTCPeerConnection(this.configuration);
       this.peers.set(userId, peer);
@@ -399,7 +400,10 @@ export class MeshMediaTransport implements MediaTransport {
         });
       };
     }
-    await this.applyViewerVideoPreference(userId);
+    // Incoming SDP/ICE for an existing peer must not wait behind replaceTrack
+    // or setParameters. Those browser operations can themselves wait for that
+    // SDP, so applying media before receiving the answer creates a deadlock.
+    if (created) await this.applyViewerVideoPreference(userId);
     if (createOffer) await this.negotiate(userId, peer);
     this.sendVideoPreference(userId);
     return peer;

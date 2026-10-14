@@ -60,7 +60,11 @@ describe("MediaTransport", () => {
     const transport = new MeshMediaTransport({ emitSignal, onConnected: vi.fn(), onStatus: vi.fn() }, {});
     const media = { localStream: null, screenStream: null, screenShareQuality: "1080p" as const, screenShareFps: 30 as const };
     transport.open({ callId: "call_current", selfUserId: "owner", clientId: "owner-tab" }, media);
+    await transport.receive({ type: "signal", callId: "call_current", userId: "member", clientId: "member-tab", signal: { candidate: "synthetic-initial-candidate" } });
+    const earlyPeer = peer!;
     await transport.receive({ type: "participant-joined", callId: "call_current", userId: "member", clientId: "member-tab" });
+    expect(peer!).toBe(earlyPeer);
+    expect(earlyPeer.close).not.toHaveBeenCalled();
     expect(peer!.signalingState).toBe("have-local-offer");
     const camera = { kind: "video", enabled: true, readyState: "live" } as MediaStreamTrack;
     await transport.updateLocalMedia({ ...media, outgoingVideoTrack: camera });
@@ -68,6 +72,7 @@ describe("MediaTransport", () => {
     expect(peer!.createOffer).toHaveBeenCalledTimes(1);
     await transport.receive({ type: "signal", callId: "call_current", userId: "member", clientId: "member-tab",
       signal: { type: "answer", sdp: "remote" } });
+    expect(earlyPeer.addIceCandidate).toHaveBeenCalledWith({ candidate: "synthetic-initial-candidate" });
     expect(peer!.senders[2].replaceTrack).toHaveBeenCalledWith(camera);
     expect(peer!.createOffer).toHaveBeenCalledTimes(2);
     expect(emitSignal.mock.calls.filter(call => call[2].type === "offer")).toHaveLength(2);

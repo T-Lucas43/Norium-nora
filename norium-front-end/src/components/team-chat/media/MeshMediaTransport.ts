@@ -115,6 +115,7 @@ export class MeshMediaTransport implements MediaTransport {
   private readonly pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private readonly negotiations = new Map<string, PeerNegotiationState>();
   private readonly remoteClientIds = new Map<string, string>();
+  private readonly joinedClients = new Set<string>();
   private readonly remoteStreams = new Map<string, MediaStream>();
   private readonly screenRecoveryTimers = new Map<string, number>();
   private qualityTimer: number | null = null;
@@ -222,7 +223,11 @@ export class MeshMediaTransport implements MediaTransport {
       // RTCPeerConnection is not. Always discard the remote peer before the
       // resumed participant negotiates so media cannot remain attached to the
       // document that just closed.
-      if (this.peers.has(event.userId)) this.closePeer(event.userId);
+      // A peer's offer can arrive before its admission notification. That
+      // first notification must retain the negotiation and ICE candidates.
+      // A later admission still replaces the browser peer on reload.
+      if (this.peers.has(event.userId) && this.joinedClients.has(event.userId)) this.closePeer(event.userId);
+      this.joinedClients.add(event.userId);
       if (clientId) this.remoteClientIds.set(event.userId, clientId);
       await this.createPeer(event.userId, true);
       return;
@@ -262,6 +267,7 @@ export class MeshMediaTransport implements MediaTransport {
     this.pendingCandidates.clear();
     this.negotiations.clear();
     this.remoteClientIds.clear();
+    this.joinedClients.clear();
     this.remoteStreams.forEach((stream) => stream.getTracks().forEach((track) => { track.onended = null; }));
     this.remoteStreams.clear();
     this.screenRecoveryTimers.forEach((timer) => window.clearTimeout(timer));
@@ -613,6 +619,7 @@ export class MeshMediaTransport implements MediaTransport {
     this.pendingCandidates.delete(userId);
     this.negotiations.delete(userId);
     this.remoteClientIds.delete(userId);
+    this.joinedClients.delete(userId);
     this.remoteStreams.get(userId)?.getTracks().forEach((track) => { track.onended = null; });
     this.remoteStreams.delete(userId);
     this.publishRemoteStreams();

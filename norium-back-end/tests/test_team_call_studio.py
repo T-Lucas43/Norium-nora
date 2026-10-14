@@ -6,6 +6,7 @@ import unittest
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from weakref import WeakValueDictionary
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -32,7 +33,7 @@ class CallStudioTests(unittest.IsolatedAsyncioTestCase):
             patch.object(library, "brainstorm_lock", asyncio.Lock()),
             patch.object(library, "read_user_db", side_effect=lambda tenant, _db, default: studio.read_json_file(Path(self.temp.name) / f"library-{tenant}.json", default)),
             patch.object(library, "write_user_db", side_effect=lambda tenant, _db, data: studio.write_json_file(Path(self.temp.name) / f"library-{tenant}.json", data)),
-            patch.object(team, "chat_lock", asyncio.Lock()),
+            patch.object(team, "_chat_locks", WeakValueDictionary()),
             patch.object(team, "_call_coordinator_instance", None),
             patch.object(team, "team_chat_path", side_effect=lambda tenant: str(Path(self.temp.name) / f"{tenant}.json")),
             patch.object(team, "read_user_store", AsyncMock(return_value={"users": [self.owner, self.member, self.other]})),

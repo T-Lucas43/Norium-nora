@@ -106,7 +106,7 @@ async def get_studio(call_id: str, clientId: str = Query(min_length=1, max_lengt
     team.require_team_chat(user)
     team_id = team.team_id_for(user)
     await team.active_calls_snapshot(team_id)
-    async with team.chat_lock:
+    async with team.chat_lock_for(team_id):
         call = await joined_call(team_id, call_id, clientId, user)
         session = await asyncio.to_thread(read_current_studio, team_id, call)
     return {"session": public_session(session), "canUseNora": team.can_use_nora(user)}
@@ -118,7 +118,7 @@ async def start_studio(call_id: str, payload: StudioStart,
     team.require_team_chat(user)
     team_id = team.team_id_for(user)
     await team.active_calls_snapshot(team_id)
-    async with team.chat_lock:
+    async with team.chat_lock_for(team_id):
         call = await joined_call(team_id, call_id, payload.clientId, user)
         if call.get("hostUserId") != str(user["id"]):
             raise HTTPException(403, "Somente o organizador pode abrir ou encerrar o estúdio.")
@@ -142,7 +142,7 @@ async def start_studio(call_id: str, payload: StudioStart,
             session.pop("saveDecision", None)
         session["revision"] += 1
         session["updatedAt"] = team.now_iso()
-        await asyncio.to_thread(write_json_file, studio_path(team_id, call_id), session)
+        await team.complete_document_worker(write_json_file, studio_path(team_id, call_id), session)
     await notify(team_id, call, session)
     return {"session": public_session(session)}
 
@@ -153,7 +153,7 @@ async def finish_studio(call_id: str, payload: StudioFinish,
     team.require_team_chat(user)
     team_id = team.team_id_for(user)
     await team.active_calls_snapshot(team_id)
-    async with team.chat_lock:
+    async with team.chat_lock_for(team_id):
         call = await joined_call(team_id, call_id, payload.clientId, user)
         if call.get("hostUserId") != str(user["id"]):
             raise HTTPException(403, "Somente o organizador pode decidir se a sessão será salva.")
@@ -172,7 +172,7 @@ async def finish_studio(call_id: str, payload: StudioFinish,
         session["active"] = False
         session["revision"] += 1
         session["updatedAt"] = team.now_iso()
-        await asyncio.to_thread(write_json_file, studio_path(team_id, call_id), session)
+        await team.complete_document_worker(write_json_file, studio_path(team_id, call_id), session)
     await notify(team_id, call, session)
     return {"session": public_session(session)}
 
@@ -188,7 +188,7 @@ async def ask_nora(call_id: str, payload: StudioNora,
     team_id, user_id = team.team_id_for(user), str(user["id"])
     key = (team_id, call_id)
     await team.active_calls_snapshot(team_id)
-    async with team.chat_lock:
+    async with team.chat_lock_for(team_id):
         call = await joined_call(team_id, call_id, payload.clientId, user)
         session = await asyncio.to_thread(read_current_studio, team_id, call)
         if not session or not session.get("active"):
@@ -223,7 +223,7 @@ async def ask_nora(call_id: str, payload: StudioNora,
         if not answer.strip() or len(answer) > 8000:
             raise HTTPException(503, "A resposta da Nora não pôde ser incluída. Faça um pedido mais curto.")
         await team.active_calls_snapshot(team_id)
-        async with team.chat_lock:
+        async with team.chat_lock_for(team_id):
             call = await joined_call(team_id, call_id, payload.clientId, user)
             session = await asyncio.to_thread(read_current_studio, team_id, call)
             if not session or session["id"] != source_id or not session.get("active"):
@@ -240,7 +240,7 @@ async def ask_nora(call_id: str, payload: StudioNora,
                 "instruction": payload.instruction or actions[payload.action], "response": answer, "createdAt": team.now_iso()}])[-50:]
             session["revision"] += 1
             session["updatedAt"] = team.now_iso()
-            await asyncio.to_thread(write_json_file, studio_path(team_id, call_id), session)
+            await team.complete_document_worker(write_json_file, studio_path(team_id, call_id), session)
         await notify(team_id, call, session)
         return {"session": public_session(session)}
     finally:
@@ -310,7 +310,7 @@ async def mutate_studio(call_id: str, payload: StudioOperation,
     team.require_team_chat(user)
     team_id = team.team_id_for(user)
     await team.active_calls_snapshot(team_id)
-    async with team.chat_lock:
+    async with team.chat_lock_for(team_id):
         call = await joined_call(team_id, call_id, payload.clientId, user)
         session = await asyncio.to_thread(read_current_studio, team_id, call)
         if session is None:
@@ -326,6 +326,6 @@ async def mutate_studio(call_id: str, payload: StudioOperation,
         session["operations"] = (session.get("operations", []) + [operation_key])[-1000:]
         session["revision"] += 1
         session["updatedAt"] = team.now_iso()
-        await asyncio.to_thread(write_json_file, studio_path(team_id, call_id), session)
+        await team.complete_document_worker(write_json_file, studio_path(team_id, call_id), session)
     await notify(team_id, call, session)
     return {"session": public_session(session)}

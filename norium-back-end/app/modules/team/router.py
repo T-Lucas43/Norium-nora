@@ -13,7 +13,7 @@ import secrets
 import time
 import uuid
 import zlib
-from weakref import WeakKeyDictionary
+from weakref import WeakKeyDictionary, WeakValueDictionary
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -32,7 +32,9 @@ from app.infrastructure.persistence import files as persistent_files
 from app.infrastructure.persistence import postgres_store
 from app.infrastructure import auth_sessions as sessions
 from app.infrastructure.async_session_validation import FreshSessionValidator
-from app.modules.team.call_adapters import CallbackCallPublisher, CallbackTeamDirectory, JsonCallStateStore
+from app.modules.team.call_adapters import (
+    CallbackCallPublisher, CallbackTeamDirectory, JsonCallStateStore, complete_document_worker,
+)
 from app.modules.team.call_configuration import mesh_max_participants_from_environment
 from app.modules.team.call_release import CallReleasePolicy
 from app.modules.team.call_observability import CLIENT_EVENTS, EventBudget, call_metrics
@@ -82,7 +84,7 @@ from app.routers.inbox_router import record_event
 from app.services.calendar_service import CalendarService
 
 router = APIRouter(prefix="/api/team-chat", tags=["Chat interno"])
-chat_lock = asyncio.Lock()
+_chat_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 UPLOAD_DIR = get_data_root() / "team_chat_uploads"
 if not (postgres_store.configured() or postgres_store.required()):
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -398,6 +400,16 @@ def team_chat_path(team_id: str) -> str:
     return get_user_db_path(team_id, "team_chat")
 
 
+def chat_lock_for(team_id: str) -> asyncio.Lock:
+    # Include the workspace and normalize path aliases without probing disk.
+    key = os.path.normcase(os.path.abspath(team_chat_path(team_id)))
+    lock = _chat_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _chat_locks[key] = lock
+    return lock
+
+
 def empty_store() -> dict[str, Any]:
     return {
         "messages": [],
@@ -456,7 +468,7 @@ def clear_meeting_chat(call: dict[str, Any]) -> None:
             if name and Path(name).name == name:
                 persistent_files.delete(UPLOAD_DIR / name)
 async def read_pruned_chat_store(team_id: str) -> dict[str, Any]:
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         return await asyncio.to_thread(read_chat_store, team_id)
 
 
@@ -587,7 +599,7 @@ async def accessible_threads(user: dict[str, Any], store: dict[str, Any]) -> lis
 @router.get("/threads")
 async def list_threads(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     require_team_chat(user)
-    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    store = await read_pruned_chat_store(team_id_for(user))
     user_id = str(user["id"])
     threads = await accessible_threads(user, store)
     by_id = {thread["id"]: thread for thread in threads}
@@ -619,7 +631,7 @@ async def list_threads(user: dict[str, Any] = Depends(current_user)) -> dict[str
 async def pin_thread(payload: PinThreadPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     require_team_chat(user)
     team_id, user_id = team_id_for(user), str(user["id"])
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         allowed = {thread["id"] for thread in await accessible_threads(user, store)}
         if payload.threadId not in allowed:
@@ -631,7 +643,7 @@ async def pin_thread(payload: PinThreadPayload, user: dict[str, Any] = Depends(c
         else:
             pins.discard(payload.threadId)
         preferences[user_id] = sorted(pins)
-        await asyncio.to_thread(write_chat_store, team_id, store)
+        await complete_document_worker(write_chat_store, team_id, store)
     await manager.send_to_users(team_id, {user_id}, {"type": "TEAM_THREADS_UPDATED"})
     return {"threadId": payload.threadId, "pinned": payload.pinned}
 
@@ -764,11 +776,11 @@ async def append_team_message_for_user(
     }
     if recipients is not None:
         message["activityRecipientIds"] = sorted(recipients)
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         store.setdefault("messages", []).append(message)
         store["messages"] = store["messages"][-2000:]
-        await asyncio.to_thread(write_chat_store, team_id, store)
+        await complete_document_worker(write_chat_store, team_id, store)
     if recipients is None:
         await manager.broadcast(team_id, {"type": "TEAM_CHAT_MESSAGE", "message": message})
     else:
@@ -800,7 +812,7 @@ async def respond_to_nora_mention(
 ) -> None:
     """Responde em segundo plano para nao atrasar o envio da mensagem da equipe."""
     try:
-        store = await asyncio.to_thread(read_chat_store, team_id)
+        store = await read_pruned_chat_store(team_id)
         from app.core.request_context import set_ai_user_id
         set_ai_user_id(requester_id)
         messages = [item for item in store.get("messages", []) if isinstance(item, dict)]
@@ -918,7 +930,7 @@ async def _call_active_member_ids(actor: CallActor) -> set[str]:
 
 
 async def _call_subteam_member_ids(actor: CallActor, subteam_id: str) -> set[str] | None:
-    async with chat_lock:
+    async with chat_lock_for(actor.team_id):
         store = await asyncio.to_thread(read_chat_store, actor.team_id)
     subteam = next(
         (
@@ -961,7 +973,7 @@ def call_coordinator() -> CallCoordinator:
         store = JsonCallStateStore(
             read_document=lambda team_id: read_chat_store(team_id),
             write_document=lambda team_id, document: write_chat_store(team_id, document),
-            lock=chat_lock,
+            lock=chat_lock_for,
             on_call_removed=clear_meeting_chat,
         )
         directory = CallbackTeamDirectory(
@@ -1153,7 +1165,7 @@ async def list_meeting_messages(call_id: str, clientId: str = Query(min_length=1
     require_team_chat(user)
     team_id = team_id_for(user)
     await active_calls_snapshot(team_id)
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         call = require_joined_call(store, call_id, str(user["id"]), clientId)
         return {"messages": call.get("meetingMessages", [])}
@@ -1167,7 +1179,7 @@ async def send_meeting_message(call_id: str, payload: SendMeetingMessagePayload,
         raise HTTPException(status_code=400, detail="Escreva uma mensagem ou anexe um arquivo.")
     team_id, user_id = team_id_for(user), str(user["id"])
     await active_calls_snapshot(team_id)
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         call = require_joined_call(store, call_id, user_id, payload.clientId)
         messages = call.setdefault("meetingMessages", [])
@@ -1178,7 +1190,7 @@ async def send_meeting_message(call_id: str, payload: SendMeetingMessagePayload,
                    "text": payload.text.strip(), "createdAt": now_iso(),
                    "attachments": await asyncio.to_thread(save_attachments, payload.attachments)}
         messages.append(message)
-        await asyncio.to_thread(write_chat_store, team_id, store)
+        await complete_document_worker(write_chat_store, team_id, store)
         recipients = set(call.get("joinedClients", {}))
     await manager.send_to_users(team_id, recipients, {
         "type": "CALL_CHAT_MESSAGE", "callId": call_id, "message": message,
@@ -1190,7 +1202,7 @@ async def send_meeting_message(call_id: str, payload: SendMeetingMessagePayload,
 async def list_subteams(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user.get("id") or "")
-    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    store = await read_pruned_chat_store(team_id_for(user))
     subteams = [
         item
         for item in store.get("subteams", [])
@@ -1218,12 +1230,12 @@ async def create_subteam(payload: SubteamCreatePayload, user: dict[str, Any] = D
         "updatedAt": now,
     }
     team_id = team_id_for(user)
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         if any(str(item.get("name") or "").casefold() == subteam["name"].casefold() for item in store.get("subteams", []) if isinstance(item, dict)):
             raise HTTPException(status_code=409, detail="Ja existe uma subequipe com este nome.")
         store.setdefault("subteams", []).append(subteam)
-        await asyncio.to_thread(write_chat_store, team_id, store)
+        await complete_document_worker(write_chat_store, team_id, store)
     await manager.send_to_users(team_id, set(subteam["memberIds"]), {"type": "SUBTEAM_UPDATED", "subteam": subteam})
     return {"subteam": subteam}
 
@@ -1233,7 +1245,7 @@ async def update_subteam(subteam_id: str, payload: SubteamUpdatePayload, user: d
     require_team_chat(user)
     team_id = team_id_for(user)
     team_members = await valid_team_member_ids(user)
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         current = subteam_or_404(store, subteam_id)
         if not can_manage_subteam(user, current):
@@ -1251,7 +1263,7 @@ async def update_subteam(subteam_id: str, payload: SubteamUpdatePayload, user: d
             updates["memberIds"] = sorted(requested_members & team_members)
         updated = {**current, **updates, "updatedAt": now_iso()}
         store["subteams"] = [updated if item is current else item for item in store.get("subteams", [])]
-        await asyncio.to_thread(write_chat_store, team_id, store)
+        await complete_document_worker(write_chat_store, team_id, store)
     notified = {str(item) for item in current.get("memberIds", [])} | {str(item) for item in updated.get("memberIds", [])}
     await manager.send_to_users(team_id, notified, {"type": "SUBTEAM_UPDATED", "subteam": updated})
     return {"subteam": updated}
@@ -1301,7 +1313,7 @@ async def mark_messages_read(payload: MarkMessagesReadPayload, user: dict[str, A
     team_id = team_id_for(user)
     changed: list[tuple[str, dict[str, dict[str, Any]], set[str]]] = []
     viewed_at = now_iso()
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         for message in store.get("messages", []):
             if not isinstance(message, dict) or str(message.get("id") or "") not in requested_ids:
@@ -1317,7 +1329,7 @@ async def mark_messages_read(payload: MarkMessagesReadPayload, user: dict[str, A
             recipients = await message_participant_ids(message, user, store)
             changed.append((str(message["id"]), read_by, recipients))
         if changed:
-            await asyncio.to_thread(write_chat_store, team_id, store)
+            await complete_document_worker(write_chat_store, team_id, store)
 
     for message_id, read_by, recipients in changed:
         await manager.send_to_users(
@@ -1343,7 +1355,7 @@ async def toggle_message_reaction(
     team_id = team_id_for(user)
     reactions: list[dict[str, Any]] = []
     recipients: set[str] = set()
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         message = next(
             (
@@ -1382,7 +1394,7 @@ async def toggle_message_reaction(
             normalized.append({"emoji": emoji, "userIds": [user_id]})
         reactions = normalized
         message["metadata"] = {**metadata, "reactions": reactions}
-        await asyncio.to_thread(write_chat_store, team_id, store)
+        await complete_document_worker(write_chat_store, team_id, store)
 
     await manager.send_to_users(
         team_id,
@@ -1409,7 +1421,7 @@ async def persist_message(
         raise HTTPException(status_code=400, detail="Digite uma mensagem ou anexe um arquivo.")
 
     team_id = team_id_for(user)
-    store = await asyncio.to_thread(read_chat_store, team_id)
+    store = await read_pruned_chat_store(team_id)
     participant_ids = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
     activity_metadata = dict(activity_metadata or {})
     if activity_metadata:
@@ -1447,11 +1459,11 @@ async def persist_message(
         },
         "createdAt": now_iso(),
     }
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         store.setdefault("messages", []).append(message)
         store["messages"] = store["messages"][-2000:]
-        await asyncio.to_thread(write_chat_store, team_id, store)
+        await complete_document_worker(write_chat_store, team_id, store)
 
     if activity_metadata:
         participant_ids = {participant for participant in participant_ids if message_visible(message, participant)}
@@ -1594,7 +1606,7 @@ async def schedule_meeting(payload: ScheduleMeetingPayload, user: dict[str, Any]
     if starts_at > current_time + timedelta(days=730):
         raise HTTPException(status_code=400, detail="A reuniao deve ser agendada para os proximos 2 anos.")
 
-    store = await asyncio.to_thread(read_chat_store, team_id)
+    store = await read_pruned_chat_store(team_id)
     allowed_participants = await thread_participant_ids(
         user,
         store,
@@ -1631,13 +1643,13 @@ async def schedule_meeting(payload: ScheduleMeetingPayload, user: dict[str, Any]
         "createdAt": now_iso(),
     }
     message = meeting_message(meeting, user)
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         current_store = await asyncio.to_thread(read_chat_store, team_id)
         current_store.setdefault("scheduledMeetings", []).append(meeting)
         current_store["scheduledMeetings"] = current_store["scheduledMeetings"][-500:]
         current_store.setdefault("messages", []).append(message)
         current_store["messages"] = current_store["messages"][-2000:]
-        await asyncio.to_thread(write_chat_store, team_id, current_store)
+        await complete_document_worker(write_chat_store, team_id, current_store)
 
     await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": message})
     await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_MEETING_SCHEDULED", "meeting": meeting})
@@ -1658,7 +1670,7 @@ async def add_scheduled_meeting_to_calendar(meeting_id: str, user: dict[str, Any
     require_team_chat(user)
     user_id = str(user.get("id") or "")
     team_id = team_id_for(user)
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         meeting = scheduled_meeting_or_404(store, meeting_id)
         require_scheduled_meeting_participant(meeting, user_id)
@@ -1695,7 +1707,7 @@ async def add_scheduled_meeting_to_calendar(meeting_id: str, user: dict[str, Any
         )
         if message:
             message["metadata"] = meeting_message(meeting, user)["metadata"]
-        await asyncio.to_thread(write_chat_store, team_id, store)
+        await complete_document_worker(write_chat_store, team_id, store)
 
     participant_ids = {str(item) for item in meeting.get("participantIds", [])}
     if message:
@@ -1706,7 +1718,7 @@ async def add_scheduled_meeting_to_calendar(meeting_id: str, user: dict[str, Any
 async def emit_due_meeting_reminders(team_id: str, current_time: datetime | None = None) -> int:
     now = current_time or datetime.now(timezone.utc)
     pending: list[tuple[dict[str, Any], set[str]]] = []
-    async with chat_lock:
+    async with chat_lock_for(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         changed = False
         for meeting in store.get("scheduledMeetings", []):
@@ -1727,7 +1739,7 @@ async def emit_due_meeting_reminders(team_id: str, current_time: datetime | None
             pending.append((dict(meeting), recipients))
             changed = True
         if changed:
-            await asyncio.to_thread(write_chat_store, team_id, store)
+            await complete_document_worker(write_chat_store, team_id, store)
 
     for meeting, recipients in pending:
         starts_at = parse_iso_datetime(meeting.get("startsAt"))
@@ -1818,7 +1830,7 @@ def recording_coordinator() -> RecordingCoordinator:
             store=JsonRecordingStore(
                 read_document=read_chat_store,
                 write_document=write_chat_store,
-                lock=chat_lock,
+                lock=chat_lock_for,
             ),
             files=LocalRecordingFiles(UPLOAD_DIR),
             call_access=CallCoordinatorRecordingAccess(call_coordinator),

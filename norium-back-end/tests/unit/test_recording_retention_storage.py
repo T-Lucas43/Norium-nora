@@ -19,6 +19,9 @@ from tests.unit.test_recording_coordinator import FixedClock, MemoryCallAccess, 
 
 
 class RecordingRetentionStorageTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.lock = asyncio.Lock()
+
     async def test_team_store_reads_repository_before_local_filesystem(self):
         persisted = {
             "messages": [{"id": "postgres-message"}],
@@ -50,7 +53,7 @@ class RecordingRetentionStorageTests(unittest.IsolatedAsyncioTestCase):
                 "storedName": "team-recording-retained.webm", "expiresAt": "2099-01-01T00:00:00+00:00"}],
                 "messages": []}
             store = JsonRecordingStore(read_document=lambda _team: document,
-                write_document=lambda *_args: None, lock=asyncio.Lock())
+                write_document=lambda *_args: None, lock=lambda _team: self.lock)
             coordinator = RecordingCoordinator(store=store, files=LocalRecordingFiles(root),
                 call_access=MemoryCallAccess(), events=MemoryEvents(), clock=FixedClock(), limits=RecordingLimits())
             result = await coordinator.maintain(["owner"])
@@ -80,7 +83,7 @@ class RecordingRetentionStorageTests(unittest.IsolatedAsyncioTestCase):
             part.write_bytes(b"synthetic")
             os.utime(part, (0, 0))
             store = JsonRecordingStore(read_document=lambda _team: {"recordings": [], "messages": []},
-                write_document=lambda *_args: None, lock=asyncio.Lock())
+                write_document=lambda *_args: None, lock=lambda _team: self.lock)
             coordinator = RecordingCoordinator(store=store, files=LocalRecordingFiles(root),
                 call_access=MemoryCallAccess(), events=MemoryEvents(), clock=FixedClock(), limits=RecordingLimits())
             with self.assertRaises(OSError):
@@ -97,7 +100,7 @@ class RecordingRetentionStorageTests(unittest.IsolatedAsyncioTestCase):
             part.write_bytes(b"synthetic")
             os.utime(part, (0, 0))
             store = JsonRecordingStore(read_document=router.read_chat_store,
-                write_document=router.write_chat_store, lock=asyncio.Lock())
+                write_document=router.write_chat_store, lock=lambda _team: self.lock)
             coordinator = RecordingCoordinator(store=store, files=LocalRecordingFiles(root),
                 call_access=MemoryCallAccess(), events=MemoryEvents(), clock=FixedClock(), limits=RecordingLimits())
             with patch.object(router, "team_chat_path", return_value=str(database)):
@@ -122,7 +125,7 @@ class RecordingRetentionStorageTests(unittest.IsolatedAsyncioTestCase):
                     "filesDeletedAt": "2026-09-01T00:00:00+00:00"} for index in range(205)], "messages": []}
         written = []
         store = JsonRecordingStore(read_document=lambda _team: copy.deepcopy(document),
-            write_document=lambda _team, value: written.append(copy.deepcopy(value)), lock=asyncio.Lock())
+            write_document=lambda _team, value: written.append(copy.deepcopy(value)), lock=lambda _team: self.lock)
         await store.transact("owner", AsyncMock())
         retained = written[0]["recordings"]
         self.assertTrue({"active", "pending", "completed"}.issubset({item["id"] for item in retained}))

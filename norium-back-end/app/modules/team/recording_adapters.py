@@ -7,6 +7,7 @@ import copy
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from app.modules.team.call_adapters import complete_document_worker
 from app.modules.team.call_coordinator import CallActor, CallCoordinator, CallError
 from app.modules.team.recording_coordinator import (
     CallRecordingContext,
@@ -23,14 +24,14 @@ class JsonRecordingStore:
         *,
         read_document: Callable[[str], dict[str, Any]],
         write_document: Callable[[str, dict[str, Any]], None],
-        lock: asyncio.Lock,
+        lock: Callable[[str], asyncio.Lock],
     ) -> None:
         self._read_document = read_document
         self._write_document = write_document
         self._lock = lock
 
     async def load(self, team_id: str) -> dict[str, Any]:
-        async with self._lock:
+        async with self._lock(team_id):
             return copy.deepcopy(await asyncio.to_thread(self._read_document, team_id))
 
     async def transact(
@@ -38,7 +39,7 @@ class JsonRecordingStore:
         team_id: str,
         operation: Callable[[dict[str, Any]], Awaitable[Any]],
     ) -> Any:
-        async with self._lock:
+        async with self._lock(team_id):
             document = await asyncio.to_thread(self._read_document, team_id)
             result = await operation(document)
             # The history cap applies only after file deletion is confirmed.
@@ -50,7 +51,7 @@ class JsonRecordingStore:
             discarded = set(prunable[:-200])
             document["recordings"] = [item for index, item in enumerate(records) if index not in discarded]
             document["messages"] = document.get("messages", [])[-2000:]
-            await asyncio.to_thread(self._write_document, team_id, document)
+            await complete_document_worker(self._write_document, team_id, document)
             return result
 
 

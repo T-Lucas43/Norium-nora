@@ -22,6 +22,9 @@ describe("Account email actions", () => {
     request.mockResolvedValue({ message: "Senha redefinida." });
     const reset = vi.fn();
     render(<AccountEmailAction mode="reset" token="reset-token" onBack={vi.fn()} onReset={reset} />);
+    expect(screen.getByLabelText("Nova senha")).toHaveAttribute("autocomplete", "new-password");
+    expect(screen.getByLabelText("Nova senha")).toHaveAttribute("name", "new-password");
+    expect(screen.getByLabelText("Repita a nova senha")).toHaveAttribute("name", "confirm-password");
     fireEvent.change(screen.getByLabelText("Nova senha"), { target: { value: "new-long-password" } });
     fireEvent.change(screen.getByLabelText("Repita a nova senha"), { target: { value: "wrong-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Redefinir senha" }));

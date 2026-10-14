@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import math
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -18,6 +19,11 @@ from typing import Any, Callable, Literal, Protocol
 from app.modules.team.call_configuration import DEFAULT_MESH_MAX_PARTICIPANTS
 from app.modules.team.call_release import CallReleasePolicy
 from app.modules.team.call_observability import call_metrics
+from app.modules.team.nora_call_state import NoraCallConfig, NoraCallDenied, NoraConsentState
+from app.modules.team.meeting_session import MeetingSession, MeetingSessionError
+from app.modules.team.nora_call_agent import TranscriptSegment
+from app.modules.team.recording_coordinator import RecordingLimits
+from app.modules.team.meeting_intelligence import MeetingUnderstanding
 
 
 CALL_ID_PATTERN = re.compile(r"call_[a-f0-9]{16,64}")
@@ -42,9 +48,15 @@ CALL_EVENT_TYPES = frozenset({
     "CALL_KICK",
     "CALL_END",
     "CALL_HEARTBEAT",
+    "CALL_STAGE_PIN", "CALL_PRESENTATION_LOCK", "CALL_PRESENTATION_MARK", "CALL_PRESENTER_ASSIGN",
+    "CALL_VIDEO_INTEREST",
+    "CALL_NORA_CONTROL", "CALL_NORA_CONSENT",
 })
 PERSISTED_EVENTS = {
     "CALL_INVITE", "CALL_ACCEPT", "CALL_LEAVE", "CALL_KICK", "CALL_HEARTBEAT", "CALL_HAND_STATE",
+    "CALL_STAGE_PIN", "CALL_PRESENTATION_LOCK", "CALL_PRESENTER_ASSIGN", "CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED",
+    "CALL_MEDIA_STATE",
+    "CALL_NORA_CONTROL", "CALL_NORA_CONSENT",
 }
 
 
@@ -179,6 +191,8 @@ class _TeamRuntime:
     loop: Any = None
     loaded: bool = False
     calls: dict[str, dict[str, Any]] = field(default_factory=dict)
+    nora_sessions: dict[str, MeetingSession] = field(default_factory=dict)
+    nora_listeners: dict[str, set[Callable[[NoraConsentState | None], None]]] = field(default_factory=dict)
     ended_call_ids: dict[str, str] = field(default_factory=dict)
 
 
@@ -216,6 +230,38 @@ def _media_transport(call: dict[str, Any]) -> str:
     return value if value in MEDIA_TRANSPORT_KINDS else "mesh"
 
 
+def _nora_policy(call: dict[str, Any]) -> NoraConsentState:
+    saved = call.get("noraConsent") or {}
+    config = NoraCallConfig.from_environment()
+    sessions = _participant_sessions(call)
+    # Nora capacity must never prevent human admission to an SFU room.
+    over_capacity = len(sessions) > config.max_participants
+    if over_capacity:
+        config = NoraCallConfig(enabled=False, max_participants=len(sessions))
+    state = NoraConsentState(
+        str(call.get("callId") or ""), str(call.get("hostUserId") or ""),
+        config, call.get("noraEntitled") is True, _media_transport(call),
+        revision=int(saved.get("revision") or 0), requested=saved.get("requested") is True and not over_capacity,
+        sessions=dict(saved.get("sessions") or {}),
+        consents={user: tuple(value) for user, value in dict(saved.get("consents") or {}).items()},
+    )
+    state.sync_members({user: f"{session.get('clientId')}:{session.get('mediaSessionId')}"
+                        for user, session in sessions.items()})
+    return state
+
+
+def _save_nora_policy(call: dict[str, Any], state: NoraConsentState) -> None:
+    call["noraConsent"] = {"revision": state.revision, "requested": state.requested,
+                           "sessions": dict(state.sessions), "consents": dict(state.consents)}
+
+
+def _public_nora(call: dict[str, Any]) -> dict[str, Any] | None:
+    if not NoraCallConfig.from_environment().enabled and not call.get("noraConsent", {}).get("requested"):
+        return None
+    state = _nora_policy(call)
+    return {**state.snapshot(), "available": state.config.enabled and state.entitled and state.transport == "sfu"}
+
+
 def active_call_invite(call: dict[str, Any]) -> dict[str, Any]:
     sessions = _participant_sessions(call)
     return {
@@ -233,6 +279,12 @@ def active_call_invite(call: dict[str, Any]) -> dict[str, Any]:
         "mediaTransport": _media_transport(call),
         "raisedHands": copy.deepcopy(call.get("raisedHands", {})),
         "handRevision": int(call.get("handRevision") or 0),
+        "stagePin": copy.deepcopy(call.get("stagePin")),
+        "presentationLocks": copy.deepcopy(call.get("presentationLocks", {})),
+        "presenterUserId": call.get("presenterUserId"),
+        "stageRevision": int(call.get("stageRevision") or 0),
+        "participantMedia": {user_id: {"cameraEnabled": session.get("cameraEnabled"), "muted": session.get("muted")} for user_id, session in sessions.items()},
+        "nora": _public_nora(call),
         "mode": "audio",
         "startedAt": call.get("startedAt"),
         "createdAt": call.get("startedAt"),
@@ -313,6 +365,16 @@ def _sync_joined_clients(call: dict[str, Any]) -> None:
         for user_id, session in _participant_sessions(call).items()
         if isinstance(session, dict)
     }
+    if "noraConsent" in call:
+        _save_nora_policy(call, _nora_policy(call))
+    pin = call.get("stagePin")
+    if isinstance(pin, dict) and pin.get("userId") not in call["joinedClients"]:
+        call["stagePin"] = None
+        call["stageRevision"] = int(call.get("stageRevision") or 0) + 1
+    if call.get("presenterUserId") and call["presenterUserId"] not in call["joinedClients"]:
+        call["presenterUserId"] = None
+        call["stageRevision"] = int(call.get("stageRevision") or 0) + 1
+    call["presentationLocks"] = {user_id: locked for user_id, locked in call.get("presentationLocks", {}).items() if user_id in call["joinedClients"]}
 
 
 def _call_ack(call: dict[str, Any], event_type: str) -> dict[str, Any]:
@@ -387,6 +449,7 @@ class CallCoordinator:
         media_transport_for_team: Callable[[str], str] | None = None,
         media_session_id_factory: Callable[[], str] | None = None,
         release_policy: Callable[[], CallReleasePolicy] | None = None,
+        nora_entitled_for_actor: Callable[[CallActor], bool] | None = None,
     ) -> None:
         if max_participants < 2 or (
             sfu_max_participants is not None and sfu_max_participants < 2
@@ -410,6 +473,9 @@ class CallCoordinator:
         self._teams: dict[str, _TeamRuntime] = {}
         self._release_policy = release_policy
         self._admission_lock = asyncio.Lock()
+        # Closed until the plan/permission adapter receives specialist review.
+        # A new environment flag alone must not grant nora_reunioes to accounts.
+        self._nora_entitled_for_actor = nora_entitled_for_actor or (lambda _actor: False)
 
     def resource_counts(self) -> dict[str, int]:
         calls = [call for runtime in self._teams.values() for call in runtime.calls.values()]
@@ -464,6 +530,14 @@ class CallCoordinator:
                 _participant_sessions(call)
                 _sync_joined_clients(call)
         expired = _purge_stale_runtime(runtime, self._now()) if expire else []
+        runtime.nora_sessions = {key: value for key, value in runtime.nora_sessions.items() if key in runtime.calls}
+        for session in runtime.nora_sessions.values():
+            if self._now() >= session.expires_at:
+                # Drop only volatile buffers, preserving the deadline/tombstone
+                # so another GET cannot silently restart retention in this call.
+                session.records.clear()
+                session.understanding = None
+                session.byte_count = 0
         if expired:
             await self._persist_locked(team_id, runtime)
         effects = _Effects(broadcast_state=bool(expired))
@@ -472,6 +546,7 @@ class CallCoordinator:
                 {str(item) for item in call.get("participantIds", [])},
                 {**active_call_invite(call), "type": "CALL_END", "reason": "expired"},
             ))
+        self._notify_nora_listeners(runtime)
         return effects
 
     async def _persist_locked(
@@ -487,6 +562,43 @@ class CallCoordinator:
             CallState(copy.deepcopy(list(runtime.calls.values())), dict(runtime.ended_call_ids)),
             append_messages=messages,
         )
+        self._notify_nora_listeners(runtime)
+
+    def _notify_nora_listeners(self, runtime: _TeamRuntime) -> None:
+        for call_id, callbacks in list(runtime.nora_listeners.items()):
+            call = runtime.calls.get(call_id)
+            for callback in tuple(callbacks):
+                try:
+                    callback(_nora_policy(call) if call else None)
+                except Exception:
+                    # A failed agent must never prevent pausing/ending a human
+                    # meeting. No callback/provider exception is logged here.
+                    call_metrics.increment("control_errors")
+            if call is None:
+                runtime.nora_listeners.pop(call_id, None)
+
+    async def subscribe_nora_policy(self, actor: CallActor, call_id: str, client_id: str,
+                                    callback: Callable[[NoraConsentState | None], None]) -> Callable[[], None]:
+        """Internal lifecycle hook, not an HTTP/WebSocket registration route."""
+        self._validate_call_id(call_id)
+        runtime = self._runtime(actor.team_id)
+        async with runtime.lock:
+            await self._prepare_locked(actor.team_id, runtime, refresh=True)
+            call = await self._nora_context_locked(actor, runtime, call_id, client_id)
+            self._authorizer.require_host(actor, call)
+            runtime.nora_listeners.setdefault(call_id, set()).add(callback)
+            try:
+                callback(_nora_policy(call))
+            except BaseException:
+                runtime.nora_listeners[call_id].discard(callback)
+                raise
+        def unsubscribe() -> None:
+            callbacks = runtime.nora_listeners.get(call_id)
+            if callbacks is not None:
+                callbacks.discard(callback)
+                if not callbacks:
+                    runtime.nora_listeners.pop(call_id, None)
+        return unsubscribe
 
     async def _publish(self, team_id: str, effects: _Effects) -> None:
         for recipients, payload in effects.publications:
@@ -520,6 +632,137 @@ class CallCoordinator:
     async def active_calls_for(self, actor: CallActor, *, refresh: bool = False) -> list[dict[str, Any]]:
         calls = await self.snapshot(actor.team_id, refresh=refresh)
         return [active_call_invite(call) for call in calls if actor.user_id in call.get("participantIds", [])]
+
+    async def _nora_context_locked(self, actor: CallActor, runtime: _TeamRuntime,
+                                   call_id: str, client_id: str) -> dict[str, Any]:
+        call = runtime.calls.get(call_id)
+        if not call:
+            raise CallError(404, "Chamada ativa nao encontrada.")
+        await self._authorizer.require_active_participant(actor, call)
+        session = _participant_sessions(call).get(actor.user_id)
+        if not isinstance(session, dict) or str(session.get("clientId") or "") != client_id:
+            raise CallError(409, "Cliente nao esta associado a chamada.")
+        if not NoraCallConfig.from_environment().enabled:
+            raise CallError(503, "Nora em reuniões indisponível.")
+        return call
+
+    def _meeting_session(self, runtime: _TeamRuntime, call_id: str) -> MeetingSession:
+        existing = runtime.nora_sessions.get(call_id)
+        if existing is not None:
+            return existing
+        session = MeetingSession(call_id, self._now() + timedelta(hours=RecordingLimits.from_env().retention_hours))
+        runtime.nora_sessions[call_id] = session
+        return session
+
+    async def nora_session_view(self, actor: CallActor, call_id: str, client_id: str) -> dict:
+        self._validate_call_id(call_id)
+        runtime = self._runtime(actor.team_id)
+        async with runtime.lock:
+            await self._prepare_locked(actor.team_id, runtime, refresh=True)
+            call = await self._nora_context_locked(actor, runtime, call_id, client_id)
+            state = _nora_policy(call)
+            try:
+                session = self._meeting_session(runtime, call_id)
+                result = session.view(actor.user_id, self._now())
+            except MeetingSessionError as exc:
+                raise CallError(410, str(exc)) from None
+            result.update({"nora": {**state.snapshot(connected=session.connected(state.revision, self._now())),
+                                    "available": state.config.enabled and state.entitled and state.transport == "sfu"},
+                           "revision": state.revision,
+                           "mediaSessionId": _participant_sessions(call)[actor.user_id].get("mediaSessionId")})
+            return result
+
+    async def _nora_producer_locked(self, actor: CallActor, runtime: _TeamRuntime,
+                                    call_id: str, client_id: str, revision: int) -> tuple[dict, NoraConsentState]:
+        call = await self._nora_context_locked(actor, runtime, call_id, client_id)
+        self._authorizer.require_host(actor, call)
+        state = _nora_policy(call)
+        # Recheck the server entitlement and all current memberships before any
+        # room output. A cached entitlement/old consent cannot authorize it.
+        eligible = await self._authorizer.eligible_participant_ids(actor, call)
+        sessions = _participant_sessions(call)
+        if (type(revision) is not int or revision != state.revision or not state.capture_allowed
+                or self._nora_entitled_for_actor(actor) is not True
+                or not set(sessions) <= eligible
+                or any(item.get("disconnectedAt") for item in sessions.values())):
+            raise CallError(409, "A autorização da transcrição mudou. A Nora foi pausada.")
+        return call, state
+
+    async def publish_nora_segments(self, actor: CallActor, call_id: str, client_id: str,
+                                    revision: int, segments: tuple[TranscriptSegment, ...]) -> dict:
+        """Internal producer seam. Deliberately absent from HTTP/client events."""
+        self._validate_call_id(call_id)
+        runtime = self._runtime(actor.team_id)
+        async with runtime.lock:
+            await self._prepare_locked(actor.team_id, runtime, refresh=True)
+            call, state = await self._nora_producer_locked(actor, runtime, call_id, client_id, revision)
+            session = self._meeting_session(runtime, call_id)
+            try:
+                values = session.append(segments, frozenset(state.sessions), self._now())
+                session.heartbeat(revision, self._now())
+            except MeetingSessionError as exc:
+                raise CallError(409, str(exc)) from None
+            payload = {"type": "CALL_NORA_TRANSCRIPT", "callId": call_id, "revision": revision,
+                       "sequence": session.sequence, "segments": values,
+                       "nora": {**state.snapshot(connected=True), "available": True}}
+            if values:
+                # Membership/consent changes share this same lock. Keep the
+                # publication inside it to avoid output after a committed pause.
+                await self._publisher.send_to_users(actor.team_id, set(state.sessions), payload)
+            return payload
+
+    async def authorize_nora_capture(self, actor: CallActor, call_id: str, client_id: str,
+                                     revision: int) -> None:
+        """Reuses current producer policy immediately before a billable send."""
+        self._validate_call_id(call_id)
+        runtime = self._runtime(actor.team_id)
+        async with runtime.lock:
+            await self._prepare_locked(actor.team_id, runtime, refresh=True)
+            await self._nora_producer_locked(actor, runtime, call_id, client_id, revision)
+            try:
+                self._meeting_session(runtime, call_id).check_expiry(self._now())
+            except MeetingSessionError as exc:
+                raise CallError(410, str(exc)) from None
+
+    async def nora_analysis_context(self, actor: CallActor, call_id: str, client_id: str,
+                                     revision: int) -> tuple[TranscriptSegment, ...]:
+        self._validate_call_id(call_id)
+        runtime = self._runtime(actor.team_id)
+        async with runtime.lock:
+            await self._prepare_locked(actor.team_id, runtime, refresh=True)
+            _, state = await self._nora_producer_locked(actor, runtime, call_id, client_id, revision)
+            session = self._meeting_session(runtime, call_id)
+            session.check_expiry(self._now())
+            # Shared understanding uses only evidence all CURRENT listeners may
+            # see. It cannot summarize older/private audience speech to a newcomer.
+            return tuple(sorted((record for record, audience in session.records.values()
+                                 if set(state.sessions) <= audience), key=lambda value: (value.start, value.id)))
+
+    async def publish_nora_understanding(self, actor: CallActor, call_id: str, client_id: str,
+                                         revision: int, value: MeetingUnderstanding) -> None:
+        self._validate_call_id(call_id)
+        runtime = self._runtime(actor.team_id)
+        async with runtime.lock:
+            await self._prepare_locked(actor.team_id, runtime, refresh=True)
+            _, state = await self._nora_producer_locked(actor, runtime, call_id, client_id, revision)
+            session = self._meeting_session(runtime, call_id)
+            session.check_expiry(self._now())
+            # Producer cannot fabricate evidence or amplify historical speech to
+            # people outside its original audience, even if a callback is faulty.
+            for category in ("summary", "decisions", "tasks", "questions"):
+                for fact in getattr(value, category):
+                    record = session.records.get(fact.segment_id)
+                    if (not record or fact.quote not in record[0].text
+                            or not set(state.sessions) <= record[1]
+                            or fact.user_id != record[0].user_id
+                            or (fact.start, fact.end) != (record[0].start, record[0].end)):
+                        raise CallError(409, "Entendimento sem evidência disponível para todos.")
+            session.understanding = value
+            session.sequence += 1
+            await self._publisher.send_to_users(actor.team_id, set(state.sessions), {
+                "type": "CALL_NORA_UNDERSTANDING", "callId": call_id, "revision": revision,
+                "sequence": session.sequence, "understanding": session.view(actor.user_id, self._now())["understanding"],
+            })
 
     async def recording_context(
         self,
@@ -766,6 +1009,7 @@ class CallCoordinator:
     ) -> tuple[_Effects, dict[str, Any]]:
         call_id = str(call.get("callId") or "")
         runtime.calls.pop(call_id, None)
+        runtime.nora_sessions.pop(call_id, None)
         now = self._now()
         _remember_ended(runtime, call_id, now)
         message_actor = actor
@@ -899,6 +1143,8 @@ class CallCoordinator:
             "participantIds": sorted(participants),
             "maxParticipants": self._participant_limit(media_transport),
             "mediaTransport": media_transport,
+            "noraEntitled": NoraCallConfig.from_environment().enabled and media_transport == "sfu"
+                            and self._nora_entitled_for_actor(actor) is True,
             "joinedClients": {actor.user_id: client_id},
             "participantSessions": {
                 actor.user_id: {
@@ -1045,6 +1291,21 @@ class CallCoordinator:
             _clear_raised_hand(call, actor.user_id)
             _sync_joined_clients(call)
             changed = True
+        elif event_type in {"CALL_NORA_CONTROL", "CALL_NORA_CONSENT"}:
+            state = _nora_policy(call)
+            try:
+                if event_type == "CALL_NORA_CONTROL":
+                    self._authorizer.require_host(actor, call)
+                    state.entitled = self._nora_entitled_for_actor(actor) is True
+                    state.request(actor.user_id, payload.get("enabled"))
+                    call["noraEntitled"] = state.entitled
+                else:
+                    state.consent(actor.user_id, state.sessions.get(actor.user_id, ""),
+                                  payload.get("revision"), payload.get("accepted"))
+            except NoraCallDenied as exc:
+                raise CallError(403, str(exc), code="nora_call_denied") from None
+            _save_nora_policy(call, state)
+            changed = True
         elif event_type == "CALL_HEARTBEAT":
             now = self._now().isoformat()
             if isinstance(session, dict):
@@ -1068,6 +1329,36 @@ class CallCoordinator:
                 hands.pop(actor.user_id, None)
             call["handRevision"] = int(call.get("handRevision") or 0) + 1
             changed = True
+        elif event_type in {"CALL_STAGE_PIN", "CALL_PRESENTER_ASSIGN"}:
+            self._authorizer.require_host(actor, call)
+            target = payload.get("targetUserId")
+            if target is not None and (not isinstance(target, str) or target not in sessions):
+                raise CallError(400, "Participante do palco invalido.")
+            if event_type == "CALL_STAGE_PIN":
+                tile_type = payload.get("tileType")
+                if tile_type not in {"member", "screen"}:
+                    raise CallError(400, "Tipo de destaque invalido.")
+                if target and tile_type == "screen" and not sessions[target].get("screenSharing"):
+                    raise CallError(409, "A apresentacao ja foi encerrada.")
+                call["stagePin"] = {"userId": target, "type": tile_type} if target else None
+            else:
+                call["presenterUserId"] = target
+            call["stageRevision"] = int(call.get("stageRevision") or 0) + 1
+            changed = True
+        elif event_type in {"CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED"}:
+            session["screenSharing"] = event_type == "CALL_SCREEN_STARTED"
+            if event_type == "CALL_SCREEN_STOPPED":
+                call.setdefault("presentationLocks", {}).pop(actor.user_id, None)
+                if call.get("stagePin") == {"userId": actor.user_id, "type": "screen"}:
+                    call["stagePin"] = None
+            call["stageRevision"] = int(call.get("stageRevision") or 0) + 1
+            changed = True
+        elif event_type == "CALL_PRESENTATION_LOCK":
+            if not session.get("screenSharing") or not isinstance(payload.get("locked"), bool):
+                raise CallError(403, "Somente quem apresenta pode bloquear anotacoes.")
+            call.setdefault("presentationLocks", {})[actor.user_id] = payload["locked"]
+            call["stageRevision"] = int(call.get("stageRevision") or 0) + 1
+            changed = True
 
         event = self._event_payload(call, actor, payload)
         recipients = set(sessions) - {actor.user_id}
@@ -1077,6 +1368,14 @@ class CallCoordinator:
                 raise CallError(400, "Destino de sinalizacao invalido.")
             recipients = {target}
             event["signal"] = payload["signal"]
+        elif event_type == "CALL_VIDEO_INTEREST":
+            target = str(payload.get("targetUserId") or "")
+            if target not in sessions or target == actor.user_id:
+                raise CallError(400, "Destino de interesse de video invalido.")
+            if not isinstance(payload.get("receiveVideo"), bool) or payload.get("quality") not in {"low", "high"}:
+                raise CallError(400, "Interesse de video invalido.")
+            recipients = {target}
+            event.update({"receiveVideo": payload["receiveVideo"], "quality": payload["quality"]})
         elif event_type == "CALL_REACTION":
             emoji = str(payload.get("emoji") or "")
             if emoji not in CALL_REACTIONS:
@@ -1087,10 +1386,30 @@ class CallCoordinator:
                 payload.get("screenSharing"), bool,
             ):
                 raise CallError(400, "Estado de midia invalido.")
+            if "muted" in payload and not isinstance(payload["muted"], bool):
+                raise CallError(400, "Estado de microfone invalido.")
             event["cameraEnabled"] = payload["cameraEnabled"]
             event["screenSharing"] = payload["screenSharing"]
+            session["cameraEnabled"] = payload["cameraEnabled"]
+            if "muted" in payload:
+                session["muted"] = payload["muted"]
+                event["muted"] = payload["muted"]
+            event["participantMedia"] = {user_id: {"cameraEnabled": item.get("cameraEnabled"), "muted": item.get("muted")} for user_id, item in sessions.items()}
+            changed = True
+        elif event_type == "CALL_PRESENTATION_MARK":
+            target = str(payload.get("targetUserId") or "")
+            if target not in sessions or not sessions[target].get("screenSharing"):
+                raise CallError(409, "Apresentacao indisponivel.")
+            if call.get("presentationLocks", {}).get(target) and target != actor.user_id:
+                raise CallError(403, "O apresentador bloqueou as anotacoes.")
+            x, y = payload.get("x"), payload.get("y")
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1 for value in (x, y)):
+                raise CallError(400, "Posicao da anotacao invalida.")
+            event.update({"targetUserId": target, "x": x, "y": y,
+                          "markId": uuid.uuid4().hex,
+                          "expiresAt": (self._now() + timedelta(seconds=10)).isoformat()})
 
-        if event_type == "CALL_HAND_STATE":
+        if event_type in {"CALL_HAND_STATE", "CALL_STAGE_PIN", "CALL_PRESENTER_ASSIGN", "CALL_PRESENTATION_LOCK", "CALL_PRESENTATION_MARK", "CALL_NORA_CONTROL", "CALL_NORA_CONSENT"}:
             recipients = set(sessions)
 
         if event_type == "CALL_ACCEPT":

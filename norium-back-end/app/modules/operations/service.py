@@ -57,12 +57,12 @@ from app.services.task_store import delete_task, list_tasks, restore_task
 
 LOCAL_TZ = timezone(timedelta(hours=-3))
 logger = logging.getLogger(__name__)
-approval_decision_locks: dict[tuple[int, str, str], asyncio.Lock] = {}
+approval_decision_locks: dict[tuple[int, str, str, str], asyncio.Lock] = {}
 
 
 def approval_decision_lock(user_id: str, approval_id: str) -> asyncio.Lock:
     loop_key = id(asyncio.get_running_loop())
-    return approval_decision_locks.setdefault((loop_key, user_id, approval_id), asyncio.Lock())
+    return approval_decision_locks.setdefault((loop_key, user_id, current_workspace_id(), approval_id), asyncio.Lock())
 
 
 def now_iso() -> str:
@@ -176,13 +176,24 @@ async def remove_nora_memory(user: dict[str, Any], memory_id: str) -> bool:
 
 
 async def record_audit(user: dict[str, Any], payload: AuditCreate) -> dict[str, Any]:
+    from app.core.log_masking import mask_metadata
+    data = payload.model_dump()
+    # Identifiers and decisions remain traceable; personal content is minimized.
+    data = mask_metadata(data)
     item = {
         "id": f"audit_{uuid.uuid4().hex}",
-        **payload.model_dump(),
-        "actor": actor_payload(user),
+        **data,
+        "actor": {"id": require_user_id(user)},
         "timestamp": now_iso(),
     }
-    return await prepend_item(require_user_id(user), AUDIT_DB, item)
+    saved = await prepend_item(require_user_id(user), AUDIT_DB, item)
+    if payload.entityId and payload.entityType in {"client", "task", "proposal", "contract", "commercial_document", "finance_entry"}:
+        from app.modules.team.chat_resources import publish_resource_change
+        try:
+            await publish_resource_change({"userId": require_user_id(user), "entityType": payload.entityType, "entityId": payload.entityId})
+        except Exception:
+            logger.warning("Atualização dos cartões do chat indisponível.")
+    return saved
 
 
 async def record_receipt(user: dict[str, Any], payload: ReceiptCreate) -> dict[str, Any]:
@@ -355,7 +366,7 @@ async def update_follow_up(
 
 
 APPROVAL_VERSION = 1
-EMAIL_EXACT_VERSION = "nora-email-v1"
+EMAIL_EXACT_VERSION = "nora-email-v2"
 EMAIL_APPROVAL_TTL = timedelta(hours=24)
 EMAIL_RECONCILE_WINDOW = timedelta(minutes=10)
 EMAIL_SEND_RECIPIENT_CAP = 20
@@ -363,7 +374,84 @@ EMAIL_SEND_ATTACHMENT_CAP = 8
 
 
 # Ações que só executam com aprovação vinculada ao conteúdo exato (digest obrigatório).
-DIGEST_REQUIRED_ACTIONS = frozenset({"nora_finance_exact"})
+DIGEST_REQUIRED_ACTIONS = frozenset({"nora_finance_exact", "nora_whatsapp_execute", "nora_email_send_exact"})
+WHATSAPP_EXACT_VERSION = "nora-whatsapp-v1"
+WHATSAPP_APPROVAL_TTL = timedelta(hours=24)
+
+
+async def whatsapp_sender(user_id: str) -> str:
+    from app.services.wapi_connect import WapiConnectService
+
+    status = await WapiConnectService().status(user_id)
+    sender = str(status.get("numero") or "").strip()
+    if status.get("status") != "conectado" or not sender:
+        raise ValueError("Não consegui confirmar a conta remetente do WhatsApp. Prepare novamente após conectar.")
+    return sender
+
+
+async def create_exact_whatsapp_approval(
+    user: dict[str, Any], exact: dict[str, Any], *, requested_by: str = "nora",
+) -> dict[str, Any]:
+    prepared = await prepare_exact_whatsapp_approval(user, exact, requested_by=requested_by)
+    return await create_approval(user, prepared)
+
+
+async def prepare_exact_whatsapp_approval(
+    user: dict[str, Any], exact: dict[str, Any], *, requested_by: str = "nora",
+) -> ApprovalCreate:
+    """Bind one reviewed send to the actor, workspace, instance and sender."""
+    from app.routers.auth_router import effective_permissions
+    from app.services import wapi_binding as wb
+
+    user_id = require_user_id(user)
+    permissions = effective_permissions(user)
+    if not permissions.get("chat") or not permissions.get("integracao_whatsapp"):
+        raise PermissionError("Sua conta não pode enviar mensagens pelo WhatsApp.")
+    binding = wb.get_owned_binding(user_id)
+    if not binding.exists or binding.state != "connected":
+        raise ValueError("WhatsApp não está conectado nesta conta.")
+    conversation = str(exact.get("conversationId") or "").strip()
+    text = str(exact.get("messageText") or "").strip()
+    if not conversation or not text or len(text) > 1200:
+        raise ValueError("Confirme o destinatário e uma mensagem de até 1200 caracteres.")
+    payload = {
+        "kind": "nora_whatsapp_exact", "ownerId": user_id,
+        "conversationId": conversation,
+        "recipientName": str(exact.get("recipientName") or conversation).strip(),
+        "messageText": text, "isGroup": bool(exact.get("isGroup")),
+        "instanceId": binding.instance_id, "sender": await whatsapp_sender(user_id),
+        "originalMessage": str(exact.get("originalMessage") or text),
+    }
+    title = f"Enviar mensagem no WhatsApp para {payload['recipientName']}"[:180]
+    digest = approval_digest("nora_whatsapp_execute", "whatsapp", title, text, payload,
+                             current_workspace_id(), user_id, WHATSAPP_EXACT_VERSION)
+    return ApprovalCreate(
+        title=title, description=text, action="nora_whatsapp_execute", source="whatsapp",
+        payload=payload, digest=digest,
+        expiresAt=(datetime.now(timezone.utc) + WHATSAPP_APPROVAL_TTL).isoformat(),
+        metadata={"requestedBy": requested_by, "requiresExplicitDecision": True,
+                  "channel": "whatsapp", "version": WHATSAPP_EXACT_VERSION},
+    )
+
+
+def _verify_whatsapp_exact_binding(user: dict[str, Any], approval: dict[str, Any]) -> None:
+    user_id = require_user_id(user)
+    payload = approval.get("payload") or {}
+    metadata = approval.get("metadata") or {}
+    workspace = str(metadata.get("workspace") or "")
+    stored = str(approval.get("digest") or "")
+    if (approval.get("action") != "nora_whatsapp_execute" or payload.get("ownerId") != user_id
+            or not workspace or workspace != current_workspace_id() or not stored
+            or metadata.get("version") != WHATSAPP_EXACT_VERSION or not payload.get("sender")):
+        raise PermissionError("Esta aprovação não está vinculada à conta e ao conteúdo exatos. Prepare uma nova prévia.")
+    expiry = _parse_expiry(approval.get("expiresAt"))
+    if expiry is None or expiry <= datetime.now(timezone.utc):
+        raise PermissionError("Esta aprovação expirou. Prepare uma nova prévia.")
+    expected = approval_digest("nora_whatsapp_execute", "whatsapp", str(approval.get("title") or ""),
+                               str(approval.get("description") or ""), payload, workspace, user_id,
+                               WHATSAPP_EXACT_VERSION)
+    if not hmac.compare_digest(expected, stored):
+        raise PermissionError("O conteúdo da aprovação mudou. Prepare uma nova prévia.")
 
 
 def approval_digest(
@@ -593,6 +681,10 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
 
     finance_exact = payload.get("financeExact") if isinstance(payload.get("financeExact"), dict) else None
     try:
+        if source not in {"email", "financeiro", "whatsapp"} or (
+            source == "financeiro" and not finance_exact
+        ) or (source == "email" and not isinstance(payload.get("emailExact"), dict)):
+            raise ValueError("Aprovação genérica não autoriza executar texto livre. Prepare cada operação exata novamente.")
         if (
             not message
             and not (source == "email" and isinstance(payload.get("emailExact"), dict))
@@ -648,6 +740,8 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
             if not permissions.get("chat") or not permissions.get("integracao_whatsapp"):
                 raise PermissionError("A conta nao possui permissao para enviar mensagens pelo WhatsApp.")
 
+            _verify_whatsapp_exact_binding(user, approval)
+
             conversation_id = str(payload.get("conversationId") or "").strip()
             recipient_name = str(payload.get("recipientName") or conversation_id).strip()
             message_text = str(payload.get("messageText") or "").strip()
@@ -671,6 +765,18 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
                     "Prepare uma nova aprovacao antes de enviar."
                 )
 
+            if await whatsapp_sender(user_id) != payload["sender"]:
+                raise ValueError("A conta remetente mudou. Prepare uma nova aprovação antes de enviar.")
+
+            from app.services import outbound_ledger
+            send_key = "whatsapp:" + str(approval["id"])
+            durable, armed = await asyncio.to_thread(outbound_ledger.begin, user_id, send_key, approval["digest"])
+            if not armed:
+                if durable["status"] == "confirmed" and durable["provider_id"]:
+                    return {"ok": True, "result": {"status":"enviado", "response":"Envio já confirmado; nada foi duplicado.",
+                            "messageId":durable["provider_id"], "replayed":True}, "uncertain":False}
+                return {"ok":False, "uncertain":True, "result":{"status":"falha_incerta", "uncertain":True,
+                        "response":"Há uma tentativa registrada. Verifique manualmente o WhatsApp; nada foi reenviado."}}
             send_result = await AgentManager().execute_message(
                 conversation_id,
                 message_text,
@@ -679,10 +785,14 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
                 sender_label=None,
                 user_id=user_id,
             )
-            sent = bool(send_result.get("sent"))
+            provider_id = str(send_result.get("messageId") or "")
+            sent = bool(send_result.get("sent") and provider_id)
+            await asyncio.to_thread(outbound_ledger.finish, user_id, send_key, approval["digest"],
+                                    "confirmed" if sent else "unknown", provider_id if sent else "")
             result = {
                 **send_result,
-                "status": "enviado" if sent else "falha_gateway",
+                "status": "enviado" if sent else "falha_incerta",
+                "uncertain": not sent,
                 "response": (
                     f"Mensagem enviada no WhatsApp para {recipient_name}."
                     if sent
@@ -808,10 +918,21 @@ async def create_exact_email_approval(
     """Create a digest-bound approval authorizing one exact Gmail send."""
     user_id = require_user_id(user)
     workspace = current_workspace_id()
+    from app.routers.auth_router import effective_permissions
+    from app.services.gmail_service import GmailService
+    permissions = effective_permissions(user)
+    if not permissions.get("emails") or not permissions.get("integracao_gmail"):
+        raise PermissionError("Sua conta não pode enviar e-mails.")
+    status = GmailService(user_id).status()
+    sender = str(status.get("email") or "").strip().lower()
+    if not status.get("connected") or not sender:
+        raise ValueError("Conecte o Gmail e confirme a conta remetente antes de preparar a prévia.")
     email_exact = _normalize_exact_email(exact)
     recipients = email_exact["to"]
     payload = {
         "kind": "nora_email_exact",
+        "ownerId": user_id,
+        "sender": sender,
         "sessionId": session_id,
         "idempotencyKey": f"email_{uuid.uuid4().hex}",
         "emailExact": email_exact,
@@ -847,6 +968,27 @@ async def create_exact_email_approval(
             digest=digest,
         ),
     )
+
+
+def _verify_email_exact_binding(user: dict[str, Any], approval: dict[str, Any], *, allow_expired=False) -> None:
+    from app.routers.auth_router import effective_permissions
+    user_id = require_user_id(user)
+    permissions = effective_permissions(user)
+    if not permissions.get("emails") or not permissions.get("integracao_gmail"):
+        raise PermissionError("Sua conta não pode enviar e-mails.")
+    payload, metadata = approval.get("payload") or {}, approval.get("metadata") or {}
+    workspace, digest = str(metadata.get("workspace") or ""), str(approval.get("digest") or "")
+    if (approval.get("action") != "nora_email_send_exact" or payload.get("ownerId") != user_id
+            or not workspace or workspace != current_workspace_id() or not digest
+            or metadata.get("version") != EMAIL_EXACT_VERSION or not payload.get("sender")):
+        raise PermissionError("Esta aprovação não está vinculada à conta remetente e ao conteúdo exatos.")
+    expected = approval_digest("nora_email_send_exact", "email", str(approval.get("title") or ""),
+                               str(approval.get("description") or ""), payload, workspace, user_id)
+    if not hmac.compare_digest(expected, digest):
+        raise PermissionError("O conteúdo da aprovação mudou. Prepare uma nova prévia.")
+    expiry = _parse_expiry(approval.get("expiresAt"))
+    if not allow_expired and (expiry is None or expiry <= datetime.now(timezone.utc)):
+        raise PermissionError("Esta aprovação expirou. Prepare uma nova prévia.")
 
 
 FINANCE_EXACT_VERSION = "nora-finance-v1"
@@ -945,7 +1087,9 @@ def _send_error_is_definitive(exc: Exception) -> bool:
         code = int(status) if status is not None else None
     except (TypeError, ValueError):
         return False
-    return code is not None and code < 500
+    # A request timeout may occur after provider acceptance. Rate limiting and
+    # transport failures also leave this operation conservative/uncertain.
+    return code is not None and 400 <= code < 500 and code not in {408, 425, 429}
 
 
 async def _record_send_attempt(
@@ -958,6 +1102,7 @@ async def _record_send_attempt(
     detail: str = "",
 ) -> dict[str, Any]:
     entry = {
+        "id": key,
         "key": key,
         "approvalId": approval_id,
         "digest": digest,
@@ -980,8 +1125,10 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
     """Execute the exact send bound to an approval; never retries or guesses."""
     from app.services.gmail_service import GmailService
     from app.services.nora_files import owned_bytes
+    from app.services import outbound_ledger
 
     user_id = require_user_id(user)
+    _verify_email_exact_binding(user, approval)
     approval_payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
     exact = approval_payload.get("emailExact") if isinstance(approval_payload.get("emailExact"), dict) else {}
     key = str(approval_payload.get("idempotencyKey") or "").strip()
@@ -994,7 +1141,9 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
             "response": "A prévia aprovada está incompleta. Gere uma nova prévia no chat.",
         }
     replay = await _find_send_attempt(user_id, key)
-    if replay is not None and replay.get("status") == "confirmed":
+    if replay is not None and not hmac.compare_digest(str(replay.get("digest") or ""), str(approval.get("digest") or "")):
+        raise PermissionError("A chave desta operação já está vinculada a outro conteúdo.")
+    if replay is not None and replay.get("status") == "confirmed" and replay.get("gmailId"):
         return {
             "status": "enviado",
             "response": f"E-mail já enviado para {', '.join(recipients)} (registro {key}). Nada foi duplicado.",
@@ -1002,12 +1151,21 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
             "idempotencyKey": key,
             "replayed": True,
         }
+    durable = await asyncio.to_thread(outbound_ledger.read, user_id, key)
+    if durable is not None or (replay is not None and replay.get("status") in {"unknown", "sending"}):
+        if durable and durable["digest"] != str(approval.get("digest") or ""):
+            raise PermissionError("Esta operação está vinculada a outro conteúdo.")
+        if durable and durable["status"] == "confirmed":
+            return {"status": "enviado", "response": "Envio já confirmado. Nada foi duplicado.",
+                    "gmailId": durable["provider_id"], "idempotencyKey": key, "replayed": True}
+        return {"status": "falha_incerta", "uncertain": True,
+                "response": "Há uma tentativa registrada. Verifique o envio antes de qualquer nova operação; nada foi reenviado."}
     try:
         gmail_status = GmailService(user_id).status()
     except Exception:
         logger.warning("email_send_status_failed")
         gmail_status = {"connected": False}
-    if not gmail_status.get("connected"):
+    if not gmail_status.get("connected") or str(gmail_status.get("email") or "").lower() != approval_payload.get("sender"):
         await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "failed", detail="gmail_desconectado")
         return {
             "status": "falha_conexao",
@@ -1028,6 +1186,12 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
             "status": "falha_validacao",
             "response": "Não consegui validar os anexos da prévia (arquivo ausente ou alterado). Gere uma nova prévia. Nada foi enviado.",
         }
+    # The SQL unique intent is committed before entering the provider. A lost
+    # response/process remains uncertain, even if the display history is trimmed.
+    _intent, armed = await asyncio.to_thread(outbound_ledger.begin, user_id, key, approval["digest"])
+    if not armed:
+        return {"status": "falha_incerta", "uncertain": True,
+                "response": "Esta operação já foi tentada. Verifique o envio; nada foi reenviado."}
     try:
         sent = GmailService(user_id).send_message(
             to=recipients,
@@ -1040,12 +1204,14 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
         )
     except Exception as exc:
         if _send_error_is_definitive(exc):
+            await asyncio.to_thread(outbound_ledger.finish, user_id, key, approval["digest"], "failed")
             await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "failed", detail="provedor_recusou")
             logger.warning("email_send_rejected")
             return {
                 "status": "falha_envio",
                 "response": "O Gmail recusou o envio. Confira destinatários e anexos e gere uma nova prévia. Nada foi repetido automaticamente.",
             }
+        await asyncio.to_thread(outbound_ledger.finish, user_id, key, approval["digest"], "unknown")
         await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "unknown", detail="resultado_incerto")
         logger.warning("email_send_uncertain")
         return {
@@ -1057,7 +1223,13 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
             ),
         }
     gmail_id = sent.get("message", {}).get("id") if isinstance(sent.get("message"), dict) else None
+    if not gmail_id:
+        await asyncio.to_thread(outbound_ledger.finish, user_id, key, approval["digest"], "unknown")
+        await _record_send_attempt(user_id, key, str(approval.get("id")), approval["digest"], "unknown", detail="comprovante_ausente")
+        return {"status": "falha_incerta", "uncertain": True,
+                "response": "O provedor não devolveu um comprovante. Use Verificar envio; nada será repetido."}
     try:
+        await asyncio.to_thread(outbound_ledger.finish, user_id, key, approval["digest"], "confirmed", str(gmail_id))
         await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "confirmed", gmail_id=gmail_id)
     except Exception:
         logger.warning("email_send_receipt_failed")
@@ -1077,12 +1249,15 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
 async def reconcile_email_send(user: dict[str, Any], approval_id: str) -> dict[str, Any]:
     """Check the sent folder for an uncertain send; read-only, never resends."""
     from app.services.gmail_service import GmailService
+    from app.services.gmail_reconcile import find_sent_by_key
+    from app.services import outbound_ledger
 
     user_id = require_user_id(user)
     items = await list_items(user_id, APPROVAL_DB)
     current = next((item for item in items if str(item.get("id")) == approval_id), None)
     if current is None:
         return {"reconciled": False, "reason": "approval_not_found"}
+    _verify_email_exact_binding(user, current, allow_expired=True)
     approval_payload = current.get("payload") if isinstance(current.get("payload"), dict) else {}
     exact = approval_payload.get("emailExact") if isinstance(approval_payload.get("emailExact"), dict) else {}
     if not exact:
@@ -1100,27 +1275,20 @@ async def reconcile_email_send(user: dict[str, Any], approval_id: str) -> dict[s
     except (TypeError, ValueError):
         created_at = datetime.now(timezone.utc) - timedelta(hours=1)
     earliest = int((created_at - timedelta(minutes=5)).timestamp())
+    key = str(approval_payload.get("idempotencyKey") or "")
     try:
-        listing = GmailService(user_id).list_messages(folder="sent", query=f"to:{recipients[0]} subject:({subject})", max_results=5)
+        service = GmailService(user_id)
+        status = service.status()
+        if not status.get("connected") or str(status.get("email") or "").lower() != approval_payload.get("sender"):
+            raise PermissionError("A conta remetente mudou; consulte a conta original para verificar o envio.")
+        coverage = await asyncio.to_thread(find_sent_by_key, service, key, after_epoch=earliest)
+    except PermissionError:
+        raise
     except Exception:
         logger.warning("email_reconcile_unavailable")
-        return {
-            "reconciled": False,
-            "reason": "provider_unavailable",
-            "guidance": "Não consegui consultar a caixa de enviados agora. Tente verificar de novo em instantes.",
-        }
-    messages = listing.get("messages") if isinstance(listing.get("messages"), list) else []
-    match = next(
-        (
-            message
-            for message in messages
-            if isinstance(message, dict)
-            and str(message.get("subject") or "") == subject
-            and recipients[0].lower() in str(message.get("to") or "").lower()
-            and _safe_timestamp(message.get("timestamp")) >= earliest
-        ),
-        None,
-    )
+        return {"reconciled": False, "reason": "provider_unavailable",
+                "guidance": "Não consegui consultar os metadados de enviados agora. O resultado continua incerto; nada será reenviado."}
+    match = {"id": coverage["messageId"]} if coverage.get("found") else None
     if match is None:
         await record_audit(
             user,
@@ -1136,7 +1304,8 @@ async def reconcile_email_send(user: dict[str, Any], approval_id: str) -> dict[s
         return {
             "reconciled": False,
             "reason": "not_found",
-            "guidance": "Nenhum e-mail correspondente na caixa de enviados. Se precisar, gere um novo envio no chat; nada foi repetido.",
+            "guidance": "A busca não confirmou este envio. Ausência em Enviados não prova que não houve entrega; mantenha incerto e verifique manualmente antes de criar outra operação.",
+            "coverage": {"complete": coverage["complete"], "scanned": coverage["scanned"]},
         }
     gmail_id = str(match.get("id") or "")
     key = str(approval_payload.get("idempotencyKey") or "")
@@ -1147,6 +1316,7 @@ async def reconcile_email_send(user: dict[str, Any], approval_id: str) -> dict[s
         "idempotencyKey": key,
         "reconciled": True,
     }
+    await asyncio.to_thread(outbound_ledger.finish, user_id, key, current["digest"], "confirmed", gmail_id)
     await replace_item(user_id, APPROVAL_DB, approval_id, {"status": "executed", "updatedAt": now_iso(), "execution": execution, "executionError": "", "executionUncertain": False})
     if key:
         await _record_send_attempt(user_id, key, approval_id, str(current.get("digest") or ""), "confirmed", gmail_id=gmail_id, detail="reconciliado")
@@ -1315,30 +1485,57 @@ async def edit_approval(
     payload: ApprovalUpdate,
 ) -> dict[str, Any] | None:
     user_id = require_user_id(user)
+    async with approval_decision_lock(user_id, approval_id):
+        return await _edit_approval_unlocked(user, approval_id, payload)
+
+
+async def _edit_approval_unlocked(
+    user: dict[str, Any], approval_id: str, payload: ApprovalUpdate,
+) -> dict[str, Any] | None:
+    user_id = require_user_id(user)
     current_items = await list_items(user_id, APPROVAL_DB)
     current = next((item for item in current_items if str(item.get("id")) == approval_id), None)
     if current is None or current.get("status") != "pending":
         return None
-    if str(current.get("digest") or "").strip():
+    is_whatsapp = (str(current.get("source") or "").casefold() == "whatsapp"
+                   and current.get("action") == "nora_whatsapp_execute")
+    if str(current.get("digest") or "").strip() and not is_whatsapp:
         raise ValueError("Esta aprovação está vinculada ao conteúdo exato. Edite pelo chat para gerar uma nova prévia.")
     update: dict[str, Any] = {
         "title": payload.title,
         "description": payload.description,
         "updatedAt": now_iso(),
     }
-    if (
-        str(current.get("source") or "").casefold() == "whatsapp"
-        and str(current.get("action") or "") == "nora_whatsapp_execute"
-    ):
+    if is_whatsapp:
+        if current.get("digest"):
+            _verify_whatsapp_exact_binding(user, current)
         message_text = payload.description.strip()
         if not message_text:
             raise ValueError("A mensagem do WhatsApp nao pode ficar vazia.")
         current_payload = current.get("payload") if isinstance(current.get("payload"), dict) else {}
         # Somente o texto é editável nesta tela. O destino validado permanece
         # imutável e continua vindo do payload original da aprovação.
-        update["payload"] = {**current_payload, "messageText": message_text}
-        recipient_name = str(current_payload.get("recipientName") or current_payload.get("conversationId") or "destinatario").strip()
-        update["title"] = f"Enviar mensagem no WhatsApp para {recipient_name}"[:180]
+        # Legacy previews must resolve the stored destination in this actor's
+        # catalogue before being upgraded to a digest-bound approval.
+        from app.services.nora_whatsapp_action import resolve_whatsapp_recipient
+
+        resolved = await resolve_whatsapp_recipient(user_id, str(current_payload.get("conversationId") or ""))
+        if resolved.get("status") != "resolved":
+            raise ValueError("Não consegui confirmar o destinatário. Prepare uma nova prévia pelo chat.")
+        exact = {"conversationId": resolved["conversation_id"], "recipientName": resolved["display_name"],
+                 "isGroup": bool(resolved.get("is_group")), "messageText": message_text}
+        if current.get("digest"):
+            if exact["conversationId"] != current_payload.get("conversationId"):
+                raise ValueError("O destinatário mudou. Prepare uma nova prévia pelo chat.")
+            # Changing the sender/instance during an edit needs a new preview.
+            prepared = await prepare_exact_whatsapp_approval(user, exact)
+            if any(prepared.payload[key] != current_payload.get(key) for key in ("sender", "instanceId")):
+                raise ValueError("A conexão mudou. Prepare uma nova prévia pelo chat.")
+        else:
+            prepared = await prepare_exact_whatsapp_approval(user, exact)
+        update.update(prepared.model_dump())
+        update["metadata"] = {**prepared.metadata, "workspace": current_workspace_id(),
+                              "approvalVersion": APPROVAL_VERSION}
     approval = await replace_item(
         user_id,
         APPROVAL_DB,

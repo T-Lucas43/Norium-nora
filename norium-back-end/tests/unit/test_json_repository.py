@@ -38,12 +38,57 @@ class JsonRepositoryTest(unittest.TestCase):
     def test_repeated_reads_do_not_reparse_and_return_independent_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "store.json"
-            write_json(path, {"items": [{"value": 1}]})
+            path.write_text('{"items":[{"value":1}]}', encoding="utf-8")
             with patch("app.infrastructure.persistence.json_repository.json.loads", wraps=json.loads) as parse:
                 first = read_json(path, {})
                 first["items"][0]["value"] = 9
                 self.assertEqual({"items": [{"value": 1}]}, read_json(path, {}))
                 self.assertEqual(1, parse.call_count)
+
+    def test_written_cache_is_canonical_and_detached_from_caller(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "store.json"
+            payload = {1: ("primeiro", {"value": 2})}
+            write_json(path, payload)
+            payload[1][1]["value"] = 99
+            with patch("app.infrastructure.persistence.json_repository.json.loads", wraps=json.loads) as parse:
+                self.assertEqual({"1": ["primeiro", {"value": 2}]}, read_json(path, {}))
+                self.assertEqual(0, parse.call_count)
+
+    def test_external_writer_during_replace_cannot_label_old_cache_with_new_signature(self):
+        from app.infrastructure.persistence import json_repository
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "store.json"
+            actual_replace = json_repository.os.replace
+            def competing_writer(source, destination):
+                actual_replace(source, destination)
+                other = Path(directory) / "other.json"
+                other.write_text('{"value":2}', encoding="utf-8")
+                actual_replace(other, destination)
+            with patch.object(json_repository.os, "replace", side_effect=competing_writer):
+                write_json(path, {"value": 1})
+            self.assertEqual({"value": 2}, read_json(path, {}))
+
+    def test_written_null_and_external_corruption_still_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "store.json"
+            write_json(path, None)
+            with self.assertRaises(PersistenceError):
+                read_json(path, {})
+            write_json(path, {"value": 1})
+            path.write_text("{corrupt", encoding="utf-8")
+            with self.assertRaises(PersistenceError):
+                read_json(path, {})
+
+    def test_failed_fsync_preserves_old_file_and_removes_temporary_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "store.json"
+            write_json(path, {"value": 1})
+            with patch("app.infrastructure.persistence.json_repository.os.fsync", side_effect=OSError("synthetic-write-failure")):
+                with self.assertRaises(OSError):
+                    write_json(path, {"value": 2})
+            self.assertEqual({"value": 1}, read_json(path, {}))
+            self.assertEqual([], list(Path(directory).glob("*.tmp")))
 
     def test_cache_observes_external_replacement_and_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

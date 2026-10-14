@@ -55,7 +55,29 @@ describe("normalizeApprovalCard", () => {
     const payload = { ...raw.payload, emailExact: { ...raw.payload.emailExact, bcc: ["oculto@example.test"], attachments: [{ fileName: "proposta.pdf" }] } };
     const snapshot = normalizeApprovalCard({ ...raw, payload })!;
     expect(snapshot.summary).toContain("Cco: oculto@example.test");
-    expect(snapshot.summary).toContain("Anexos: proposta.pdf");
+    expect(snapshot.summary).not.toContain("Anexos:");
+    expect(snapshot.attachments).toEqual([{ fileName: "proposta.pdf", size: 0 }]);
+    render(<NoraApprovalCard approval={snapshot} onDecision={vi.fn()} />);
+    expect(screen.getByText("proposta.pdf")).toBeInTheDocument();
+  });
+
+  it("keeps the email draft session and exact attachment metadata for the preview", () => {
+    const base = approvalItem();
+    const raw = approvalItem({
+      payload: {
+        ...base.payload,
+        sessionId: "email-session-123",
+        emailExact: {
+          ...base.payload.emailExact,
+          attachments: [{ fileName: "proposta.pdf", mimeType: "application/pdf", size: 2048 }],
+        },
+      },
+    });
+
+    expect(normalizeApprovalCard(raw)).toMatchObject({
+      emailSessionId: "email-session-123",
+      attachments: [{ fileName: "proposta.pdf", mimeType: "application/pdf", size: 2048 }],
+    });
   });
 
   it("rejects garbage and extracts the email snapshot", () => {
@@ -89,6 +111,44 @@ describe("NoraApprovalCard", () => {
     expect(screen.getByText("Aguardando decisão")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Permitir esta ação" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Negar" })).toBeInTheDocument();
+  });
+
+  it("uploads selected files through the preview callback for its bound email session", async () => {
+    const base = approvalItem();
+    const approval = normalizeApprovalCard(approvalItem({
+      payload: { ...base.payload, sessionId: "email-session-123" },
+    }))!;
+    const onAttachFiles = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    const file = new File(["proposal"], "proposta.pdf", { type: "application/pdf" });
+    render(<NoraApprovalCard approval={approval} onDecision={vi.fn()} onAttachFiles={onAttachFiles} />);
+
+    await user.upload(screen.getByLabelText("Arquivos para anexar ao e-mail"), file);
+
+    await waitFor(() => expect(onAttachFiles).toHaveBeenCalledWith("email-session-123", [file]));
+    expect(screen.getByRole("button", { name: "Permitir esta ação" })).toBeInTheDocument();
+  });
+
+  it("refuses a ninth email attachment before calling the upload handler", async () => {
+    const base = approvalItem();
+    const approval = normalizeApprovalCard(approvalItem({
+      payload: {
+        ...base.payload,
+        sessionId: "email-session-123",
+        emailExact: {
+          ...base.payload.emailExact,
+          attachments: Array.from({ length: 8 }, (_, index) => ({ fileName: `arquivo-${index + 1}.pdf`, size: 1 })),
+        },
+      },
+    }))!;
+    const onAttachFiles = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<NoraApprovalCard approval={approval} onDecision={vi.fn()} onAttachFiles={onAttachFiles} />);
+
+    await user.upload(screen.getByLabelText("Arquivos para anexar ao e-mail"), new File(["x"], "extra.pdf"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("até 8 arquivos");
+    expect(onAttachFiles).not.toHaveBeenCalled();
   });
 
   it("approves with the exact digest once even on double click", async () => {

@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import io
 import json
 import os
 import unittest
@@ -40,7 +41,7 @@ class FakeGmail:
         self.user_id = user_id
 
     def status(self) -> dict:
-        return {"connected": FakeGmail.connected}
+        return {"connected": FakeGmail.connected, "email": "sender@example.invalid"}
 
     def send_message(self, **kwargs):
         behavior = FakeGmail.send_behavior
@@ -49,13 +50,20 @@ class FakeGmail:
         FakeGmail.sent.append(kwargs)
         return {"sent": True, "message": {"id": "gmail-123", "threadId": "thread-1"}}
 
+    def list_message_ids(self, **kwargs):
+        FakeGmail.listed.append(kwargs)
+        return {"messages": [{"id": row["id"]} for row in FakeGmail.sent_messages]}
+
+    def sent_message_headers(self, message_id):
+        return next((row for row in FakeGmail.sent_messages if row["id"] == message_id), {})
+
     def list_messages(self, **kwargs):
         FakeGmail.listed.append(kwargs)
         return {"messages": list(FakeGmail.sent_messages)}
 
 
 def owner(user_id: str = "owner-mail") -> dict:
-    return {"id": user_id, "nome": "Tester", "role": "owner"}
+    return {"id": user_id, "nome": "Tester", "role": "owner", "plan": "individual"}
 
 
 def email_resolution() -> SkillResolution:
@@ -355,6 +363,7 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("unknown", ledger[0]["status"])
         FakeGmail.sent_messages = [{
             "id": "gmail-999",
+            "payload": {"headers": [{"name": "X-Norium-Email-Key", "value": approval["payload"]["idempotencyKey"]}]},
             "subject": "Reuniao",
             "to": "a@x.com",
             "timestamp": int(datetime.now(timezone.utc).timestamp()),
@@ -436,6 +445,40 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(FakeGmail.sent))
         data_url = FakeGmail.sent[0]["attachments"][0]["dataUrl"]
         self.assertTrue(data_url.startswith("data:text/plain;base64,"))
+
+    async def test_adding_attachment_from_preview_replaces_exact_approval_without_sending(self) -> None:
+        agent = EmailAgent()
+        ready = await self.drive_to_preview(agent)
+        confirmed = await agent.handle(message="sim", session_id=ready["session_id"], user_id="owner-mail")
+        first = await ops.finalize_email_agent_result(owner(), agent, confirmed)
+        old_approval = first["approval"]
+        from pypdf import PdfWriter
+        document = PdfWriter()
+        document.add_blank_page(width=200, height=200)
+        content = io.BytesIO()
+        document.write(content)
+        file = nora_files.save_bytes("owner-mail", content.getvalue(), "proposta.pdf", "application/pdf", source="upload")
+
+        updated = await agent.handle(
+            message="Anexar estes arquivos à prévia do e-mail.",
+            session_id=ready["session_id"],
+            user_id="owner-mail",
+            attachment_ids=[file["id"]],
+        )
+        self.assertEqual("pronto_para_aprovacao", updated["status"])
+        self.assertEqual("proposta.pdf", updated["preview"]["attachments"][0]["fileName"])
+        replacement = await ops.finalize_email_agent_result(owner(), agent, updated)
+
+        self.assertEqual("aguardando_aprovacao", replacement["status"])
+        self.assertNotEqual(old_approval["id"], replacement["approval"]["id"])
+        self.assertNotEqual(old_approval["digest"], replacement["approval"]["digest"])
+        exact = replacement["approval"]["payload"]["emailExact"]
+        self.assertEqual("proposta.pdf", exact["attachments"][0]["fileName"])
+        self.assertRegex(exact["attachments"][0]["sha256"], r"^[0-9a-f]{64}$")
+        approvals = {item["id"]: item for item in await list_items("owner-mail", APPROVAL_DB)}
+        self.assertEqual("cancelled", approvals[old_approval["id"]]["status"])
+        self.assertEqual("pending", approvals[replacement["approval"]["id"]]["status"])
+        self.assertEqual([], FakeGmail.sent)
 
     async def test_tampered_attachment_blocks_send(self) -> None:
         record = nora_files.save_bytes("owner-mail", b"conteudo original", "nota.txt", "text/plain", source="test")

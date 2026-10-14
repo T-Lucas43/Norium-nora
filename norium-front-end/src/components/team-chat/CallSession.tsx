@@ -153,6 +153,7 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "previewStream"
   | "remoteScreenSharingIds"
   | "remoteCameraEnabled"
+  | "remoteMuted"
   | "callElapsedSeconds"
   | "recording"
   | "recordingElapsedSeconds"
@@ -161,11 +162,13 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "recordingPendingBytes"
   | "recordingUploadProgress"
   | "connectionQuality"
+  | "participantConnectionQuality"
   | "iceTelemetry"
   | "mediaTransportState"
   | "mediaTransportFailure"
   | "reactions"
   | "raisedHands"
+  | "stagePin" | "presentationLocks" | "presentationMarks" | "presenterUserId"
   | "meetingMessages"
   | "screenChangePending"
   | "status"
@@ -184,6 +187,9 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "screenShareFps"
   | "supportsSpeakerSelection"
 > & {
+  nora?: Runtime["nora"];
+  noraTranscript?: Runtime["noraTranscript"];
+  noraUnderstanding?: Runtime["noraUnderstanding"];
   clientId?: string;
   phase: CallSessionPhase;
   socketState: "connecting" | "open" | "reconnecting" | "closed";
@@ -205,7 +211,7 @@ export type CallSessionCommands = {
   start: (thread: TeamCallThread) => Promise<void>;
   accept: () => Promise<void>;
   join: (call: TeamCallSocketEvent) => Promise<void>;
-  enter: () => Promise<void>;
+  enter: (options?: { cameraEnabled: false }) => Promise<void>;
   cancelEntry: () => void;
   setEntryMicrophoneMode: (mode: CallMicrophoneMode) => void;
   setEntryCameraEnabled: (enabled: boolean) => Promise<void>;
@@ -221,6 +227,10 @@ export type CallSessionCommands = {
   startRecording: Runtime["startRecording"];
   stopRecording: Runtime["stopRecording"];
   sendReaction: Runtime["sendReaction"];
+  removeParticipant: Runtime["removeParticipant"];
+  updateStage: Runtime["updateStage"];
+  updateNora?: Runtime["updateNora"];
+  updateVideoInterest: Runtime["updateVideoInterest"];
   toggleHand: Runtime["toggleHand"];
   sendMeetingMessage: Runtime["sendMeetingMessage"];
   selectMicrophone: Runtime["selectMicrophone"];
@@ -590,13 +600,13 @@ function ActiveCallSessionProvider({
       void runtime.prepareAudio();
       await runtime.refreshDevices();
     },
-    enter: async () => {
+    enter: async (override) => {
       const target = entryTargetRef.current;
       const entry = prejoin;
       if (!target || !entry) return;
       setFailureNotice("");
       dispatch({ type: "JOIN_REQUESTED" });
-      const options = { microphoneMode: entry.microphoneMode, cameraEnabled: entry.cameraEnabled };
+      const options = { microphoneMode: entry.microphoneMode, cameraEnabled: entry.cameraEnabled && override?.cameraEnabled !== false };
       let entered = false;
       try {
         if (target.kind === "start") entered = (await runtime.startCall(target.thread, options)) !== false;
@@ -679,6 +689,10 @@ function ActiveCallSessionProvider({
     startRecording: runtime.startRecording,
     stopRecording: runtime.stopRecording,
     sendReaction: runtime.sendReaction,
+    removeParticipant: runtime.removeParticipant,
+    updateStage: runtime.updateStage,
+    updateNora: runtime.updateNora,
+    updateVideoInterest: runtime.updateVideoInterest,
     toggleHand: runtime.toggleHand,
     sendMeetingMessage: runtime.sendMeetingMessage,
     selectMicrophone: runtime.selectMicrophone,
@@ -732,6 +746,7 @@ function ActiveCallSessionProvider({
     previewStream: runtime.previewStream,
     remoteScreenSharingIds: runtime.remoteScreenSharingIds,
     remoteCameraEnabled: runtime.remoteCameraEnabled,
+    remoteMuted: runtime.remoteMuted,
     callElapsedSeconds: runtime.callElapsedSeconds,
     recording: runtime.recording,
     recordingElapsedSeconds: runtime.recordingElapsedSeconds,
@@ -740,11 +755,16 @@ function ActiveCallSessionProvider({
     recordingPendingBytes: runtime.recordingPendingBytes,
     recordingUploadProgress: runtime.recordingUploadProgress,
     connectionQuality: runtime.connectionQuality,
+    participantConnectionQuality: runtime.participantConnectionQuality,
     iceTelemetry: runtime.iceTelemetry,
     mediaTransportState: runtime.mediaTransportState,
     mediaTransportFailure: runtime.mediaTransportFailure,
     reactions: runtime.reactions,
     raisedHands: runtime.raisedHands,
+    stagePin: runtime.stagePin, presentationLocks: runtime.presentationLocks,
+    nora: runtime.nora,
+    noraTranscript: runtime.noraTranscript, noraUnderstanding: runtime.noraUnderstanding,
+    presentationMarks: runtime.presentationMarks, presenterUserId: runtime.presenterUserId,
     meetingMessages: runtime.meetingMessages,
     screenChangePending: runtime.screenChangePending,
     status: runtime.status,

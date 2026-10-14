@@ -19,12 +19,12 @@ from urllib.parse import urlsplit, urlunsplit
 from fastapi import HTTPException
 
 from app.core.request_context import current_ai_user_id, current_workspace_id
-from app.core.tenant import get_data_root, read_json_file, safe_tenant_id
+from app.core.tenant import get_data_root, get_system_db_path, read_json_file, safe_tenant_id, read_user_db, write_user_db
 from app.infrastructure.persistence import postgres_store
 
 BRAZIL = timezone(timedelta(hours=-3))
 NANO = Decimal(1_000_000_000)
-DEFAULT_URLS = {"groq": "https://api.groq.com/openai/v1", "google": "https://generativelanguage.googleapis.com/v1beta", "openai": "https://api.openai.com/v1", "anthropic": "https://api.anthropic.com/v1"}
+DEFAULT_URLS = {"groq": "https://api.groq.com/openai/v1", "google": "https://generativelanguage.googleapis.com/v1beta", "openai": "https://api.openai.com/v1", "anthropic": "https://api.anthropic.com/v1", "brave": "https://api.search.brave.com/res/v1"}
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS rates (id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS usage (
@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, user_id TEXT NOT N
  month TEXT NOT NULL, tokens INTEGER NOT NULL, cost_nano INTEGER NOT NULL, expires REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS speech_budget_locks (user_id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS speech_usage (
+ id TEXT PRIMARY KEY, user_id TEXT NOT NULL, workspace TEXT NOT NULL,
+ team_id TEXT NOT NULL, call_id TEXT NOT NULL, created_at TEXT NOT NULL,
+ provider TEXT NOT NULL, model TEXT NOT NULL, unit TEXT NOT NULL,
+ units INTEGER NOT NULL, actual_millis INTEGER NOT NULL, cost_nano INTEGER NOT NULL,
+ tariff TEXT NOT NULL, status TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS speech_usage_user ON speech_usage(user_id, created_at);
 """
 _postgres_schema_guard = threading.Lock()
 _postgres_schema_ready = False
@@ -110,7 +118,7 @@ def database():
                                 "id INTEGER PRIMARY KEY, created_at",
                                 "id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, created_at",
                             )
-                            if statement.startswith("CREATE TABLE IF NOT EXISTS usage") or statement.startswith("CREATE TABLE IF NOT EXISTS reservations"):
+                            if any(statement.startswith("CREATE TABLE IF NOT EXISTS " + table) for table in ("usage", "reservations", "speech_usage")):
                                 statement = statement.replace(" INTEGER", " BIGINT")
                             schema.execute(statement)
                         schema.execute("ALTER TABLE reservations ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT ''")
@@ -119,6 +127,9 @@ def database():
         with postgres_store.connection() as raw:
             db = _PostgresCosts(raw)
             try:
+                # A reservation and its balance check form one cross-process
+                # transaction, including the commercial team allowance.
+                raw.execute("SELECT pg_advisory_xact_lock(782631209441)")
                 yield db
                 raw.commit()
             except BaseException:
@@ -165,9 +176,16 @@ def identity(provider: dict, model: str | None = None) -> dict:
 def default_rate(provider: dict, model: str | None = None) -> dict:
     item = identity(provider, model)
     prices = None
+    request_usd = None
     source = "Tarifa não cadastrada"
     expires = None
-    if item["provider"] == "groq" and item["baseUrl"] == DEFAULT_URLS["groq"] and item["model"] == "openai/gpt-oss-20b":
+    if item["provider"] == "brave" and item["baseUrl"] == DEFAULT_URLS["brave"] and item["model"] == "web-search":
+        prices, request_usd = (0, 0, 0, 0), 0.005
+        source = "https://api-dashboard.search.brave.com/documentation/pricing"
+    elif item["provider"] == "openai" and item["baseUrl"] == DEFAULT_URLS["openai"] and item["model"] == "text-embedding-3-small":
+        prices = (0.02, 0, 0, 0.02)
+        source = "https://developers.openai.com/api/docs/models/text-embedding-3-small"
+    elif item["provider"] == "groq" and item["baseUrl"] == DEFAULT_URLS["groq"] and item["model"] == "openai/gpt-oss-20b":
         prices = (0.075, 0.30, 0.037, 0.075)
         source = "https://console.groq.com/docs/model/openai/gpt-oss-20b"
     elif item["provider"] == "groq" and item["baseUrl"] == DEFAULT_URLS["groq"] and item["model"] == "qwen/qwen3.6-27b":
@@ -177,6 +195,13 @@ def default_rate(provider: dict, model: str | None = None) -> dict:
         prices = (0.75, 3.75, 0.075, 0.75) if month_for() < "2027-01" else (1.5, 7.5, 0.15, 1.5)
         source = "https://ai.google.dev/gemini-api/docs/pricing"
         expires = "2026-12-31" if month_for() < "2027-01" else None
+    elif item["provider"] == "openai" and item["baseUrl"] == DEFAULT_URLS["openai"] and item["model"] in {"gpt-5.6-luna", "gpt-5.6-sol"}:
+        if item["model"] == "gpt-5.6-luna":
+            prices = (0.20, 1.20, 0.02, 0.25)
+        elif month_for() <= "2026-11":
+            prices, expires = (4.00, 20.00, 0.40, 5.00), "2026-11-21"
+        # After the verified promotional date, require a new reviewed tariff.
+        source = "https://developers.openai.com/api/docs/models/" + item["model"]
     elif not provider.get("managed") and model in (None, provider.get("model")) and "inputCostPerMillion" in provider:
         inp, out = provider.get("inputCostPerMillion"), provider.get("outputCostPerMillion")
         if inp is not None and out is not None:
@@ -185,7 +210,7 @@ def default_rate(provider: dict, model: str | None = None) -> dict:
     return {**item, "name": str(provider.get("name") or item["model"]), "unitTokens": 1_000_000,
             "inputUsd": prices[0] if prices else None, "outputUsd": prices[1] if prices else None,
             "cachedInputUsd": prices[2] if prices else None, "cacheWriteUsd": prices[3] if prices else None,
-            "source": source, "validUntil": expires, "updatedAt": now(), "version": 1, "managedPrice": bool(prices and source.startswith("https://"))}
+            "requestUsd": request_usd, "source": source, "validUntil": expires, "updatedAt": now(), "version": 1, "managedPrice": bool(prices and source.startswith("https://"))}
 
 
 def ensure_rate(db, provider: dict, model: str | None = None) -> dict:
@@ -246,6 +271,7 @@ def nano_cost(rate: dict, counts: dict) -> tuple[int | None, int | None]:
     writes = min(counts.get("cacheWriteTokens", 0), inp - cached)
     incoming = cost(inp - cached - writes, rate["inputUsd"]) + cost(cached, rate.get("cachedInputUsd") if rate.get("cachedInputUsd") is not None else rate["inputUsd"]) + cost(writes, rate.get("cacheWriteUsd") if rate.get("cacheWriteUsd") is not None else rate["inputUsd"])
     outgoing = cost(counts["outputTokens"], rate["outputUsd"])
+    incoming += Decimal(str(rate.get("requestUsd") or 0)) * NANO
     return int(incoming.quantize(Decimal(1), rounding=ROUND_HALF_UP)), int(outgoing.quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
@@ -266,9 +292,47 @@ def record_usage(provider, counts, *, user_id, source, event_id=None, created_at
         return _record(db, provider, counts, user_id=user_id, source=source, event_id=event_id, created_at=created_at, model=model)
 
 
+def settle_lost_reservation(ledger: dict, scope: dict) -> None:
+    """A restarted worker conservatively charges the persisted attempt once."""
+    with database() as db:
+        _record(db, ledger["provider"], {"inputTokens": ledger["input"], "outputTokens": ledger["output"],
+                "estimated": True}, user_id=scope["user"], source="nora-brain-uncertain",
+                event_id=ledger["id"], created_at=ledger["createdAt"], workspace=scope["workspace"])
+        db.execute("DELETE FROM reservations WHERE id=?", (ledger["id"],))
+
+
+def account_plan(user_id: str, users: list[dict] | None = None) -> dict:
+    from app.shared.plan_catalog import finance_plan_catalog
+    if users is None:
+        store = read_json_file(get_system_db_path("usuarios"), {})
+        users = store.get("users", []) if isinstance(store, dict) else []
+    user = next((u for u in users if isinstance(u, dict) and u.get("id") == user_id), None)
+    if user is None:
+        return {}  # Legacy counters/internal jobs without a commercial account.
+    owner_id = str(user.get("teamOwnerId") or user_id)
+    owner = next((u for u in users if u.get("id") == owner_id), user)
+    code = owner.get("plan") or "free"
+    defaults = next((p for p in finance_plan_catalog() if p["code"] == code), finance_plan_catalog()[0])
+    store = read_json_file(get_system_db_path("admin_finance"), {})
+    custom = next((p for p in store.get("plans", []) if p.get("code") == code), {}) if isinstance(store, dict) else {}
+    limits = {**defaults["limits"], **custom.get("limits", {})}
+    # Invalid commercial values fail closed; never turn a negative cap unlimited.
+    caps = {key: max(0, int(limits.get(key, 0))) for key in ("noraTokens", "noraTokensPerPerson", "noraCalls")}
+    return {"code": code, "name": custom.get("name") or defaults["name"], "ownerId": owner_id,
+            "members": [u["id"] for u in users if u.get("id") == owner_id or u.get("teamOwnerId") == owner_id], **caps}
+
+
 def get_limit(db, user_id):
     row = db.execute("SELECT data FROM limits WHERE user_id=?", (user_id,)).fetchone()
-    return {"monthlyBudgetUsd": None, "monthlyTokenLimit": None, "period": "monthly", "startDate": None, "autoRenew": True, "resetAt": None, **(json.loads(row[0]) if row else {})}
+    limit = {"monthlyBudgetUsd": None, "monthlyTokenLimit": None, "callsLimit": None,
+             "period": "monthly", "startDate": None, "autoRenew": True, "resetAt": None,
+             **(json.loads(row[0]) if row else {})}
+    plan = account_plan(user_id)
+    if plan:
+        cap = min(plan["noraTokens"], plan["noraTokensPerPerson"])
+        limit["monthlyTokenLimit"] = min(cap, limit["monthlyTokenLimit"]) if limit["monthlyTokenLimit"] is not None else cap
+        limit["callsLimit"] = min(plan["noraCalls"], limit["callsLimit"]) if limit["callsLimit"] is not None else plan["noraCalls"]
+    return limit
 
 
 def instant(value: str) -> datetime:
@@ -319,6 +383,17 @@ def reserve(provider, user_id, input_bound, max_output, started_at=None):
         used_tokens = sum(r["input_tokens"] + r["output_tokens"] for r in usage)
         reservations = [r for r in db.execute("SELECT * FROM reservations WHERE user_id=?", (user_id,)) if not r["created_at"] or in_cycle(r["created_at"], cycle)]
         pending_tokens = sum(r["tokens"] for r in reservations)
+        if limit.get("callsLimit") is not None and len(usage) + len(reservations) >= limit["callsLimit"]:
+            raise HTTPException(402, "Franquia de chamadas da Nora atingida neste ciclo.")
+        plan = account_plan(user_id)
+        if plan:
+            team_cycle = cycle_for(get_limit(db, plan["ownerId"]), started_at)
+            team_usage = [r for r in db.execute("SELECT * FROM usage") if r["user_id"] in plan["members"] and in_cycle(r["created_at"], team_cycle)]
+            team_pending = [r for r in db.execute("SELECT * FROM reservations") if r["user_id"] in plan["members"] and (not r["created_at"] or in_cycle(r["created_at"], team_cycle))]
+            if len(team_usage) + len(team_pending) >= plan["noraCalls"]:
+                raise HTTPException(402, "Franquia de chamadas do plano atingida neste ciclo.")
+            team_balance = plan["noraTokens"] - sum(r["input_tokens"] + r["output_tokens"] for r in team_usage) - sum(r["tokens"] for r in team_pending)
+            max_output = min(max_output, team_balance - input_bound)
         output = max_output
         if limit["monthlyTokenLimit"] is not None:
             output = min(output, limit["monthlyTokenLimit"] - used_tokens - pending_tokens - input_bound)
@@ -366,6 +441,12 @@ class Meter:
                 return result
         result = await asyncio.to_thread(settle)
         self.recorded = True
+        try:
+            await notify_usage(self.user_id)
+        except Exception:
+            # Usage has already been durably settled; notification outages must
+            # not discard a valid provider response or double-charge a retry.
+            pass
         return result
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -401,8 +482,16 @@ def save_limit(user_id: str, payload: dict, actor: str):
     return payload
 
 
+def lock_speech_account(db, user_id):
+    db.execute("INSERT INTO speech_budget_locks(user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING", (user_id,))
+    if getattr(db, "postgres", False):
+        db.execute("SELECT user_id FROM speech_budget_locks WHERE user_id=? FOR UPDATE", (user_id,)).fetchone()
+
+
 def assert_no_pending(db, user_id):
-    if db.execute("SELECT 1 FROM reservations WHERE user_id=? AND expires>? LIMIT 1", (user_id, time.time())).fetchone():
+    lock_speech_account(db, user_id)
+    if (db.execute("SELECT 1 FROM reservations WHERE user_id=? AND expires>? LIMIT 1", (user_id, time.time())).fetchone()
+            or db.execute("SELECT 1 FROM speech_usage WHERE user_id=? AND status='reserved' LIMIT 1", (user_id,)).fetchone()):
         raise HTTPException(409, "Há chamadas de IA em andamento. Aguarde a conclusão antes de alterar ou resetar o ciclo.")
 
 
@@ -477,6 +566,7 @@ def _totals(rows):
 
 
 def overview(users: list[dict], month: str, user_filter="", model_filter=""):
+    from app.services.ai_speech_costs import speech_report
     catalog = sync_catalog(users)
     with database() as db:
         query = "SELECT * FROM usage WHERE (?='all' OR month=?) AND (?='' OR user_id=?) AND (?='' OR model_id=?) ORDER BY created_at DESC"
@@ -519,7 +609,85 @@ def overview(users: list[dict], month: str, user_filter="", model_filter=""):
             results.append({**account, **_totals(user_rows), "limits": limit, "cycle": cycle, "currentCycle": current, "currentMonth": current, "remainingUsd": remaining_usd if cycle["active"] else 0, "remainingTokens": remaining_tokens if cycle["active"] else 0, "tokenAllocationRequired": allocation_required, "pendingRequests": len(pending), "models": models})
         audit = [dict(r) for r in db.execute("SELECT created_at,actor,action,target FROM audit ORDER BY id DESC LIMIT 30")]
         started = db.execute("SELECT value FROM metadata WHERE key='trackingStartedAt'").fetchone()[0]
-    return {"month": month, "currentMonth": month_for(), "trackingStartedAt": started, "updatedAt": now(), "totals": _totals(rows),
+        speech = speech_report(db, month, user_filter=user_filter, model_filter=model_filter)
+    return {"month": month, "currentMonth": month_for(), "trackingStartedAt": started, "updatedAt": now(), "totals": _totals(rows), "speech": speech,
             "models": [{**m, **_totals([r for r in rows if r["model_id"] == m["id"]])} for m in catalog["models"] if not model_filter or m["id"] == model_filter],
             "users": sorted(results, key=lambda u: (-u["costUsd"], u["name"])), "audit": audit,
             "recentUsage": [{"id": r["id"], "userId": r["user_id"], "modelId": r["model_id"], "createdAt": r["created_at"], "source": r["source"], "workspace": r["workspace"], "inputTokens": r["input_tokens"], "outputTokens": r["output_tokens"], "cachedTokens": r["cached_tokens"], "reasoningTokens": r["reasoning_tokens"], "costUsd": r["cost_nano"] / 1e9 if r["cost_nano"] is not None else None, "estimated": bool(r["estimated"])} for r in rows[:100]]}
+
+
+def nora_usage(user: dict, users: list[dict], can_view_people: bool = False) -> dict:
+    """A scoped projection: no catalogue connections, prompts, global totals or audit."""
+    plan = account_plan(user["id"], users)
+    allowed = plan.get("members", [user["id"]]) if can_view_people else [user["id"]]
+    timestamp = now()
+    people = []
+    with database() as db:
+        plan_totals, plan_tokens, plan_calls = {}, None, None
+        if plan:
+            owner_cycle = cycle_for(get_limit(db, plan["ownerId"]), timestamp)
+            all_rows = [r for r in db.execute("SELECT * FROM usage") if r["user_id"] in plan["members"] and in_cycle(r["created_at"], owner_cycle)]
+            all_pending = [r for r in db.execute("SELECT * FROM reservations WHERE expires>?", (time.time(),)) if r["user_id"] in plan["members"] and (not r["created_at"] or in_cycle(r["created_at"], owner_cycle))]
+            plan_totals = _totals(all_rows)
+            plan_tokens = max(0, plan["noraTokens"] - plan_totals["totalTokens"] - sum(r["tokens"] for r in all_pending)) if owner_cycle["active"] else 0
+            plan_calls = max(0, plan["noraCalls"] - plan_totals["requests"] - len(all_pending)) if owner_cycle["active"] else 0
+        for person in users:
+            uid = str(person.get("id") or "")
+            if uid not in allowed:
+                continue
+            limit = get_limit(db, uid)
+            cycle = cycle_for(limit, timestamp)
+            rows = [r for r in db.execute("SELECT * FROM usage WHERE user_id=?", (uid,)) if in_cycle(r["created_at"], cycle)]
+            pending = [r for r in db.execute("SELECT * FROM reservations WHERE user_id=? AND expires>?", (uid, time.time())) if not r["created_at"] or in_cycle(r["created_at"], cycle)]
+            totals = _totals(rows)
+            used = totals["totalTokens"] + sum(r["tokens"] for r in pending)
+            calls = totals["requests"] + len(pending)
+            alerts = [n for n in (80, 95) if any(cap is not None and cap > 0 and value / cap * 100 >= n for cap, value in ((limit["monthlyTokenLimit"], used), (limit.get("callsLimit"), calls)))]
+            people.append({"id": uid, "name": person.get("nome") or "Pessoa", **totals,
+                "pendingRequests": len(pending), "limits": limit, "cycle": cycle, "alerts": alerts,
+                "remainingTokens": max(0, limit["monthlyTokenLimit"] - used) if limit["monthlyTokenLimit"] is not None and cycle["active"] else None if limit["monthlyTokenLimit"] is None else 0,
+                "remainingCalls": max(0, limit["callsLimit"] - calls) if limit.get("callsLimit") is not None and cycle["active"] else None if limit.get("callsLimit") is None else 0})
+        for item in people:
+            if plan_tokens is not None:
+                item["remainingTokens"] = min(item["remainingTokens"], plan_tokens) if item["remainingTokens"] is not None else plan_tokens
+            if plan_calls is not None:
+                item["remainingCalls"] = min(item["remainingCalls"], plan_calls) if item["remainingCalls"] is not None else plan_calls
+        started = db.execute("SELECT value FROM metadata WHERE key='trackingStartedAt'").fetchone()[0]
+    personal = next((p for p in people if p["id"] == user["id"]), None)
+    return {"updatedAt": timestamp, "trackingStartedAt": started,
+        "plan": {"code": plan.get("code", "free"), "name": plan.get("name", "Free"),
+                 "tokenAllowance": plan.get("noraTokens"), "noraCallAllowance": plan.get("noraCalls"),
+                 "remainingTokens": plan_tokens, "remainingCalls": plan_calls, "currentCycle": plan_totals},
+        "personal": personal, "canViewPeople": can_view_people, "people": people if can_view_people else []}
+
+
+_notification_lock = asyncio.Lock()
+
+
+async def notify_usage(user_id: str) -> None:
+    """One system notification per threshold and cycle; counters contain no content."""
+    from app.modules.inbox.router import record_event, manager
+    store = await asyncio.to_thread(read_json_file, get_system_db_path("usuarios"), {})
+    users = store.get("users", []) if isinstance(store, dict) else []
+    user = next((u for u in users if u.get("id") == user_id), None)
+    if user is None:
+        return
+    report = await asyncio.to_thread(nora_usage, user, users)
+    personal = report["personal"]
+    async with _notification_lock:
+        seen = await asyncio.to_thread(read_user_db, user_id, "nora_usage_alerts", [])
+        seen = seen if isinstance(seen, list) else []
+        for threshold in personal["alerts"]:
+            key = hashlib.sha256(f'{user_id}|{current_workspace_id()}|{personal["cycle"]["startAt"]}|{threshold}'.encode()).hexdigest()
+            if key in seen:
+                continue
+            title = f"Consumo da Nora: {threshold}% da franquia"
+            await record_event(source="sistema", title=title,
+                description="Confira o consumo e o saldo do ciclo em Configurações > Consumo da Nora.",
+                metadata={"userId": user_id, "action": "nora_usage_threshold", "threshold": threshold},
+                event_id="nora_usage_" + key)
+            await manager.broadcast(user_id, {"type": "SYSTEM_NOTIFICATION", "notification": {
+                "id": "nora_usage_" + key, "title": title, "severity": "warning",
+                "description": "Confira seu saldo em Configurações > Consumo da Nora."}})
+            seen.append(key)
+        await asyncio.to_thread(write_user_db, user_id, "nora_usage_alerts", seen[-24:])

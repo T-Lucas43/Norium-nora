@@ -1,3 +1,4 @@
+import PrivacyStorageCard from "./PrivacyStorageCard";
 import { applyInterfacePreferences, defaultInterfacePreferences, type InterfacePreferences } from "../../utils/interfacePreferences";
 import {
   Bell,
@@ -27,6 +28,7 @@ import Button from "../shared/Button";
 import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import "../../styles/screens/inteligencia-equipe-conta.css";
 import SettingsNav, { readSettingsSection, storeSettingsSection, type SettingsSection } from "./SettingsNav";
+import NoraUsageSettings from "./NoraUsageSettings";
 
 type SettingsDashboardProps = {
   userId?: string;
@@ -39,6 +41,7 @@ type SettingsDashboardProps = {
 
 const sectionHeads: Record<Exclude<SettingsSection, "perfil">, { title: string; subtitle: string }> = {
   nora: { title: "Nora e IA", subtitle: "Personalidade da sua assistente." },
+  consumo: { title: "Consumo da Nora", subtitle: "Acompanhe o uso, a franquia e a próxima renovação da sua conta." },
   aparencia: { title: "Aparência e acessibilidade", subtitle: "Ajuste o Norium ao seu jeito de trabalhar. O tema é aplicado imediatamente em todo o Norium." },
   notificacoes: { title: "Notificações", subtitle: "Alertas visuais e atualizações em tempo real." },
   privacidade: { title: "Seus dados e privacidade", subtitle: "Baixe uma cópia portátil dos dados pessoais da conta. A exclusão revoga as sessões, elimina o diretório pessoal e anonimiza o cadastro e a auditoria." },
@@ -93,7 +96,7 @@ export default function SettingsDashboard({
   const showAdmin = Boolean(currentUser?.systemAdmin && onOpenAdmin);
   const showPrivacy = Boolean(currentUser);
   const [storedSection, setSection] = useState<SettingsSection>(() => readSettingsSection() || "aparencia");
-  const section: Exclude<SettingsSection, "perfil"> = storedSection === "perfil" || (storedSection === "admin" && !showAdmin) || (storedSection === "privacidade" && !showPrivacy) ? "aparencia" : storedSection;
+  const section: Exclude<SettingsSection, "perfil"> = storedSection === "perfil" || (storedSection === "admin" && !showAdmin) || (storedSection === "privacidade" && !showPrivacy) || (storedSection === "consumo" && !currentUser) ? "aparencia" : storedSection;
   function selectSection(next: SettingsSection) {
     storeSettingsSection(next);
     if (next === "perfil") {
@@ -230,21 +233,23 @@ export default function SettingsDashboard({
   return (
     <section className="nx-page nxi-screen">
       <div className="nxi-cfg">
-        <SettingsNav active={section} onSelect={selectSection} showPrivacy={showPrivacy} showAdmin={showAdmin} />
+        <SettingsNav active={section} onSelect={selectSection} showPrivacy={showPrivacy} showAdmin={showAdmin} showUsage={Boolean(currentUser)} />
         <div className="nxi-cfg-main" style={{ maxWidth: 1080 }}>
           <header className="nxi-cfg-head">
             <div><h2 className="nxi-h2">{head.title}</h2><p>{head.subtitle}</p></div>
-            <Button variant="primary"
+            {section !== "consumo" && <Button variant="primary"
               onClick={() => void save()}
               disabled={saving || loading}
             >
               <Save size={16} />
               {saving ? "Salvando..." : "Salvar configurações"}
-            </Button>
+            </Button>}
           </header>
 
           {error && <p role="alert" className="nxi-alert is-error">{error}</p>}
           {message && <p role="status" className="nxi-alert is-success">{message}</p>}
+
+          {section === "consumo" && currentUser && <NoraUsageSettings userId={currentUser.id} onOpenAdmin={showAdmin ? onOpenAdmin : undefined} />}
 
           {showAdmin && (
             <section hidden={section !== "admin"} className="nx-card nxi-card-pad flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -459,6 +464,7 @@ export default function SettingsDashboard({
 
           {currentUser && (
             <section className="nxi-stack is-sm" hidden={section !== "privacidade"} aria-label="Seus dados e privacidade">
+              {section === "privacidade" && <PrivacyStorageCard />}
               <div className="nx-card nxi-card-pad flex flex-wrap items-center gap-3">
                 <div className="nx-grow"><h3 className="nxi-card-title">Exportar meus dados</h3><p className="nxi-card-sub">Arquivo compactado com seus dados pessoais e manifesto de integridade.</p></div>
                 <Button onClick={() => void exportPersonalData()} disabled={exportingData}>

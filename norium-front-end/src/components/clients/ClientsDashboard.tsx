@@ -68,6 +68,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
     [accessClient, setAccessClient] = useState<Client | null>(null),
     [photoBusy, setPhotoBusy] = useState(false);
   const [tab, setTab] = useState<DetailTab>("overview");
+  useEffect(() => { window.dispatchEvent(new CustomEvent("norium:presence-context", { detail: selectedId ? { type: "client", id: selectedId } : null })); return () => { window.dispatchEvent(new CustomEvent("norium:presence-context", { detail: null })); }; }, [selectedId]);
   const photoRef = useRef<HTMLInputElement>(null);
   const load = useCallback(async () => {
     setLoading(true);

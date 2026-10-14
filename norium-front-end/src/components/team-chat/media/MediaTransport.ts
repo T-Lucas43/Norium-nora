@@ -1,4 +1,5 @@
 export type MediaTransportKind = "mesh" | "sfu";
+import type { VideoSubscriptionInterest } from "./videoSubscriptionPolicy";
 
 export type MediaTransportConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
 export type MediaTransportFailure = { code: string; detail: string; retryable: boolean };
@@ -23,6 +24,7 @@ export type MediaTransportSnapshot = {
   failure: MediaTransportFailure | null;
   remoteStreams: Array<{ userId: string; stream: MediaStream }>;
   connectionQuality: MediaTransportConnectionQuality;
+  participantConnectionQuality?: Record<string, MediaTransportConnectionQuality>;
   iceTelemetry: IceTelemetrySnapshot;
 };
 
@@ -46,7 +48,8 @@ export type MediaTransportEvent =
   | { type: "participant-left"; callId: string; userId: string; clientId?: string | null }
   | { type: "signal"; callId: string; userId: string; clientId?: string | null; signal: RTCSessionDescriptionInit | RTCIceCandidateInit }
   | { type: "screen-started"; callId: string; userId: string; clientId?: string | null }
-  | { type: "screen-stopped"; callId: string; userId: string; clientId?: string | null };
+  | { type: "screen-stopped"; callId: string; userId: string; clientId?: string | null }
+  | { type: "video-interest"; callId: string; userId: string; clientId?: string | null; receiveVideo: boolean; quality: "low" | "high" };
 
 export type MediaTransportDependencies = {
   emitSignal: (
@@ -57,6 +60,7 @@ export type MediaTransportDependencies = {
   onConnected: () => void;
   onStatus: (message: string) => void;
   onTerminated?: (failure: MediaTransportFailure) => void;
+  emitVideoInterest?: (callId: string, targetUserId: string, receiveVideo: boolean, quality: "low" | "high") => void;
 };
 
 /**
@@ -71,6 +75,7 @@ export interface MediaTransport {
   receive(event: MediaTransportEvent): Promise<void>;
   updateLocalMedia(media: MediaTransportLocalMedia): Promise<void>;
   updateIce(configuration: RTCConfiguration): void;
+  updateVideoInterest?(interest: VideoSubscriptionInterest): Promise<void>;
   updateScreenProfile(
     quality: MediaTransportLocalMedia["screenShareQuality"],
     fps: MediaTransportLocalMedia["screenShareFps"],

@@ -1,6 +1,6 @@
 import { apiRequest } from "../../core/api/client";
 
-export type MessageChannel = "email" | "whatsapp";
+export type MessageChannel = "email" | "whatsapp" | "team";
 export type MessageTemplate = {
   id: string;
   name: string;
@@ -8,12 +8,13 @@ export type MessageTemplate = {
   category: string;
   subject: string;
   body: string;
+  shortcut?: string;
   builtIn: boolean;
   createdAt?: string | null;
   updatedAt?: string | null;
 };
 
-export type MessageTemplateInput = Pick<MessageTemplate, "name" | "channel" | "category" | "subject" | "body">;
+export type MessageTemplateInput = Pick<MessageTemplate, "name" | "channel" | "category" | "subject" | "body" | "shortcut">;
 
 export const messageTemplatesApi = {
   list: (channel?: MessageChannel) => apiRequest<{ templates: MessageTemplate[] }>(`/api/message-templates${channel ? `?channel=${channel}` : ""}`, { cache: "no-store" }),

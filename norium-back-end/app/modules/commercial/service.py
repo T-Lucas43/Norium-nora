@@ -1483,7 +1483,8 @@ async def generate_proposal_draft(user: dict[str, Any], payload: ProposalBriefRe
     fallback = _briefing_fallback(payload, client)
     try:
         response = await _nora.perguntar_nora(
-            [{"role": "user", "content": _proposal_briefing_prompt(payload, client)}]
+            [{"role": "user", "content": _proposal_briefing_prompt(payload, client)}],
+            purpose="document", user_id=str(user.get("id") or "")
         )
         draft = _parse_briefing_response(response, payload, client)
         if _draft_requires_expansion(draft, payload):
@@ -1718,7 +1719,7 @@ async def generate_smart_document_draft(user: dict[str, Any], payload: SmartDocu
         response = await _nora.perguntar_nora(
             [{"role": "user", "content": prompt}],
             max_tokens=6500,
-            require_complete=True,
+            require_complete=True, purpose="document",
             user_id=str(user.get("id") or ""),
         )
         draft = _parse_smart_document_response(response, fallback)
@@ -2388,7 +2389,7 @@ async def analyze_with_nora(
         f"Valor: {proposal.get('amount')} {proposal.get('currency')}. Documento: {document_text}"
     )
     try:
-        response = await _nora.perguntar_nora([{"role": "user", "content": prompt}])
+        response = await _nora.perguntar_nora([{"role": "user", "content": prompt}], purpose="document", user_id=str(user.get("id") or ""))
         analysis = parse_nora_json(response, str(proposal.get("contentHtml") or ""), payload.context, list(payload.focus))
     except Exception:
         analysis = fallback_analysis(str(proposal.get("contentHtml") or ""), payload.context, list(payload.focus))
@@ -2456,7 +2457,7 @@ async def write_document_with_nora(
         "comment": "Preparei um trecho inicial com base apenas nas informacoes fornecidas.",
     }
     try:
-        response = await _nora.perguntar_nora([{"role": "user", "content": prompt}])
+        response = await _nora.perguntar_nora([{"role": "user", "content": prompt}], purpose="document", user_id=str(user.get("id") or ""))
         match = re.search(r"\{.*\}", response or "", re.S)
         if not match:
             return fallback

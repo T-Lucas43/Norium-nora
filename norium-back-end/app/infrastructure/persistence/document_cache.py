@@ -157,6 +157,18 @@ def forget(store_key: str) -> None:
         _drop_key(owner_of(store_key), store_key)
 
 
+def forget_prefix(prefix: str) -> int:
+    """Invalida também documentos antigos que não existem mais no banco."""
+    removed = 0
+    with _guard:
+        for owner, entries in list(_owners.items()):
+            for key in list(entries):
+                if key.startswith(prefix):
+                    _drop_key(owner, key)
+                    removed += 1
+    return removed
+
+
 def clear() -> None:
     global _bytes
     with _guard:

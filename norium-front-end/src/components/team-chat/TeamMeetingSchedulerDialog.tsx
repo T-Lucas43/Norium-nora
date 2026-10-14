@@ -30,6 +30,7 @@ export default function TeamMeetingSchedulerDialog({
   members,
   currentUserId,
   saving,
+  initialDraft,
   onClose,
   onSave,
 }: {
@@ -37,11 +38,12 @@ export default function TeamMeetingSchedulerDialog({
   members: NoriumUser[];
   currentUserId: string;
   saving: boolean;
+  initialDraft?: { title: string; description: string; slots?: { startsAt: string; endsAt: string }[]; basis?: string };
   onClose: () => void;
   onSave: (input: TeamMeetingScheduleInput) => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(initialDraft?.title || "");
+  const [description, setDescription] = useState(initialDraft?.description || "");
   const [startsAt, setStartsAt] = useState(defaultStartValue);
   const [duration, setDuration] = useState("30");
   const [participantIds, setParticipantIds] = useState<string[]>(() => members.map((member) => member.id));
@@ -71,6 +73,7 @@ export default function TeamMeetingSchedulerDialog({
           <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar agendamento"><X size={18} /></Button>
         </div>
         <div className="mt-5 grid gap-3">
+          {initialDraft?.slots && <section><p className="text-xs text-[var(--nx-text-3)]">{initialDraft.basis}</p><div className="team-v3-presets">{initialDraft.slots.map(slot => <button type="button" className="nx-btn is-sm" key={slot.startsAt} onClick={() => { const value = new Date(slot.startsAt); setStartsAt(`${value.getFullYear()}-${pad(value.getMonth()+1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`); }}>{new Date(slot.startsAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</button>)}</div></section>}
           <label className="grid gap-1.5 text-[12.5px] font-medium text-[var(--nx-text-2)]">Título<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="Ex.: Alinhamento da proposta" className="h-9 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 text-[13.5px] text-[var(--nx-text)] outline-none focus:border-blue-400" /></label>
           <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
             <label className="grid gap-1.5 text-[12.5px] font-medium text-[var(--nx-text-2)]">Data e hora local<input type="datetime-local" value={startsAt} min={minStartsAt} onChange={(event) => setStartsAt(event.target.value)} className="h-9 rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 text-[13.5px] text-[var(--nx-text)] outline-none focus:border-blue-400" /></label>

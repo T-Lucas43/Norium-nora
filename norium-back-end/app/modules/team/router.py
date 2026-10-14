@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import base64
 import contextlib
 import json
@@ -12,6 +13,7 @@ import re
 import secrets
 import time
 import uuid
+import weakref
 import zlib
 from weakref import WeakKeyDictionary
 from datetime import datetime, timedelta, timezone
@@ -25,6 +27,7 @@ from pydantic import Field
 
 from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
+from app.modules.team.chat_resources import ResourceRef, link_references, resolve_card
 from app.core.request_context import current_workspace_id
 
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, read_profile_db, write_json_file
@@ -82,7 +85,27 @@ from app.routers.inbox_router import record_event
 from app.services.calendar_service import CalendarService
 
 router = APIRouter(prefix="/api/team-chat", tags=["Chat interno"])
+logger = logging.getLogger(__name__)
+from app.modules.team.chat_features import router as chat_features_router, message_page
+from app.modules.team import chat_queue as _chat_queue
+from app.modules.team import chat_presence as _chat_presence
+from app.modules.team import chat_nora as _chat_nora
+router.include_router(chat_features_router)
+router.include_router(_chat_nora.router)
 chat_lock = asyncio.Lock()
+_team_chat_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
+
+
+def team_chat_lock(team_id: str) -> asyncio.Lock:
+    # Called on the application event loop, without an await between lookup
+    # and insertion. Holders/waiters retain the lock; inactive teams do not
+    # accumulate entries. All writers to a team's document share this lock.
+    key = str(Path(team_chat_path(team_id)).resolve())
+    lock = _team_chat_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _team_chat_locks[key] = lock
+    return lock
 UPLOAD_DIR = get_data_root() / "team_chat_uploads"
 if not (postgres_store.configured() or postgres_store.required()):
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -127,12 +150,22 @@ class SendTeamMessagePayload(StrictModel):
     text: str = Field(default="", max_length=2000)
     attachments: list[AttachmentPayload] = Field(default=[], max_length=MAX_ATTACHMENTS_PER_MESSAGE)
     mentionedUserIds: list[str] = Field(default_factory=list, max_length=100)
+    quotedMessageId: str | None = Field(default=None, max_length=150)
+    replyThreadId: str | None = Field(default=None, max_length=150)
+    alsoInChannel: bool = False
+    resourceRefs: list[ResourceRef] = Field(default_factory=list, max_length=6)
+    urgentMention: bool = False
 
 
 class SendSubteamMessagePayload(StrictModel):
     text: str = Field(default="", max_length=2000)
     attachments: list[AttachmentPayload] = Field(default=[], max_length=MAX_ATTACHMENTS_PER_MESSAGE)
     mentionedUserIds: list[str] = Field(default_factory=list, max_length=100)
+    quotedMessageId: str | None = Field(default=None, max_length=150)
+    replyThreadId: str | None = Field(default=None, max_length=150)
+    alsoInChannel: bool = False
+    resourceRefs: list[ResourceRef] = Field(default_factory=list, max_length=6)
+    urgentMention: bool = False
 
 
 class PinThreadPayload(StrictModel):
@@ -412,16 +445,21 @@ def empty_store() -> dict[str, Any]:
 
 def read_chat_store(team_id: str) -> dict[str, Any]:
     path = Path(team_chat_path(team_id))
-    # read_json_file is the persistence boundary: in production it consults
-    # PostgreSQL first and only uses the filesystem when PostgreSQL is not the
-    # configured backend.  Checking Path.stat() here used to short-circuit that
-    # boundary on ShardCloud, making every read look empty even after a
-    # successful PostgreSQL write.
+    postgres_enabled = postgres_store.configured() or postgres_store.required()
+    if not postgres_enabled:
+        try:
+            path.stat()
+        except FileNotFoundError:
+            return empty_store()
+        except PermissionError as exc:
+            raise OSError("Armazenamento de chamadas inacessivel; limpeza suspensa.") from exc
+        except OSError as exc:
+            raise OSError("Armazenamento de chamadas indisponivel; limpeza suspensa.") from exc
+    # The general repository falls back on read errors. Destructive retention
+    # must distinguish a missing new store from an unreadable existing store.
     payload = read_json_file(path, None)
     if payload is None:
         return empty_store()
-    # The general repository falls back on read errors. Destructive retention
-    # must distinguish a missing new store from an unreadable existing store.
     if not isinstance(payload, dict):
         raise OSError("Armazenamento de chamadas ilegivel; limpeza suspensa.")
     for field in ("messages", "subteams", "recordings", "activeCalls", "scheduledMeetings"):
@@ -454,9 +492,11 @@ def clear_meeting_chat(call: dict[str, Any]) -> None:
         for attachment in message.get("attachments", []):
             name = str(attachment.get("storedName") or "")
             if name and Path(name).name == name:
-                persistent_files.delete(UPLOAD_DIR / name)
+                from app.infrastructure.storage_limits import upload_candidates
+                for path in upload_candidates(UPLOAD_DIR, name, attachment.get("storageKey")):
+                    persistent_files.delete(path)
 async def read_pruned_chat_store(team_id: str) -> dict[str, Any]:
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         return await asyncio.to_thread(read_chat_store, team_id)
 
 
@@ -483,9 +523,13 @@ def message_visible(message: dict[str, Any], user_id: str, *, activity_check: Ca
         return False
     if "activityRecipientIds" in message and user_id not in message["activityRecipientIds"]:
         return False
+    if "privateRecipientIds" in message and user_id not in message["privateRecipientIds"]:
+        return False
     if message.get("scope") == "team":
         return True
     if message.get("scope") == "subteam":
+        return user_id in {str(item) for item in message.get("memberIds", [])}
+    if message.get("senderId") == "nora" and metadata.get("action") == "nora_team_mention_response":
         return user_id in {str(item) for item in message.get("memberIds", [])}
     return user_id in {str(message.get("senderId")), str(message.get("recipientId"))}
 
@@ -538,6 +582,8 @@ def message_read_by(message: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 async def message_participant_ids(message: dict[str, Any], user: dict[str, Any], store: dict[str, Any]) -> set[str]:
+    if "privateRecipientIds" in message:
+        return set(message["privateRecipientIds"]) & await valid_team_member_ids(user)
     if "activityRecipientIds" in message:
         return {uid for uid in message["activityRecipientIds"] if message_visible(message, uid)} & await valid_team_member_ids(user)
     scope = str(message.get("scope") or "team")
@@ -545,6 +591,8 @@ async def message_participant_ids(message: dict[str, Any], user: dict[str, Any],
         return await valid_team_member_ids(user)
     if scope == "subteam":
         return {str(item) for item in message.get("memberIds", [])}
+    if message.get("senderId") == "nora" and (message.get("metadata") or {}).get("action") == "nora_team_mention_response":
+        return set(message.get("memberIds", [])) & await valid_team_member_ids(user)
     return {str(message.get("senderId") or ""), str(message.get("recipientId") or "")} - {""}
 
 
@@ -593,9 +641,13 @@ async def list_threads(user: dict[str, Any] = Depends(current_user)) -> dict[str
     by_id = {thread["id"]: thread for thread in threads}
     pins = store.get("pinnedThreadsByUser", {}).get(user_id, [])
     for thread in threads:
-        thread.update(pinned=thread["id"] in pins, unreadCount=0, lastMessage=None)
+        thread.update(pinned=thread["id"] in pins, unreadCount=0, mentionCount=0, lastMessage=None)
+        preferences = store.get("chatNotifications", {}).get(user_id, {}).get(thread["id"], {})
+        thread.update(notificationMode=preferences.get("mode", "all"), mutedUntil=preferences.get("mutedUntil"))
     visible_counts: dict[str, int] = {}
     for message in reversed(visible_messages(store.get("messages", []), user_id)):
+        if message.get("replyThreadId") and user_id not in message.get("replyParticipantIds", []):
+            continue
         thread = by_id.get(message.get("threadId"))
         if not thread:
             continue
@@ -612,6 +664,8 @@ async def list_threads(user: dict[str, Any] = Depends(current_user)) -> dict[str
             }
         if message.get("senderId") != user_id and user_id not in message_read_by(message):
             thread["unreadCount"] += 1
+            if user_id in (message.get("metadata") or {}).get("mentionedUserIds", []):
+                thread["mentionCount"] += 1
     return {"threads": threads}
 
 
@@ -619,7 +673,7 @@ async def list_threads(user: dict[str, Any] = Depends(current_user)) -> dict[str
 async def pin_thread(payload: PinThreadPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     require_team_chat(user)
     team_id, user_id = team_id_for(user), str(user["id"])
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         allowed = {thread["id"] for thread in await accessible_threads(user, store)}
         if payload.threadId not in allowed:
@@ -675,7 +729,11 @@ def team_inbox_event_id(team_id: str, metadata: dict[str, Any] | None) -> str | 
 
 async def record_team_event(team_id: str, title: str, description: str, metadata: dict[str, Any] | None = None, *, user_ids: set[str] | None = None) -> None:
     try:
+        from app.modules.team.chat_presence import notification_allowed
+        settings = await asyncio.to_thread(read_chat_store, team_id) if (metadata or {}).get("action") in {"team_message_created", "team_member_mentioned"} else None
         for participant_id in sorted(user_ids if user_ids is not None else {team_id}):
+            if settings is not None and not notification_allowed(settings, participant_id, metadata or {}):
+                continue
             await record_event(
                 source="equipe",
                 title=title,
@@ -748,7 +806,7 @@ async def append_team_message_for_user(
     stored_attachments = save_attachments([
         AttachmentPayload.model_validate(item)
         for item in (attachments or [])
-    ])
+    ], owner_id=team_id)
     message = {
         "id": f"team_msg_{uuid.uuid4().hex}",
         "threadId": "team",
@@ -764,10 +822,9 @@ async def append_team_message_for_user(
     }
     if recipients is not None:
         message["activityRecipientIds"] = sorted(recipients)
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         store.setdefault("messages", []).append(message)
-        store["messages"] = store["messages"][-2000:]
         await asyncio.to_thread(write_chat_store, team_id, store)
     if recipients is None:
         await manager.broadcast(team_id, {"type": "TEAM_CHAT_MESSAGE", "message": message})
@@ -799,33 +856,21 @@ async def respond_to_nora_mention(
     source_message: dict[str, Any],
 ) -> None:
     """Responde em segundo plano para nao atrasar o envio da mensagem da equipe."""
+    raw = None
     try:
-        store = await asyncio.to_thread(read_chat_store, team_id)
-        from app.core.request_context import set_ai_user_id
-        set_ai_user_id(requester_id)
-        messages = [item for item in store.get("messages", []) if isinstance(item, dict)]
-        reply = await generate_team_reply(messages, requester_name, str(source_message.get("text") or ""))
-        if not reply:
-            reply = "Nao consegui formular uma resposta agora. Pode repetir o pedido com um pouco mais de contexto?"
-        await append_team_message_for_user(
-            requester_id,
-            reply,
-            metadata={
-                "action": "nora_team_mention_response",
-                "replyToMessageId": source_message.get("id"),
-                "mentionedByUserId": requester_id,
-            },
-        )
+        directory = await read_user_store()
+        raw = next((item for item in directory.get("users", []) if str(item.get("id")) == requester_id), None)
+        if not raw or team_id_for(raw) != team_id:
+            return
+        await _chat_nora.respond(sanitize_user(raw), source_message["id"])
     except Exception:
-        await append_team_message_for_user(
-            requester_id,
-            "Nao consegui analisar a conversa agora. Tente me mencionar novamente em alguns instantes.",
-            metadata={
-                "action": "nora_team_mention_error",
-                "replyToMessageId": source_message.get("id"),
-                "mentionedByUserId": requester_id,
-            },
-        )
+        # Do not leak a private failure into the general channel or return provider details.
+        try:
+            if raw:
+                await _chat_nora.emit_reply(sanitize_user(raw), source_message["id"],
+                    "Não consegui analisar este trecho agora. Confira sua franquia de tokens ou tente novamente em instantes.", [], private=True)
+        except Exception:
+            logger.warning("Resposta contextual da Nora indisponível.")
 
 
 @router.get("/members")
@@ -918,7 +963,7 @@ async def _call_active_member_ids(actor: CallActor) -> set[str]:
 
 
 async def _call_subteam_member_ids(actor: CallActor, subteam_id: str) -> set[str] | None:
-    async with chat_lock:
+    async with team_chat_lock(actor.team_id):
         store = await asyncio.to_thread(read_chat_store, actor.team_id)
     subteam = next(
         (
@@ -962,6 +1007,7 @@ def call_coordinator() -> CallCoordinator:
             read_document=lambda team_id: read_chat_store(team_id),
             write_document=lambda team_id, document: write_chat_store(team_id, document),
             lock=chat_lock,
+            lock_for_team=team_chat_lock,
             on_call_removed=clear_meeting_chat,
         )
         directory = CallbackTeamDirectory(
@@ -1153,7 +1199,7 @@ async def list_meeting_messages(call_id: str, clientId: str = Query(min_length=1
     require_team_chat(user)
     team_id = team_id_for(user)
     await active_calls_snapshot(team_id)
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         call = require_joined_call(store, call_id, str(user["id"]), clientId)
         return {"messages": call.get("meetingMessages", [])}
@@ -1167,7 +1213,7 @@ async def send_meeting_message(call_id: str, payload: SendMeetingMessagePayload,
         raise HTTPException(status_code=400, detail="Escreva uma mensagem ou anexe um arquivo.")
     team_id, user_id = team_id_for(user), str(user["id"])
     await active_calls_snapshot(team_id)
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         call = require_joined_call(store, call_id, user_id, payload.clientId)
         messages = call.setdefault("meetingMessages", [])
@@ -1176,7 +1222,7 @@ async def send_meeting_message(call_id: str, payload: SendMeetingMessagePayload,
         message = {"id": f"meeting_msg_{uuid.uuid4().hex}", "callId": call_id,
                    "senderId": user_id, "senderName": str(user.get("nome") or "Membro"),
                    "text": payload.text.strip(), "createdAt": now_iso(),
-                   "attachments": await asyncio.to_thread(save_attachments, payload.attachments)}
+                   "attachments": await asyncio.to_thread(save_attachments, payload.attachments, owner_id=team_id)}
         messages.append(message)
         await asyncio.to_thread(write_chat_store, team_id, store)
         recipients = set(call.get("joinedClients", {}))
@@ -1218,7 +1264,7 @@ async def create_subteam(payload: SubteamCreatePayload, user: dict[str, Any] = D
         "updatedAt": now,
     }
     team_id = team_id_for(user)
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         if any(str(item.get("name") or "").casefold() == subteam["name"].casefold() for item in store.get("subteams", []) if isinstance(item, dict)):
             raise HTTPException(status_code=409, detail="Ja existe uma subequipe com este nome.")
@@ -1233,7 +1279,7 @@ async def update_subteam(subteam_id: str, payload: SubteamUpdatePayload, user: d
     require_team_chat(user)
     team_id = team_id_for(user)
     team_members = await valid_team_member_ids(user)
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         current = subteam_or_404(store, subteam_id)
         if not can_manage_subteam(user, current):
@@ -1262,6 +1308,8 @@ async def list_messages(
     scope: MessageScope = "team",
     recipientId: str | None = None,
     user: dict[str, Any] = Depends(current_user),
+    limit: int | None = None,
+    before: str | None = None,
 ) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
@@ -1270,13 +1318,13 @@ async def list_messages(
     thread_id = normalize_thread_id(scope, user_id, recipientId)
     messages = [
         item for item in visible_messages(store.get("messages", []), user_id)
-        if item.get("threadId") == thread_id
+        if item.get("threadId") == thread_id and (not item.get("replyThreadId") or item.get("alsoInChannel"))
     ]
-    return {"threadId": thread_id, "messages": messages[-MESSAGE_HISTORY_LIMIT:]}
+    return {"threadId": thread_id, **message_page(messages, limit, before)}
 
 
 @router.get("/subteams/{subteam_id}/messages")
-async def list_subteam_messages(subteam_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+async def list_subteam_messages(subteam_id: str, user: dict[str, Any] = Depends(current_user), limit: int | None = None, before: str | None = None) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
     store = await read_pruned_chat_store(team_id_for(user))
@@ -1284,9 +1332,9 @@ async def list_subteam_messages(subteam_id: str, user: dict[str, Any] = Depends(
     thread_id = normalize_thread_id("subteam", user_id, None, subteam_id)
     messages = [
         item for item in visible_messages(store.get("messages", []), user_id)
-        if item.get("threadId") == thread_id
+        if item.get("threadId") == thread_id and (not item.get("replyThreadId") or item.get("alsoInChannel"))
     ]
-    return {"threadId": thread_id, "messages": messages[-MESSAGE_HISTORY_LIMIT:]}
+    return {"threadId": thread_id, **message_page(messages, limit, before)}
 
 
 @router.post("/messages/read")
@@ -1301,7 +1349,7 @@ async def mark_messages_read(payload: MarkMessagesReadPayload, user: dict[str, A
     team_id = team_id_for(user)
     changed: list[tuple[str, dict[str, dict[str, Any]], set[str]]] = []
     viewed_at = now_iso()
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         for message in store.get("messages", []):
             if not isinstance(message, dict) or str(message.get("id") or "") not in requested_ids:
@@ -1343,7 +1391,7 @@ async def toggle_message_reaction(
     team_id = team_id_for(user)
     reactions: list[dict[str, Any]] = []
     recipients: set[str] = set()
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         message = next(
             (
@@ -1402,6 +1450,13 @@ async def persist_message(
     user: dict[str, Any],
     mentioned_user_ids: list[str] | None = None,
     activity_metadata: dict[str, Any] | None = None,
+    quoted_message_id: str | None = None,
+    reply_thread_id: str | None = None,
+    also_in_channel: bool = False,
+    resource_refs: list[dict] | None = None,
+    poll_data: dict | None = None,
+    forwarded_message_id: str | None = None,
+    urgent_mention: bool = False,
 ) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
@@ -1422,9 +1477,21 @@ async def persist_message(
     mentions = await validated_mentions(text, mentioned_user_ids or [], participant_ids, user)
     mentioned_ids = {item["userId"] for item in mentions} - {user_id}
     thread_id = normalize_thread_id(scope, user_id, recipient_id, subteam_id)
-    attachments = save_attachments(attachment_payloads)
-    nora_mentioned = scope == "team" and has_nora_mention(text)
-    nora_triggered = nora_mentioned and can_use_nora(user)
+    quote = None
+    refs = list(resource_refs or []) + link_references(text)
+    refs = [ref for i, ref in enumerate(refs) if ref not in refs[:i]][:6]
+    for ref in refs:
+        if (await resolve_card(ref, user)).get("restricted"):
+            raise HTTPException(400, "Um item compartilhado não está disponível para sua conta.")
+    if quoted_message_id:
+        from app.modules.team.chat_features import authorized_message
+        original = await authorized_message(user, store, quoted_message_id)
+        if original.get("threadId") != thread_id or (original.get("metadata") or {}).get("deletedAt"):
+            raise HTTPException(400, "Cite uma mensagem disponível nesta conversa.")
+        quote = original["id"]
+    attachments = save_attachments(attachment_payloads, owner_id=team_id)
+    nora_mentioned = has_nora_mention(text)
+    nora_triggered = nora_mentioned and can_use_nora(user) and _chat_nora.enabled(store, {"scope": scope, "subteamId": subteam_id})
     message = {
         "id": f"team_msg_{uuid.uuid4().hex}",
         "threadId": thread_id,
@@ -1437,6 +1504,8 @@ async def persist_message(
         "memberIds": sorted(participant_ids) if scope == "subteam" else [],
         "text": text.strip(),
         "attachments": attachments,
+        "quotedMessageId": quote,
+        "resourceRefs": refs,
         "metadata": {
             **activity_metadata,
             "noraMentioned": nora_mentioned,
@@ -1444,14 +1513,51 @@ async def persist_message(
             "readBy": {},
             "mentions": mentions,
             "mentionedUserIds": sorted(mentioned_ids),
+            "urgentMention": urgent_mention,
         },
         "createdAt": now_iso(),
     }
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
+        # Revalidate membership and source under the same mutation lock.
+        participant_ids = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
+        if poll_data is not None:
+            message["metadata"]["poll"] = poll_data
+        if forwarded_message_id:
+            from app.modules.team.chat_features import authorized_message
+            source = await authorized_message(user, store, forwarded_message_id)
+            if (source.get("metadata") or {}).get("deletedAt"):
+                raise HTTPException(404, "Mensagem indisponível.")
+            # References to the same authenticated blobs become visible through
+            # the newly authorized conversation, without a public URL or copy.
+            message["attachments"] = list(source.get("attachments") or [])
+            message["metadata"]["forwardedFromMessageId"] = source["id"]
+        notification_ids = participant_ids
+        if quoted_message_id or reply_thread_id:
+            from app.modules.team.chat_features import authorized_message, reply_participants
+            for source_id in {quoted_message_id, reply_thread_id} - {None}:
+                source = await authorized_message(user, store, source_id)
+                if source.get("threadId") != thread_id or (source.get("metadata") or {}).get("deletedAt"):
+                    raise HTTPException(400, "Mensagem de origem indisponível nesta conversa.")
+            if reply_thread_id:
+                root = await authorized_message(user, store, reply_thread_id)
+                if root.get("replyThreadId"):
+                    raise HTTPException(400, "Responda ao fio original.")
+                replies = [item for item in store["messages"] if item.get("replyThreadId") == reply_thread_id]
+                participant_ids &= await message_participant_ids(root, user, store)
+                if "activityRecipientIds" in root or "privateRecipientIds" in root:
+                    message["privateRecipientIds"] = sorted(participant_ids)
+                notification_ids = reply_participants(root, replies, mentioned_ids, user_id) & participant_ids
+                message.update(replyThreadId=reply_thread_id, alsoInChannel=also_in_channel, replyParticipantIds=sorted(notification_ids))
+                # A caller-only Nora reply must not appear in counters/avatars
+                # broadcast to participants who cannot read it.
+                shared_replies = [item for item in replies if all(message_visible(item, uid) for uid in participant_ids)]
+                root.setdefault("metadata", {}).update(replyCount=len(shared_replies)+1, lastReplyAt=message["createdAt"], replyUserIds=sorted({user_id} | {str(item.get("senderId")) for item in shared_replies}))
         store.setdefault("messages", []).append(message)
-        store["messages"] = store["messages"][-2000:]
         await asyncio.to_thread(write_chat_store, team_id, store)
+
+    if reply_thread_id:
+        await manager.send_to_users(team_id, await message_participant_ids(root, user, store), {"type": "TEAM_CHAT_MESSAGE", "message": root})
 
     if activity_metadata:
         participant_ids = {participant for participant in participant_ids if message_visible(message, participant)}
@@ -1475,15 +1581,16 @@ async def persist_message(
             "recipientId": recipient_id,
             "subteamId": subteam_id,
             "mentionedUserIds": sorted(mentioned_ids),
+            "urgentMention": urgent_mention,
         },
-        user_ids=participant_ids - mentioned_ids,
+        user_ids=notification_ids - mentioned_ids,
     )
     if mentioned_ids:
         await record_team_event(
             team_id, f"{message['senderName']} mencionou você", short_text(message["text"], 300),
             {**activity_metadata, "action": "team_member_mentioned", "messageId": message["id"], "senderId": user_id,
              "senderName": message["senderName"], "threadId": thread_id, "scope": scope,
-             "recipientId": recipient_id, "subteamId": subteam_id, "mentionedUserIds": sorted(mentioned_ids)},
+             "recipientId": recipient_id, "subteamId": subteam_id, "mentionedUserIds": sorted(mentioned_ids), "urgentMention": urgent_mention},
             user_ids=mentioned_ids,
         )
     if nora_triggered:
@@ -1508,6 +1615,11 @@ async def send_message(payload: SendTeamMessagePayload, user: dict[str, Any] = D
         attachment_payloads=payload.attachments,
         user=user,
         mentioned_user_ids=payload.mentionedUserIds,
+        quoted_message_id=payload.quotedMessageId,
+        reply_thread_id=payload.replyThreadId,
+        also_in_channel=payload.alsoInChannel,
+        resource_refs=[ref.model_dump() for ref in payload.resourceRefs],
+        urgent_mention=payload.urgentMention,
     )
 
 
@@ -1525,6 +1637,11 @@ async def send_subteam_message(
         attachment_payloads=payload.attachments,
         user=user,
         mentioned_user_ids=payload.mentionedUserIds,
+        quoted_message_id=payload.quotedMessageId,
+        reply_thread_id=payload.replyThreadId,
+        also_in_channel=payload.alsoInChannel,
+        resource_refs=[ref.model_dump() for ref in payload.resourceRefs],
+        urgent_mention=payload.urgentMention,
     )
 
 
@@ -1631,12 +1748,11 @@ async def schedule_meeting(payload: ScheduleMeetingPayload, user: dict[str, Any]
         "createdAt": now_iso(),
     }
     message = meeting_message(meeting, user)
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         current_store = await asyncio.to_thread(read_chat_store, team_id)
         current_store.setdefault("scheduledMeetings", []).append(meeting)
         current_store["scheduledMeetings"] = current_store["scheduledMeetings"][-500:]
         current_store.setdefault("messages", []).append(message)
-        current_store["messages"] = current_store["messages"][-2000:]
         await asyncio.to_thread(write_chat_store, team_id, current_store)
 
     await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": message})
@@ -1658,7 +1774,7 @@ async def add_scheduled_meeting_to_calendar(meeting_id: str, user: dict[str, Any
     require_team_chat(user)
     user_id = str(user.get("id") or "")
     team_id = team_id_for(user)
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         meeting = scheduled_meeting_or_404(store, meeting_id)
         require_scheduled_meeting_participant(meeting, user_id)
@@ -1706,7 +1822,7 @@ async def add_scheduled_meeting_to_calendar(meeting_id: str, user: dict[str, Any
 async def emit_due_meeting_reminders(team_id: str, current_time: datetime | None = None) -> int:
     now = current_time or datetime.now(timezone.utc)
     pending: list[tuple[dict[str, Any], set[str]]] = []
-    async with chat_lock:
+    async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
         changed = False
         for meeting in store.get("scheduledMeetings", []):
@@ -1819,6 +1935,7 @@ def recording_coordinator() -> RecordingCoordinator:
                 read_document=read_chat_store,
                 write_document=write_chat_store,
                 lock=chat_lock,
+                lock_for_team=team_chat_lock,
             ),
             files=LocalRecordingFiles(UPLOAD_DIR),
             call_access=CallCoordinatorRecordingAccess(call_coordinator),
@@ -2024,7 +2141,7 @@ async def abort_recording(recording_id: str, request: Request, user: dict[str, A
 
 
 @router.get("/attachments/{file_name}")
-async def download_attachment(file_name: str, user: dict[str, Any] = Depends(current_user)) -> Response:
+async def download_attachment(file_name: str, user: dict[str, Any] = Depends(current_user), preview: bool = False) -> Response:
     require_team_chat(user)
     safe_file_name = Path(file_name).name
     await active_calls_snapshot(team_id_for(user))
@@ -2052,8 +2169,10 @@ async def download_attachment(file_name: str, user: dict[str, Any] = Depends(cur
         if recording.get("subteamId"):
             subteam = subteam_or_404(store, str(recording["subteamId"]))
             require_subteam_member(subteam, user_id)
+    allowed_threads = {item["id"] for item in await accessible_threads(user, store)}
     visible_file = any(
         message_visible(message, user_id)
+        and message.get("threadId") in allowed_threads
         and any(
             isinstance(attachment, dict) and str(attachment.get("storedName") or "") == safe_file_name
             for attachment in message.get("attachments", [])
@@ -2067,12 +2186,25 @@ async def download_attachment(file_name: str, user: dict[str, Any] = Depends(cur
             for message in call.get("meetingMessages", []) for attachment in message.get("attachments", [])
         ) for call in store.get("activeCalls", [])
     )
+    pending_attachments = [attachment for job in store.get("chatScheduled", []) if job.get("authorId") == user_id and job.get("state") == "pending" for attachment in job.get("message", {}).get("attachments", [])]
+    visible_file = visible_file or any(attachment.get("storedName") == safe_file_name for attachment in pending_attachments)
     if not visible_file:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
-    path = UPLOAD_DIR / safe_file_name
+    from app.infrastructure.storage_limits import resolve_upload_path
+    records = [attachment for message in store.get("messages", []) for attachment in message.get("attachments", [])]
+    records += pending_attachments
+    records += [attachment for call in store.get("activeCalls", []) for message in call.get("meetingMessages", []) for attachment in message.get("attachments", [])]
+    metadata = next((item for item in records if item.get("storedName") == safe_file_name), {})
+    path = resolve_upload_path(UPLOAD_DIR, safe_file_name, metadata.get("storageKey"))
+    if path is None:
+        raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
     if not persistent_files.exists(path):
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
     headers = {"Content-Disposition": f'attachment; filename="{path.name}"', "Cache-Control": "no-store, private"}
+    if preview:
+        from app.modules.team.chat_thumbnails import thumbnail
+        data = await asyncio.to_thread(persistent_files.read, path)
+        return Response(await asyncio.to_thread(thumbnail, data), media_type="image/webp", headers={"Cache-Control": "no-store, private"})
     if not (postgres_store.configured() or postgres_store.required()):
         return FileResponse(path, media_type="application/octet-stream", headers=headers)
     return Response(persistent_files.read(path), media_type="application/octet-stream",
@@ -2252,18 +2384,20 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
         await manager.broadcast(team_id, {"type": "PRESENCE", "onlineUserIds": manager.online_users(team_id)})
 
 
-def save_attachments(payloads: list[AttachmentPayload]) -> list[dict[str, Any]]:
+def save_attachments(payloads: list[AttachmentPayload], *, owner_id: str = "") -> list[dict[str, Any]]:
     if len(payloads) > MAX_ATTACHMENTS_PER_MESSAGE:
         raise HTTPException(status_code=400, detail=f"Envie no maximo {MAX_ATTACHMENTS_PER_MESSAGE} anexos por mensagem.")
     decoded = [(payload, *decode_data_url(payload.dataUrl, payload.mimeType)) for payload in payloads]
     if sum(len(file_bytes) for _, file_bytes, _ in decoded) > MAX_ATTACHMENT_TOTAL_BYTES:
         raise HTTPException(status_code=413, detail="Os anexos da mensagem ultrapassam o limite total de 24 MB.")
-    return [save_attachment_bytes(payload, file_bytes, mime_type) for payload, file_bytes, mime_type in decoded]
+    return [save_attachment_bytes(payload, file_bytes, mime_type, owner_id=owner_id) for payload, file_bytes, mime_type in decoded]
 
 
-def save_attachment_bytes(payload: AttachmentPayload, file_bytes: bytes, mime_type: str) -> dict[str, Any]:
+def save_attachment_bytes(payload: AttachmentPayload, file_bytes: bytes, mime_type: str, *, owner_id: str = "") -> dict[str, Any]:
     safe_name = safe_upload_name(payload.fileName, mime_type)
-    persistent_files.write(UPLOAD_DIR / safe_name, file_bytes, content_type=mime_type)
+    from app.infrastructure.storage_limits import owned_upload_path, upload_storage_key
+    path = owned_upload_path(UPLOAD_DIR, owner_id, safe_name) if owner_id else UPLOAD_DIR / safe_name
+    persistent_files.write(path, file_bytes, content_type=mime_type)
     return {
         "id": f"team_att_{uuid.uuid4().hex}",
         "name": Path(payload.fileName).name or safe_name,
@@ -2271,6 +2405,7 @@ def save_attachment_bytes(payload: AttachmentPayload, file_bytes: bytes, mime_ty
         "size": len(file_bytes),
         "url": public_api_url(f"/api/team-chat/attachments/{quote(safe_name)}"),
         "storedName": safe_name,
+        "storageKey": upload_storage_key(UPLOAD_DIR, path),
         "createdAt": now_iso(),
     }
 

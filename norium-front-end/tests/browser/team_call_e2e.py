@@ -759,11 +759,19 @@ async def join_call(page: Page, mode: str = "muted", camera: bool = False) -> st
     return (await diagnostics(page))["callId"]
 
 
-async def end_host_call(page: Page) -> None:
+async def click_host_end(page: Page) -> None:
     control = page.get_by_role("button", name="Encerrar reunião", exact=True)
-    if await control.count() and await control.first.is_visible():
-        await control.first.click()
-        await wait_diagnostic(page, "!value.callId && value.phase === 'idle'")
+    if not await control.count() or not await control.first.is_visible():
+        await page.get_by_role("button", name="Mais opções da chamada", exact=True).click()
+    await expect(control.first).to_be_visible()
+    await control.first.click()
+
+
+async def end_host_call(page: Page) -> None:
+    if not (await diagnostics(page))["callId"]:
+        return
+    await click_host_end(page)
+    await wait_diagnostic(page, "!value.callId && value.phase === 'idle'")
 
 
 async def reset_fixture(services: Services) -> None:
@@ -1382,6 +1390,7 @@ async def scenario_recording_failure_quota_abort(runtime: ScenarioRuntime) -> di
     headers = {"X-Call-Client-Id": client_id, "X-Recording-Chunk-Id": "same-chunk"}
     first = await recording_fetch(owner.page, runtime.services.api_url, "PUT", f"/api/team-chat/recordings/{recording_id}/chunks", headers=headers, body=[1, 2, 3])
     conflict = await recording_fetch(owner.page, runtime.services.api_url, "PUT", f"/api/team-chat/recordings/{recording_id}/chunks", headers=headers, body=[3, 2, 1])
+    print(json.dumps({"check": "recording_chunk_conflict", "firstStatus": first["status"], "conflictStatus": conflict["status"]}), flush=True)
     assert first["status"] == 200 and conflict["status"] == 409, (first, conflict)
     await wait_recording_stopped(member.page, recording_id)
 
@@ -1495,12 +1504,12 @@ async def scenario_call_studio(runtime: ScenarioRuntime) -> dict[str, Any]:
     await expect(member.page.locator(".brainstorm-node").filter(has_text="Nora · Resposta")).to_have_count(1)
     await member.page.get_by_role("button", name="Nora", exact=True).click()
     await expect(member.page.locator(".team-call-studio-comment").filter(has_text="Plano sugerido pela Nora")).to_have_count(1)
-    await owner.page.get_by_role("button", name="Encerrar reunião", exact=True).click()
+    await click_host_end(owner.page)
     await expect(owner.page.get_by_role("dialog", name="Salvar esta sessão no Estúdio?")).to_be_visible()
     await owner.page.get_by_role("button", name="Cancelar", exact=True).click()
     await wait_diagnostic(owner.page, "value.callId === argument", call_id)
     await owner.page.get_by_role("button", name="Minimizar chamada", exact=True).click()
-    await owner.page.get_by_role("button", name="Encerrar reunião", exact=True).click()
+    await click_host_end(owner.page)
     await owner.page.get_by_role("button", name="Salvar no Estúdio e encerrar", exact=True).click()
     await wait_diagnostic(owner.page, "!value.callId && value.phase === 'idle'")
     saved = await owner.page.evaluate("""async (url) => (await fetch(url + '/__test__/studio-library', {headers: {Authorization: 'Bearer owner'}})).json()""", runtime.services.api_url)
@@ -1511,7 +1520,193 @@ async def scenario_call_studio(runtime: ScenarioRuntime) -> dict[str, Any]:
             "hostControlsSession": True, "noraResponseShared": True, "saveDecisionRespected": True}
 
 
+async def scenario_call_layout(runtime: ScenarioRuntime) -> dict[str, Any]:
+    owner = await runtime.page("owner")
+    member = await runtime.page("member")
+    other = await runtime.page("other")
+    call_id = await start_call(owner.page, "group", "on", camera=True)
+    await join_call(member.page, "on", camera=True)
+    await join_call(other.page, "on", camera=True)
+    await wait_diagnostic(owner.page, "value.remoteUserIds.length === 2")
+    await wait_rtp(owner.page, "inbound")
+    await owner.page.get_by_label("Layout da chamada", exact=True).select_option("gallery")
+    await expect(owner.page.get_by_label("Palco da chamada")).to_have_attribute("data-layout", "gallery")
+    await owner.page.get_by_role("button", name="Levantar a mão", exact=True).click()
+    await member.page.get_by_role("button", name="Levantar a mão", exact=True).click()
+    await owner.page.get_by_role("button", name="Ver pessoas na reunião", exact=True).click()
+    await expect(owner.page.get_by_label("Fila de fala", exact=True).get_by_role("listitem")).to_have_count(2)
+    await owner.page.get_by_role("button", name="Fixar Member para todos", exact=True).click()
+    await expect(member.page.get_by_label("Palco da chamada")).to_have_attribute("data-layout", "spotlight")
+    await owner.page.get_by_role("button", name="Tornar Member apresentador", exact=True).click()
+    await expect(member.page.get_by_text("O organizador convidou você para apresentar.", exact=True)).to_be_visible()
+    await owner.page.get_by_role("button", name="Fixar Member para todos", exact=True).click()
+    await owner.page.get_by_role("button", name="Abrir chat da reunião", exact=True).click()
+    await expect(owner.page.get_by_label("Fila de fala", exact=True)).to_have_count(0)
+    await owner.page.get_by_placeholder("Digite uma mensagem", exact=True).fill("Pauta sintética da reunião")
+    async with owner.page.expect_response(lambda response: "/messages" in response.url and response.request.method == "POST", timeout=DEFAULT_TIMEOUT_MS) as sent:
+        await owner.page.get_by_role("button", name="Enviar mensagem", exact=True).click()
+    response = await sent.value
+    assert response.status == 200, {"meetingMessageStatus": response.status}
+    payload = await response.json()
+    assert isinstance(payload.get("message"), dict), {"meetingMessageReturned": False}
+    assert payload["message"].get("text") == "Pauta sintética da reunião", {"meetingMessageMatches": False}
+    await expect(owner.page.get_by_text("Pauta sintética da reunião", exact=True)).to_be_visible()
+    await owner.page.get_by_role("button", name="Fechar painel", exact=True).click()
+    await owner.page.get_by_label("Layout da chamada", exact=True).select_option("auto")
+    await owner.page.get_by_role("button", name="Transmitir tela", exact=True).click()
+    await wait_video(member.page, "Tela compartilhada por Owner")
+    await expect(member.page.get_by_label("Palco da chamada")).to_have_attribute("data-layout", "presentation")
+    await expect(owner.page.get_by_label("Controles de quem apresenta")).to_be_visible()
+    await member.page.get_by_role("button", name="Anotar", exact=True).click()
+    await member.page.get_by_role("button", name="Adicionar destaque na apresentação", exact=True).click(position={"x": 60, "y": 60})
+    await expect(owner.page.get_by_role("status", name="Destaque de Member", exact=True)).to_be_visible()
+    await owner.page.get_by_role("button", name="Bloquear anotações", exact=True).click()
+    await expect(member.page.get_by_role("button", name="Anotações bloqueadas", exact=True)).to_be_disabled()
+    await owner.page.get_by_role("button", name="Permitir anotações", exact=True).click()
+    await expect(member.page.get_by_role("button", name="Anotar", exact=True)).to_be_enabled()
+    await expect(owner.page.get_by_role("status", name="Destaque de Member", exact=True)).to_have_count(0, timeout=12_000)
+    pip_button = owner.page.get_by_role("button", name="Destacar controles de apresentação", exact=True)
+    pip_controls = "unavailable"
+    if await pip_button.count():
+        await pip_button.click()
+        await owner.page.wait_for_function("""() => !!window.documentPictureInPicture?.window ||
+            Array.from(document.querySelectorAll('.team-call-presenter-bar [role=alert]')).some(node => node.textContent.includes('Não foi possível destacar'))""")
+        opened = await owner.page.evaluate("!!window.documentPictureInPicture?.window")
+        if opened:
+            before_mute = (await diagnostics(owner.page))["muted"]
+            await owner.page.evaluate("window.documentPictureInPicture.window.document.querySelector('[aria-label=\"Alternar microfone durante apresentação\"]').click()")
+            await wait_diagnostic(owner.page, "value.muted !== argument", before_mute)
+            await owner.page.evaluate("window.documentPictureInPicture.window.close()")
+            await expect(owner.page.get_by_label("Controles de quem apresenta")).to_be_visible()
+            pip_controls = "native"
+        else:
+            pip_controls = "browser-denied-fallback"
+    await owner.page.get_by_role("button", name="Parar de apresentar", exact=True).click()
+    await expect(member.page.get_by_label("Tela compartilhada por Owner", exact=True)).to_have_count(0)
+    for theme in ("light", "dark"):
+        await owner.page.evaluate("theme => document.documentElement.classList.toggle('dark', theme === 'dark')", theme)
+        await owner.page.set_viewport_size({"width": 375, "height": 812})
+        await owner.page.get_by_role("button", name="Mais opções da chamada", exact=True).click()
+        await expect(owner.page.get_by_role("button", name="Selecionar câmera e dispositivos de áudio", exact=True)).to_be_visible()
+        bounds = await owner.page.evaluate("""() => {
+            const shell = document.querySelector('.team-call-shell');
+            return {viewport: innerWidth, shell: shell.scrollWidth, page: document.documentElement.scrollWidth};
+        }""")
+        assert bounds["shell"] <= bounds["viewport"] and bounds["page"] <= bounds["viewport"], bounds
+        await owner.page.get_by_role("button", name="Fechar mais opções", exact=True).click()
+    await owner.page.set_viewport_size({"width": 1280, "height": 800})
+    await owner.page.get_by_label("Layout da chamada", exact=True).select_option("spotlight")
+    await owner.page.get_by_role("button", name="Minimizar chamada", exact=True).click()
+    await expect(owner.page.get_by_label("Chamada minimizada", exact=True)).to_be_visible()
+    await owner.page.get_by_role("button", name="Restaurar chamada", exact=True).click()
+    await expect(owner.page.get_by_label("Layout da chamada", exact=True)).to_have_value("spotlight")
+    await wait_rtp(owner.page, "inbound")
+    await end_host_call(owner.page)
+    return {"callId": call_id, "participants": 3, "nativeRtp": True, "screenPriority": True, "mobileWidth": 375, "themes": ["light", "dark"], "exclusivePanels": True, "sharedPin": True, "presenterInvitation": True, "annotationsExpire": True, "annotationLock": True, "documentPip": pip_controls}
+
+
+async def media_totals(page: Page) -> dict[str, int]:
+    return await page.evaluate("""async () => {
+      const totals = {audio: 0, video: 0};
+      for (const pc of window.__peerConnections || []) {
+        if (pc.connectionState === 'closed') continue;
+        for (const report of (await pc.getStats()).values()) {
+          const kind = report.kind || report.mediaType;
+          if (report.type === 'inbound-rtp' && kind in totals) totals[kind] += report.bytesReceived || 0;
+        }
+      }
+      return totals;
+    }""")
+
+
+async def media_delta(page: Page, seconds: float = 2) -> dict[str, int]:
+    before = await media_totals(page)
+    await asyncio.sleep(seconds)
+    after = await media_totals(page)
+    return {kind: after[kind] - before[kind] for kind in before}
+
+
+async def wait_media_growth(page: Page, kind: str, baseline: int) -> None:
+    deadline = time.monotonic() + DEFAULT_TIMEOUT_MS / 1000
+    while time.monotonic() < deadline:
+        if (await media_totals(page))[kind] > baseline:
+            return
+        await asyncio.sleep(.1)
+    raise AssertionError(f"No resumed {kind} RTP before the standard media deadline.")
+
+
+async def scenario_video_interest(runtime: ScenarioRuntime) -> dict[str, Any]:
+    owner, member, other = await runtime.page("owner"), await runtime.page("member"), await runtime.page("other")
+    await start_call(owner.page, "group", "on", camera=True)
+    await join_call(member.page, "on", camera=True)
+    await join_call(other.page, "on", camera=True)
+    await wait_diagnostic(owner.page, "value.remoteUserIds.length === 2")
+    await owner.page.get_by_label("Layout da chamada", exact=True).select_option("gallery")
+    await wait_rtp(owner.page, "inbound", "video")
+    before = await media_delta(owner.page)
+    assert before["audio"] > 0 and before["video"] > 0, {"before": before}
+    await owner.page.get_by_role("button", name="Minimizar chamada", exact=True).click()
+    await asyncio.sleep(1)
+    minimized = await media_delta(owner.page)
+    assert minimized["audio"] > 0 and minimized["video"] == 0, {"minimized": minimized}
+    # Another receiver keeps native video while the owner's subscription pauses.
+    other_delta = await media_delta(other.page)
+    assert other_delta["audio"] > 0 and other_delta["video"] > 0, {"other": other_delta}
+    await owner.page.get_by_role("button", name="Restaurar chamada", exact=True).click()
+    await wait_media_growth(owner.page, "video", (await media_totals(owner.page))["video"])
+    resumed = await media_delta(owner.page, 3)
+    assert resumed["audio"] > 0 and resumed["video"] > 0, {"resumed": resumed}
+    # Native RTP with a synthetic document-visibility boundary (headless pages
+    # do not reliably become hidden when another page is focused).
+    await owner.page.evaluate("Object.defineProperty(document, 'hidden', {configurable:true, value:true}); document.dispatchEvent(new Event('visibilitychange'))")
+    await asyncio.sleep(1)
+    hidden = await media_delta(owner.page)
+    assert hidden["audio"] > 0 and hidden["video"] == 0, {"hidden": hidden}
+    await owner.page.evaluate("delete document.hidden; document.dispatchEvent(new Event('visibilitychange'))")
+    await wait_media_growth(owner.page, "video", (await media_totals(owner.page))["video"])
+    visible = await media_delta(owner.page, 3)
+    assert visible["audio"] > 0 and visible["video"] > 0, {"visible": visible}
+    await end_host_call(owner.page)
+    return {"nativeRtp": True, "syntheticVisibilityBoundary": True, "before": before, "minimized": minimized, "other": other_delta, "resumed": resumed, "hidden": hidden, "visible": visible}
+
+
+async def scenario_nora_panel(runtime: ScenarioRuntime) -> dict[str, Any]:
+    owner = await runtime.page("owner")
+    member = await runtime.page("member")
+    call_id = await start_call(owner.page, "group", "on", camera=True)
+    await join_call(member.page, "on", camera=True)
+    await wait_rtp(owner.page, "inbound")
+    status, boundary = await http_json("POST", f"{runtime.services.api_url}/__test__/nora-ui/{call_id}", {})
+    assert status == 200 and boundary["syntheticTranscriptBoundary"]
+    panel = owner.page.get_by_label("Nora na reunião", exact=True)
+    await expect(panel).to_be_visible()
+    await panel.get_by_role("button", name="Nora · Pausada", exact=True).click()
+    await panel.get_by_role("button", name="Transcrição", exact=True).click()
+    await expect(panel.get_by_text("Decidimos revisar a proposta.", exact=True)).to_be_visible()
+    assert "123.456.789-00" not in await panel.inner_text()
+    assert "senha=segredo" not in await panel.inner_text()
+    await panel.get_by_label("Legendas só para mim", exact=True).check()
+    await expect(owner.page.get_by_label("Legenda da reunião", exact=True)).to_be_visible()
+    await expect(member.page.get_by_label("Legenda da reunião", exact=True)).to_have_count(0)
+    await panel.get_by_role("button", name="Perguntar", exact=True).click()
+    await panel.get_by_label("Pergunte à Nora só para você", exact=True).fill("Qual foi a decisão?")
+    await panel.get_by_role("button", name="Perguntar à Nora", exact=True).click()
+    await expect(panel.get_by_label("Resposta privada da Nora", exact=True)).to_contain_text("A proposta será revisada")
+    await expect(member.page.get_by_label("Resposta privada da Nora", exact=True)).to_have_count(0)
+    await owner.page.set_viewport_size({"width": 375, "height": 812})
+    await expect(panel).to_be_visible()
+    overflow = await owner.page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
+    assert not overflow, {"mobileOverflow": overflow}
+    await end_host_call(owner.page)
+    return {"nativeHumanRtp": True, "syntheticTranscriptBoundary": True, "liveProviders": False,
+            "rtcAgentConnected": False, "masked": True, "privateAnswer": True,
+            "localCaptions": True, "mobileWidth": 375, "mobileOverflow": False}
+
+
 SCENARIOS: dict[str, Callable[[ScenarioRuntime], Awaitable[dict[str, Any]]]] = {
+    "nora_panel": scenario_nora_panel,
+    "video_interest": scenario_video_interest,
+    "call_layout": scenario_call_layout,
     "page_reload": scenario_page_reload,
     "call_studio": scenario_call_studio,
     "group_media": scenario_group_media,
@@ -1596,10 +1791,12 @@ async def run(args: argparse.Namespace) -> int:
         browser_version = "not-started"
         processes_for_artifacts: list[ManagedProcess] = []
         stop_errors: list[str] = []
+        browser_finalization: dict[str, Any] = {}
         try:
             services = await start_services(args, temporary)
             async with async_playwright() as playwright:
                 for repetition in range(1, args.repeat + 1):
+                    browser_finalization = {}
                     # Re-launch per repetition so an exhausted renderer from a
                     # previous cycle cannot contaminate the next independent run.
                     browser, browser_identity = await launch_browser(playwright, args, media_dir)
@@ -1689,6 +1886,8 @@ async def run(args: argparse.Namespace) -> int:
                                 )
                             except Exception as error:
                                 raw_copy_errors.append(f"{type(error).__name__}")
+                        browser_finalization = {"closeError": browser_close_failure,
+                                                "artifactCopyErrorCount": len(raw_copy_errors)}
                         if browser_close_failure or raw_copy_errors:
                             reasons = [item for item in [browser_close_failure, *raw_copy_errors] if item]
                             raise RuntimeError("Browser finalization failed: " + " | ".join(reasons))
@@ -1699,6 +1898,7 @@ async def run(args: argparse.Namespace) -> int:
                 "status": "failed",
                 "durationSeconds": round(time.time() - started, 3),
                 "error": f"{type(error).__name__}",
+                "browserFinalization": browser_finalization,
                 "traceback": [f"{Path(frame.filename).name}:{frame.lineno}" for frame in traceback.extract_tb(sys.exception().__traceback__)[-40:]],
             })
         finally:

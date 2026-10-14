@@ -14,7 +14,39 @@ function overview() { return { month: "2026-09", currentMonth: "2026-09", tracki
 function setup() { vi.mocked(authJson).mockImplementation(async (_path, _token, options) => options?.method ? {} : overview()); return render(<AiCostsDashboard token="test-token" actor={actor} users={[actor, account]} />); }
 
 describe("AiCostsDashboard", () => {
+  it("exibe áudio e caracteres separados de tokens com tentativas incertas", async () => {
+    const speechTotals = { requests: 1, seconds: 10, actualSeconds: 5, characters: 0, costUsd: .000111, uncertainRequests: 1, releasedRequests: 0 };
+    vi.mocked(authJson).mockResolvedValue({ ...overview(), speech: { totals: speechTotals, users: [{ userId: "a", ...speechTotals }], recentUsage: [{ id: "speech", userId: "a", workspace: "primary", callId: "call", provider: "groq", model: "whisper-large-v3-turbo", unit: "seconds", units: 10, actualSeconds: 5, costUsd: .000111, status: "uncertain", createdAt: "2026-09-10T12:00:00Z" }] } });
+    render(<AiCostsDashboard token="test-token" actor={actor} users={[actor, account]} />);
+    const panel = await screen.findByRole("region", { name: "Custos de transcrição e voz" });
+    expect(within(panel).getByText("5 s")).toBeInTheDocument();
+    expect(within(panel).getByText("10 s faturáveis")).toBeInTheDocument();
+    expect(within(screen.getByText("Tokens consumidos").closest("article")!).getByText("1.500")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Consumo e auditoria" }));
+    const history = screen.getByRole("table", { name: "Histórico de transcrição e voz" });
+    expect(within(history).getByText("Incerto")).toBeInTheDocument();
+    expect(within(history).getByText(/whisper-large-v3-turbo/)).toBeInTheDocument();
+  });
   beforeEach(() => vi.clearAllMocks());
+  it("preserva a franquia de chamadas e permite bloquear ou remover o limite pessoal", async () => {
+    const data = overview();
+    const response = { ...data, users: data.users.map(item => ({ ...item, limits: { ...item.limits, callsLimit: 12 } })) };
+    vi.mocked(authJson).mockImplementation(async (_path, _token, options) => options?.method ? {} : response);
+    render(<AiCostsDashboard token="test-token" actor={actor} users={[actor, account]} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Ana/ }));
+    expect(screen.getByLabelText("Limite de chamadas por ciclo")).toHaveValue(12);
+    fireEvent.change(screen.getByLabelText("Limite de chamadas por ciclo"), { target: { value: "0" } });
+    await user.click(screen.getByRole("button", { name: "Salvar limites" }));
+    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", {
+      method: "PUT", body: JSON.stringify({ monthlyBudgetUsd: 5, monthlyTokenLimit: 100000, callsLimit: 0, period: "monthly", startDate: null, autoRenew: true }),
+    }));
+    fireEvent.change(screen.getByLabelText("Limite de chamadas por ciclo"), { target: { value: "" } });
+    await user.click(screen.getByRole("button", { name: "Salvar limites" }));
+    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", {
+      method: "PUT", body: JSON.stringify({ monthlyBudgetUsd: 5, monthlyTokenLimit: 100000, callsLimit: null, period: "monthly", startDate: null, autoRenew: true }),
+    }));
+  });
   it("exibe custo geral e detalhamento individual por modelo", async () => {
     setup(); const user = userEvent.setup();
     expect(await screen.findByText("Custo de todos os usuários")).toBeInTheDocument();

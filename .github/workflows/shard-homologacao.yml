@@ -69,6 +69,7 @@ jobs:
         working-directory: norium-back-end
         run: |
           pip-audit -r requirements.lock.txt -f cyclonedx-json -o ../output/backend-sbom.cdx.json
+          pip-audit --require-hashes --no-deps --disable-pip -r requirements-nora-call.lock.txt -f cyclonedx-json -o ../output/nora-call-sbom.cdx.json
           bandit -q -r app -x tests -ll
 
       - name: Preserve revision-bound backend SBOM

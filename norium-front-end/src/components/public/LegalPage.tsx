@@ -13,9 +13,9 @@ const termsSections = [
 const privacySections = [
   ["Papéis e dados tratados", "A organização cliente controla o conteúdo do seu workspace e o Norium o processa conforme as instruções dessa organização. Para a própria conta, o Norium trata cadastro, autenticação, preferências, auditoria de segurança, arquivos enviados e dados das integrações autorizadas."],
   ["Finalidades e bases", "Os dados são usados para executar o contrato e as funcionalidades solicitadas, autenticar e proteger o acesso, atender obrigações legais e exercer direitos. Consentimento é usado quando a lei ou a integração exigir e pode ser revogado sem afetar o tratamento anterior válido."],
-  ["Compartilhamento e transferências", "Dados podem passar pela infraestrutura Microsoft Azure, pelo serviço de e-mail, pelos provedores conectados e por provedores de IA escolhidos no produto, apenas no escopo necessário. O Norium não vende cadastros pessoais."],
-  ["Retenção e eliminação", "Dados ativos são mantidos durante a conta ou o contrato. Uma exclusão autenticada revoga sessões, elimina o diretório pessoal e anonimiza o cadastro; cópias de segurança protegidas são sobrescritas em até 35 dias. Registros fiscais, de segurança ou de defesa de direitos podem permanecer pelo prazo legal aplicável, com acesso restrito."],
-  ["Direitos do titular", "Nas Configurações, o titular pode exportar seus dados e solicitar a exclusão da conta. Correção, confirmação, acesso, oposição, revisão, portabilidade e dúvidas podem ser solicitados a suporte@norium-ai.com. Pedidos sobre conteúdo de um workspace também devem ser dirigidos à organização que o controla."],
+  ["Compartilhamento e transferências", "A hospedagem atual utiliza Shard Cloud e PostgreSQL. Conforme as integrações habilitadas, dados mínimos podem ser processados por Google (Gmail e Agenda), W-API (WhatsApp), Groq, OpenAI ou Google Gemini (IA), Brave (pesquisa), ElevenLabs (voz), pelo provedor de e-mail configurado e pelos serviços TURN/SFU configurados para chamadas. Cada finalidade depende da configuração e autorização correspondentes; o Norium não vende cadastros pessoais. Contratos, localização e mecanismos de transferência internacional devem ser confirmados pelo responsável jurídico."],
+  ["Retenção e eliminação", "A retenção operacional tem prazos configuráveis e permanece desativada até sua aprovação. Nas Configurações é possível exportar dados e solicitar a exclusão autenticada: a conta é bloqueada, sessões são revogadas, autorizações Google são revogadas e a eliminação é concluída com nova tentativa se houver falha. Backups exigem registro separado de exclusões e reaplicação antes de reabrir um ambiente restaurado. O prazo de guarda de backups e exceções legais depende da política aprovada da organização."],
+  ["Direitos do titular e contato", "Nas Configurações, o titular pode exportar seus dados e solicitar a exclusão da conta. Correção, confirmação, acesso, oposição, revisão, portabilidade e dúvidas podem ser solicitados a suporte@norium-ai.com, canal de suporte já adotado pelo produto. Pedidos sobre conteúdo de um workspace também devem ser dirigidos à organização que o controla. A identidade e o contato formal do encarregado devem ser confirmados antes do lançamento público."],
   ["Segurança e incidentes", "O Norium aplica segregação por conta e workspace, controle de acesso, criptografia de segredos, trilha de auditoria e backups protegidos. Incidentes relevantes são avaliados e comunicados às partes e autoridades nos casos exigidos."],
 ];
 
@@ -28,13 +28,13 @@ export default function LegalPage({ kind, authenticated }: { kind: LegalKind; au
         <a href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView(authenticated ? "app" : "login"); }} aria-label="Voltar ao Norium">
           <BrandLogo className="h-12 w-[132px] text-[var(--text)]" />
         </a>
-        <p className="mt-8 text-xs font-black uppercase tracking-[0.2em] text-[var(--primary)]">Versão 2026-09-20</p>
+        <p className="mt-8 text-xs font-black uppercase tracking-[0.2em] text-[var(--primary)]">Minuta · versão 2026-10-11</p>
         <h1 className="mt-2 text-3xl font-black sm:text-4xl">{isTerms ? "Termos de Uso" : "Politica de Privacidade"}</h1>
         <p className="mt-4 text-sm font-semibold leading-7 text-[var(--text-secondary)]">
           Estes termos descrevem o funcionamento e os controles disponíveis no produto. Dúvidas e solicitações podem ser enviadas a suporte@norium-ai.com.
         </p>
-        <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm font-bold text-amber-200">
-          A identidade completa da empresa, o contrato comercial e este texto devem receber validação jurídica antes do lançamento público.
+        <div className="mt-4 rounded-xl border p-4 text-sm font-bold" style={{ borderColor: "var(--warning)", color: "var(--text)", background: "var(--surfaceHover)" }}>
+          Minuta para revisão jurídica. Confirmar a identidade da empresa, encarregado, contratos, bases legais, prazos e transferências internacionais antes do lançamento público. Estes controles não constituem certificação de conformidade LGPD.
         </div>
         <div className="mt-8 grid gap-7">
           {sections.map(([title, body]) => (

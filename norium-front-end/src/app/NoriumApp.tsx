@@ -10,6 +10,7 @@ import { canParticipateInTeamChat, canUse } from "../types/auth";
 import { applyNoriumTheme } from "../utils/theme";
 import { closeCookieSession } from "../core/api/cookieSession";
 import { CallSessionProvider } from "../components/team-chat/CallSession";
+import TeamPresenceReporter from "../components/team-chat/TeamPresenceReporter";
 import AppPanels from "./components/AppPanels";
 import { preloadPanel } from "./navigation/panelModules";
 import { useAuthSession } from "./hooks/useAuthSession";
@@ -355,6 +356,7 @@ function NoriumPrivateApp() {
       }}
     >
     <div className={`app-shell norium-modern-shell ${sidebarCollapsed ? "is-focus-mode" : ""} flex overflow-hidden bg-[var(--background)] font-sans antialiased`}>
+      <TeamPresenceReporter session={authSession} activeTab={activeTab} />
       <a className="norium-skip-link" href="#norium-main">Pular para o conteudo</a>
       {canAccessPermission("nora") && isNoraOpen && (
         <Suspense fallback={null}>
@@ -467,6 +469,7 @@ function NoriumPrivateApp() {
                 open={teamChatOpen || activeTab === "Chat da Equipe"}
                 variant={activeTab === "Chat da Equipe" ? "page" : "drawer"}
                 onClose={() => { setTeamChatOpen(false); if (activeTab === "Chat da Equipe") navigateTab("Dashboard"); }}
+                onOpen={() => { setTeamChatOpen(true); clearTeamChatUnread(); }}
                 session={authSession}
                 onUnread={addTeamChatUnread}
                 onOpenNora={openNora}

@@ -29,6 +29,9 @@ import websockets
 
 READINESS_DEADLINE_SECONDS = 20.0
 EVENT_DEADLINE_SECONDS = 10.0
+# Reset waits for the fixture's 20-second ASGI teardown deadline. This timeout
+# is exclusively for test isolation, never for measured call/control events.
+FIXTURE_RESET_TIMEOUT_SECONDS = 25.0
 STATE_POLL_INTERVAL_SECONDS = 0.10
 LIFECYCLE_POLL_INTERVAL_SECONDS = 0.20
 RSS_SAMPLE_INTERVAL_SECONDS = 0.10
@@ -537,7 +540,7 @@ async def _run_iteration(
     ghost_deadline: float,
     silent_duration: float,
 ) -> dict[str, Any]:
-    reset, _ = await _json_request(http, "POST", f"{base_url}/__test__/reset")
+    reset, _ = await _json_request(http, "POST", f"{base_url}/__test__/reset", timeout=FIXTURE_RESET_TIMEOUT_SECONDS)
     if not reset.get("reset"):
         raise LoadFailure("Fixture nao confirmou reset.")
 
@@ -726,7 +729,7 @@ async def _run_iteration(
             await asyncio.gather(keepalive_task, return_exceptions=True)
         await asyncio.gather(*(client.close() for client in clients), return_exceptions=True)
         try:
-            await _json_request(http, "POST", f"{base_url}/__test__/reset")
+            await _json_request(http, "POST", f"{base_url}/__test__/reset", timeout=FIXTURE_RESET_TIMEOUT_SECONDS)
         finally:
             await rss_sampler.stop()
 

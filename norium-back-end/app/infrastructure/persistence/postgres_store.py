@@ -130,10 +130,23 @@ def initialize() -> None:
             raise PostgresStoreError("postgresql_initialization_failed") from exc
 
 
+def _strip_windows_extended_prefix(value: str) -> str:
+    # Windows can return an extended path after a concurrent file creation.
+    # Normalize its spelling only after resolve() followed real symlinks.
+    if value[:8].casefold() == "\\\\?\\unc\\":
+        return "\\\\" + value[8:]
+    if value.startswith("\\\\?\\") and len(value) > 6 and value[5:7] == ":\\":
+        return value[4:]
+    return value
+
+
 def canonical_key(path: str | Path) -> str:
     from app.core.tenant import get_data_root
 
     root, candidate = get_data_root().resolve(), Path(path).resolve()
+    if os.name == "nt":
+        root = Path(_strip_windows_extended_prefix(str(root)))
+        candidate = Path(_strip_windows_extended_prefix(str(candidate)))
     try:
         return candidate.relative_to(root).as_posix()
     except ValueError as exc:
@@ -176,14 +189,24 @@ def write_document(store_key: str, payload: Any) -> None:
 def _storage_usage(db, key: str, kind: str) -> dict:
     from app.infrastructure.storage_limits import scope_prefixes
     prefix, excluded = scope_prefixes(key)
-    return db.execute("""WITH objects AS (
+    usage = dict(db.execute("""WITH objects AS (
         SELECT object_key AS key,byte_size AS size,'blob' AS kind FROM norium_blobs
         UNION ALL SELECT store_key,octet_length(convert_to(payload::text,'UTF8')),'document' FROM norium_documents)
         SELECT COALESCE(SUM(size),0) AS global_used,
             COALESCE(SUM(size) FILTER (WHERE starts_with(key,%s)
                 AND (%s = '' OR NOT starts_with(key,%s))),0) AS workspace_used,
             COALESCE(MAX(size) FILTER (WHERE key=%s AND kind=%s),0) AS previous
-        FROM objects""", (prefix, excluded, excluded, key, kind)).fetchone()
+        FROM objects""", (prefix, excluded, excluded, key, kind)).fetchone())
+    if prefix:
+        from app.modules.privacy.storage_catalog import attachment_names
+        documents = db.execute("""SELECT payload FROM norium_documents WHERE starts_with(store_key,%s)
+            AND (%s='' OR NOT starts_with(store_key,%s))""", (prefix, excluded, excluded)).fetchall()
+        names = sorted({name for row in documents for name in attachment_names(row["payload"])})
+        if names:
+            keys = [folder + "/" + name for folder in ("team_chat_uploads", "finance_uploads", "task_uploads") for name in names]
+            row = db.execute("SELECT COALESCE(SUM(byte_size),0) AS size FROM norium_blobs WHERE object_key=ANY(%s)", (keys,)).fetchone()
+            usage["workspace_used"] = int(usage["workspace_used"]) + int(row["size"])
+    return usage
 
 
 def _quota_lock(db) -> None:

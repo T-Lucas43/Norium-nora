@@ -30,6 +30,14 @@ As capacidades de tokens exibidas são alternativas para o mesmo saldo: somente 
 
 ## Persistência e histórico
 
+### Voz nas reuniões — integração local, 13/10/2026
+
+O retorno administrativo inclui `speech`, exibido em painel separado: segundos de STT e caracteres de TTS, valores estimados/reservados/liquidados, totais por usuário e histórico de tentativas. Esses números não são convertidos em tokens nem alteram a franquia operacional de texto. PDF e CSV existentes continuam exportando o relatório de tokens.
+
+`speech_usage` reserva o custo antes do provedor, aplica limites próprios por reunião/ciclo e preserva tarifa e estado da tentativa. Groq Whisper tem mínimo faturável de 10 segundos por envio; falhas após envio sem confirmação ficam conservadoras até reconciliação, sem liberar retentativa automática. Tarifas/tetos comerciais e serviços reais não foram configurados nesta entrega.
+
+Perguntas privadas e entendimento da reunião usam o gateway de tokens existente, com fonte opaca por workspace/equipe/chamada e distinção de escopo privado/compartilhado. Contadores não armazenam áudio ou transcrição. A [configuração operacional](operations/team-call-configuration.md) mantém a Nora desligada até concluir os gates pendentes.
+
 `NORIUM_DATA_DIR/ai_costs.sqlite3` guarda o registro, tarifas, reservas, limites e auditoria. Incluir esse arquivo nos backups do volume persistente. Usa transações SQLite com journal DELETE (sem WAL) e timeout de bloqueio de 30 segundos.
 
 No Azure Files, o deploy define `NORIUM_AI_COSTS_SQLITE_VFS=unix-dotfile`: o [VFS do SQLite](https://www.sqlite.org/vfs.html) usa arquivo de bloqueio para serializar conexões, evitando os bloqueios POSIX incompatíveis com SMB. Todas as conexões ao registro devem usar o mesmo VFS; não abrir o arquivo diretamente com ferramentas que usem o padrão. O CI testa a mesma configuração no Linux, e o deploy verifica exclusão de gravações simultâneas, commit e integridade no volume real. Após encerramento abrupto, um bloqueio órfão pode exigir recuperação operacional: interromper todas as revisões/processos que acessam o registro, preservar backup do banco e journal, confirmar que o bloqueio não possui dono ativo e só então remover o diretório `.lock` vazio; reabrir com o mesmo VFS para recuperação do journal e executar `PRAGMA integrity_check`. Nunca remover bloqueios de uma aplicação em execução.

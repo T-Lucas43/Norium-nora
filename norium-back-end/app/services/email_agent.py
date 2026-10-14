@@ -33,6 +33,8 @@ class EmailSession:
 
 class EmailAgent:
     SESSION_TTL = timedelta(minutes=20)
+    MAX_EMAIL_ATTACHMENTS = 8
+    MAX_EMAIL_ATTACHMENT_BYTES = 24 * 1024 * 1024
 
     def __init__(self) -> None:
         self.sessions: dict[str, EmailSession] = {}
@@ -197,8 +199,12 @@ class EmailAgent:
             elif attachment_ids:
                 attached, skipped = self._resolve_attachments(session.user_id, attachment_ids)
                 if attached:
-                    fields["attachments"] = attached
-                    fields["_attachments_done"] = True
+                    combined, limit_error = self._merge_attachment_records(fields.get("attachments") or [], attached)
+                    if limit_error:
+                        skipped.append(limit_error)
+                    else:
+                        fields["attachments"] = combined
+                        fields["_attachments_done"] = True
                 else:
                     fields["_attachment_errors"] = skipped or ["não reconheci nenhum arquivo válido."]
 
@@ -209,9 +215,22 @@ class EmailAgent:
         pending = fields.pop("_pending_attachment_ids", [])
         if pending:
             attached, skipped = self._resolve_attachments(session.user_id, pending)
-            by_id = {item["fileId"]: item for item in fields.get("attachments", [])}
-            by_id.update({item["fileId"]: item for item in attached})
-            fields["attachments"] = list(by_id.values())
+            if skipped:
+                return {
+                    "session_id": session.id,
+                    "status": "falha_validacao",
+                    "response": "Não consegui validar um ou mais arquivos. A prévia e a aprovação existentes continuam inalteradas.",
+                    "fields": fields,
+                }
+            combined, limit_error = self._merge_attachment_records(fields.get("attachments") or [], attached)
+            if limit_error:
+                return {
+                    "session_id": session.id,
+                    "status": "falha_validacao",
+                    "response": f"{limit_error} Os anexos atuais e a aprovação existente continuam inalterados.",
+                    "fields": fields,
+                }
+            fields["attachments"] = combined
             if skipped:
                 fields["_attachment_errors"] = skipped
                 fields["_attachments_done"] = False
@@ -324,7 +343,7 @@ class EmailAgent:
         attached: list[dict[str, Any]] = []
         skipped: list[str] = []
         seen: set[str] = set()
-        for raw_id in (attachment_ids or [])[:8]:
+        for raw_id in (attachment_ids or [])[:self.MAX_EMAIL_ATTACHMENTS]:
             file_id = str(raw_id or "").strip()
             if not file_id or file_id in seen:
                 continue
@@ -341,7 +360,21 @@ class EmailAgent:
                 "size": len(file_bytes),
                 "sha256": hashlib.sha256(file_bytes).hexdigest(),
             })
+        if sum(int(item.get("size") or 0) for item in attached) > self.MAX_EMAIL_ATTACHMENT_BYTES:
+            return [], ["O total dos anexos excede o limite de 24 MB."]
         return attached, skipped
+
+    def _merge_attachment_records(
+        self, existing: list[dict[str, Any]], added: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        by_id = {str(item.get("fileId") or ""): item for item in existing if item.get("fileId")}
+        by_id.update({str(item.get("fileId") or ""): item for item in added if item.get("fileId")})
+        combined = list(by_id.values())
+        if len(combined) > self.MAX_EMAIL_ATTACHMENTS:
+            return existing, "O e-mail aceita até 8 arquivos no total."
+        if sum(int(item.get("size") or 0) for item in combined) > self.MAX_EMAIL_ATTACHMENT_BYTES:
+            return existing, "O tamanho total dos anexos não pode passar de 24 MB."
+        return combined, None
 
     async def _polish_body(self, fields: dict[str, Any], *, user_id: str | None = None) -> str:
         body = str(fields.get("body") or "").strip()

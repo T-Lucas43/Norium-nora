@@ -29,6 +29,43 @@ const session = {
 } satisfies AuthSession;
 
 describe("chamadas do Modo Equipe", () => {
+  it("deduplica transcrição da chamada, rejeita revisão antiga e limpa ao sair", async () => {
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const callId = result.current.active!.callId;
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "mesh" }));
+    const segment = { id: "s1", callId, userId: "owner", start: 0, end: 5, text: "Decisão da reunião" };
+    const nora = { callId, revision: 3, available: true, requested: true, state: "listening" as const, pendingUserIds: [], notice: "Groq" };
+    const event = { type: "CALL_NORA_TRANSCRIPT", callId, revision: 3, sequence: 1, segments: [segment], nora };
+    await act(async () => result.current.handleSocketEvent(event));
+    await act(async () => result.current.handleSocketEvent(event));
+    expect(result.current.noraTranscript).toEqual([segment]);
+    await act(async () => result.current.handleSocketEvent({ ...event, revision: 2, sequence: 2, segments: [{ ...segment, id: "old" }] }));
+    await act(async () => result.current.handleSocketEvent({ ...event, callId: "other", sequence: 3 }));
+    expect(result.current.noraTranscript).toEqual([segment]);
+    await act(async () => result.current.leaveCall());
+    expect(result.current.noraTranscript).toEqual([]);
+    unmount();
+  });
+  it("envia consentimento por sessão e ignora revisões Nora antigas ou de outra chamada", async () => {
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const callId = result.current.active!.callId;
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "mesh" }));
+    const nora = { callId, revision: 3, available: true, requested: true, state: "awaiting_consent" as const, pendingUserIds: ["owner"], notice: "Groq" };
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_NORA_CONTROL", callId, nora }));
+    expect(result.current.nora?.revision).toBe(3);
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_NORA_CONSENT", callId, nora: { ...nora, revision: 2 } }));
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_NORA_CONSENT", callId: "other", nora: { ...nora, callId: "other", revision: 7 } }));
+    expect(result.current.nora?.revision).toBe(3);
+    act(() => result.current.updateNora({ type: "consent", accepted: true, revision: 3 }));
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_NORA_CONSENT", callId, clientId: result.current.clientId, revision: 3, accepted: true }));
+    await act(async () => result.current.leaveCall());
+    expect(result.current.nora).toBeNull();
+    unmount();
+  });
   beforeEach(() => {
     sessionStorage.clear();
     vi.restoreAllMocks();
@@ -38,6 +75,44 @@ describe("chamadas do Modo Equipe", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("remoção usa o evento existente só para o organizador da chamada ativa", async () => {
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    act(() => result.current.removeParticipant("member"));
+    expect(sendSocketEvent).not.toHaveBeenCalled();
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const callId = result.current.active!.callId;
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "mesh" }));
+    sendSocketEvent.mockClear();
+    act(() => result.current.removeParticipant("owner"));
+    expect(sendSocketEvent).not.toHaveBeenCalled();
+    act(() => result.current.removeParticipant("member"));
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_KICK", callId, clientId: result.current.clientId, targetUserId: "member" }));
+    sendSocketEvent.mockReturnValue(false);
+    act(() => result.current.removeParticipant("other"));
+    expect(result.current.status).toContain("Não foi possível remover");
+    unmount();
+  });
+
+  it("recebe estado do palco por revisão e limpa destaques temporários ao sair", async () => {
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const callId = result.current.active!.callId;
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "mesh" }));
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_STAGE_PIN", callId, stageRevision: 2, stagePin: { userId: "member", type: "member" }, presentationLocks: { member: true } }));
+    expect(result.current.stagePin).toEqual({ userId: "member", type: "member" });
+    expect(result.current.presentationLocks).toEqual({ member: true });
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_STAGE_PIN", callId, stageRevision: 1, stagePin: null }));
+    expect(result.current.stagePin?.userId).toBe("member");
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_PRESENTATION_MARK", callId, markId: "mark", targetUserId: "member", fromUserName: "Member", x: .3, y: .4, expiresAt: new Date(Date.now() + 10000).toISOString() }));
+    expect(result.current.presentationMarks).toHaveLength(1);
+    await act(async () => result.current.leaveCall());
+    expect(result.current.stagePin).toBeNull();
+    expect(result.current.presentationMarks).toHaveLength(0);
+    unmount();
   });
 
   it("entra em chamada de audio silenciada sem solicitar acesso a camera", async () => {

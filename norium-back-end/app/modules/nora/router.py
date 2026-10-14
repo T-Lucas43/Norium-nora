@@ -57,6 +57,7 @@ from app.modules.commercial.nora_agent import cancel_commercial_session, handle_
 from app.modules.operations.service import (
     can_write_team_memory,
     create_approval,
+    create_exact_whatsapp_approval,
     finalize_email_agent_result,
     get_operation_settings,
     list_nora_memory,
@@ -126,7 +127,7 @@ class ConversaPayload(StrictModel):
 class NoraNaturalPayload(StrictModel):
     message: str = Field(min_length=1, max_length=4000)
     messages: List[MessageItem] = Field(default_factory=list)
-    user_id: str = "lucas123"
+    user_id: str | None = None
     agenda_session_id: str | None = None
     email_session_id: str | None = None
     commercial_session_id: str | None = None
@@ -135,6 +136,7 @@ class NoraNaturalPayload(StrictModel):
     routing_mode: Literal["automatic", "manual"] = "automatic"
     attachment_ids: list[str] = Field(default_factory=list, max_length=8)
     conversation_id: str | None = Field(default=None, max_length=80)
+    request_id: str | None = Field(default=None, min_length=8, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
 
 
 class NoraFileUpload(StrictModel):
@@ -172,25 +174,11 @@ async def research_web(user: dict[str, Any], text: str, model_id: str | None) ->
         query = re.sub(r"\b(?:pesquis[ae]|busque|procure|investigue)(?:\s+na\s+(?:web|internet))?\b", "", text, flags=re.I).strip(" .,:-")
         if not query:
             return {"status": "precisa_dados", "response": "Qual tema você quer que eu pesquise na web?", "webSources": []}
-        feed = await safe_fetch(f"https://www.bing.com/search?format=rss&q={quote_plus(query[:300])}")
-        feed_text = str(feed.get("text") or "")[:500_000]
-        for item_match in list(re.finditer(r"<item\b[^>]*>(.*?)</item>", feed_text, flags=re.I | re.S))[:6]:
-            item_text = item_match.group(1)
-
-            def rss_field(tag: str) -> str:
-                match = re.search(rf"<{tag}\b[^>]*>(.*?)</{tag}>", item_text, flags=re.I | re.S)
-                if not match:
-                    return ""
-                value = re.sub(r"^\s*<!\[CDATA\[|\]\]>\s*$", "", match.group(1).strip(), flags=re.S)
-                return unescape(value).strip()
-
-            title = " ".join(re.sub(r"<[^>]+>", " ", rss_field("title") or "Resultado").split())
-            url = re.sub(r"<[^>]+>", "", rss_field("link")).strip()
-            excerpt = re.sub(r"<[^>]+>", " ", rss_field("description"))
-            if url:
-                sources.append({"title": title[:240], "url": url, "excerpt": " ".join(excerpt.split())[:1200]})
-        if not sources:
-            sources.append({"title": "Resultados da pesquisa", "url": str(feed.get("url") or ""), "excerpt": str(feed.get("text") or "")[:12_000]})
+        from app.services.brave_search import search
+        try:
+            sources = await search(user, query)
+        except ValueError as exc:
+            return {"status":"pesquisa_indisponivel","response":str(exc),"webSources":[]}
     if not sources:
         return {"status": "sem_resultados", "response": "Não encontrei fontes públicas para essa pesquisa.", "webSources": []}
     evidence = "\n\n".join(f"FONTE {index}: {item['title']}\nURL: {item['url']}\nCONTEÚDO: {item['excerpt']}" for index, item in enumerate(sources, 1))
@@ -203,7 +191,7 @@ async def research_web(user: dict[str, Any], text: str, model_id: str | None) ->
     if model_id:
         response, routing = await complete_with_provider(user, model_id, [{"role": "user", "content": prompt}], nora_service.system_prompt)
     else:
-        response = await nora_service.perguntar_nora([{"role": "user", "content": prompt}])
+        response = await nora_service.perguntar_nora([{"role": "user", "content": prompt}], user_id=require_user_id(user), research=True)
         routing = None
     return {"status": "pesquisa_concluida", "response": response, "webSources": [{"title": item["title"], "url": item["url"]} for item in sources], "modelRouting": routing}
 
@@ -314,33 +302,14 @@ async def request_sensitive_approval(
         }
     if request is None:
         return None
-    approval = await create_approval(
-        user,
-        ApprovalCreate(
-            title=request["title"],
-            description=f'{request["description"]} Pedido original: {message}',
-            action=f'nora_{request["source"]}_execute',
-            source=request["source"],
-            payload={"originalMessage": message, "sessionId": session_id, "skill": selected_skill},
-            metadata={
-                "requestedBy": "nora",
-                "requiresExplicitDecision": True,
-                "autonomy": autonomy,
-            },
-        ),
-    )
-    return resposta_agente(
-        selected_skill,
-        {
-            "status": "aguardando_aprovacao",
-            "response": (
-                f'Preparei o plano para "{request["title"]}". '
-                "A acao ainda nao foi executada. Revise, edite ou aprove na Central de aprovacoes."
-            ),
-            "approval": approval,
-        },
-        resolution=resolution,
-    )
+    # A generic approval must never authorize reparsing unrestricted text.
+    # Exact finance/email/WhatsApp previews are produced by their own adapters.
+    if selected_skill in {"financeiro", "email", "whatsapp"}:
+        return None
+    return resposta_agente(selected_skill, {
+        "status": "precisa_previa_exata",
+        "response": "Esta ação precisa de alvo e conteúdo exatos. Prepare a operação na tela do módulo ou no cérebro da Nora para revisar cada efeito; nada foi executado.",
+    }, resolution=resolution)
 
 
 async def request_whatsapp_approval(
@@ -391,30 +360,11 @@ async def request_whatsapp_approval(
             resolution=resolution,
         )
 
-    approval = await create_approval(
-        user,
-        ApprovalCreate(
-            title=f"Enviar mensagem no WhatsApp para {recipient_name}"[:180],
-            # A Central já mostra o destinatário no título. A descrição é o
-            # campo editável que representa exatamente o texto a enviar.
-            description=message_text,
-            action="nora_whatsapp_execute",
-            source="whatsapp",
-            payload={
-                "originalMessage": message,
-                "conversationId": conversation_id,
-                "recipientName": recipient_name,
-                "messageText": message_text,
-                "isGroup": bool(action.get("isGroup")),
-                "instanceId": str(getattr(binding, "instance_id", "")),
-            },
-            metadata={
-                "requestedBy": "nora",
-                "requiresExplicitDecision": True,
-                "channel": "whatsapp",
-            },
-        ),
-    )
+    approval = await create_exact_whatsapp_approval(user, {
+        "originalMessage": message, "conversationId": conversation_id,
+        "recipientName": recipient_name, "messageText": message_text,
+        "isGroup": bool(action.get("isGroup")),
+    })
     return resposta_agente(
         "whatsapp",
         {
@@ -572,7 +522,7 @@ async def nora_file_content(
     )
 
 
-async def buscar_historico_whats(conversa_id: str, user_id: str = "lucas123") -> str:
+async def buscar_historico_whats(conversa_id: str, user_id: str) -> str:
     return await build_conversation_history(conversa_id, limit=12, user_id=user_id)
 
 
@@ -1284,6 +1234,20 @@ def client_messages_for_model(messages: list[MessageItem]) -> list[dict[str, str
 async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str, Any] = Depends(require_nora_permission)):
     # O resumo fixado (system) vem somente do contexto salvo no servidor.
     payload.messages = [message for message in payload.messages if message.role != "system"]
+    if os.getenv("NORA_BRAIN_ENABLED") == "1":
+        from app.core.request_context import current_workspace_id
+        from app.modules.nora.brain.runtime import repository
+        from app.modules.nora.brain.policy import scope_for
+        from app.modules.nora.brain.contracts import Submit, BrainError
+        from app.modules.nora.brain.router import exposed
+        try:
+            job = repository().create(scope_for(user, current_workspace_id()), Submit(
+                requestId=payload.request_id or uuid.uuid4().hex, message=payload.message, attachmentIds=payload.attachment_ids,
+                category="document" if is_document_creation_request(payload.message) else "routine"))
+        except BrainError as exc:
+            raise HTTPException(exc.status, {"code": exc.code}) from None
+        return {"intent": "brain", "skill": "brain", "status": "queued", "brainJob": exposed(job),
+                "response": "Pedido registrado no cérebro da Nora. Cada efeito externo terá uma aprovação exata. Acompanhe em Trabalhos da Nora."}
     snapshot = restore_natural_context(payload, user)
     result = await _execute_natural_conversation(payload, user, snapshot)
     await record_natural_turn(payload, user, result)
@@ -1501,50 +1465,12 @@ async def _execute_natural_conversation(
                     "response": response,
                     "speech_text": texto_para_voz(response),
                 }
-            approval = await create_approval(
-                user,
-                ApprovalCreate(
-                    title="Executar plano composto da Nora",
-                    description=(
-                        f"A Nora separou o pedido em {len(steps)} etapas. "
-                        "Revise o plano antes de autorizar a execucao."
-                    ),
-                    action="nora_compound_execute",
-                    source="compound",
-                    payload={"originalMessage": texto, "steps": steps},
-                    metadata={
-                        "requestedBy": "nora",
-                        "requiresExplicitDecision": True,
-                        "agents": [step["agent"] for step in steps],
-                    },
-                ),
-            )
-            plan_lines = "\n".join(
-                f"{index}. {step['agent'].capitalize()}: {step['instruction']}"
-                for index, step in enumerate(steps, start=1)
-            )
-            plan_response = (
-                "Entendi o pedido completo e montei este plano:\n\n"
-                f"{plan_lines}\n\n"
-                "Nada foi executado ainda. Revise e aprove na Central de pendencias."
-            )
-            return {
-                "intent": "compound",
-                "skill": "compound",
-                "routing": {
-                    **routing_payload(resolution, "compound"),
-                    "agents": [step["agent"] for step in steps],
-                },
-                "session_kind": None,
-                "session_id": None,
-                "status": "aguardando_aprovacao",
-                "response": plan_response,
-                "speech_text": (
-                    f"Montei um plano com {len(steps)} etapas e deixei os detalhes na tela. "
-                    "Nada foi executado. Revise e aprove na Central de pendências."
-                ),
-                "agent_result": {"approval": approval, "steps": steps},
-            }
+            plan_lines = "\n".join(f"{index}. {step['agent'].capitalize()}: {step['instruction']}"
+                                   for index, step in enumerate(steps, 1))
+            return {"intent": "compound", "skill": "compound", "status": "precisa_previa_exata",
+                "response": "Separei o pedido em etapas:\n\n" + plan_lines +
+                    "\n\nCada efeito exige uma prévia individual com alvo e conteúdo exatos. Prepare as operações nas telas dos módulos; o cérebro pode coordenar essas etapas quando estiver habilitado. Nada foi executado.",
+                "agent_result": {"steps": steps}, "routing": routing_payload(resolution, "compound")}
 
         if payload.email_session_id and resolution.skill_id in {"email", "chat"}:
             # Email sessions own their flow end to end: the guided agent collects
@@ -1797,6 +1723,9 @@ async def conversar_com_nora_natural_stream(
     com o resultado estruturado (nao apenas texto) que cada agente precisa.
     """
     request_started = time.perf_counter()
+    payload.messages = [message for message in payload.messages if message.role != "system"]
+    if os.getenv("NORA_BRAIN_ENABLED") == "1":
+        return {"redirect": True}
     response_id = uuid.uuid4().hex
     conversation_snapshot = restore_natural_context(payload, user)
     texto = payload.message.strip()
@@ -1832,7 +1761,7 @@ async def conversar_com_nora_natural_stream(
         )
         and continued_intent is None
     ):
-        base_messages = [msg.model_dump() for msg in context_window(payload.messages, 12)]
+        base_messages = client_messages_for_model(context_window(payload.messages, 12))
 
         def encode_event(event_type: str, payload_data: dict[str, Any]) -> str:
             data = {"type": event_type, "response_id": response_id, **payload_data}
@@ -1967,59 +1896,11 @@ async def gerar_voz_nora(payload: NoraVoicePayload, _: dict[str, Any] = Depends(
 @router.post("/transcrever")
 async def transcrever_voz_nora(
     payload: NoraTranscriptionPayload,
-    _: dict[str, Any] = Depends(require_nora_permission),
+    user: dict[str, Any] = Depends(require_nora_permission),
 ):
-    """Fallback de reconhecimento de voz quando a API nativa do navegador falhar."""
-    load_dotenv()
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key:
-        raise HTTPException(status_code=503, detail="Transcricao de voz nao configurada no servidor.")
-
-    encoded = payload.audio_data_url.split(",", 1)[-1].strip()
-    try:
-        audio_bytes = base64.b64decode(encoded, validate=True)
-    except (ValueError, binascii.Error) as exc:
-        raise HTTPException(status_code=400, detail="Audio invalido para transcricao.") from exc
-    if not audio_bytes or len(audio_bytes) > 15_000_000:
-        raise HTTPException(status_code=413, detail="O audio deve ter no maximo 15 MB.")
-
-    normalized_mime = payload.mime_type.split(";", 1)[0].strip().lower() or "audio/webm"
-    extension = "ogg" if "ogg" in normalized_mime else "mp4" if "mp4" in normalized_mime else "webm"
-    retryable_statuses = {429, 500, 502, 503, 504}
-    last_error: Exception | None = None
-    async with httpx.AsyncClient(timeout=httpx.Timeout(25, connect=8)) as client:
-        for attempt in range(2):
-            try:
-                response = await client.post(
-                    "https://api.groq.com/openai/v1/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    files={"file": (f"nora-voice.{extension}", audio_bytes, normalized_mime)},
-                    data={
-                        "model": os.getenv("NORA_STT_MODEL", "whisper-large-v3-turbo"),
-                        "language": "pt",
-                        "response_format": "json",
-                        "temperature": "0",
-                    },
-                )
-                if response.status_code == 200:
-                    transcript = str(response.json().get("text") or "").strip()
-                    if not transcript:
-                        raise HTTPException(status_code=422, detail="Nao foi possivel identificar fala no audio.")
-                    return {"text": transcript, "language": "pt-BR", "provider": "groq"}
-                logger.warning("Transcrição de voz recusada pelo provedor (status=%s, tentativa=%s)", response.status_code, attempt + 1)
-                if response.status_code not in retryable_statuses:
-                    detail = "O formato de audio nao foi aceito. Grave novamente por alguns segundos."
-                    if response.status_code in {401, 403}:
-                        detail = "O serviço de transcrição precisa ser reconectado pelo administrador."
-                    raise HTTPException(status_code=502, detail=detail)
-            except HTTPException:
-                raise
-            except (httpx.HTTPError, ValueError) as exc:
-                last_error = exc
-                logger.warning("Falha transitória na transcrição de voz (tentativa=%s)", attempt + 1)
-            if attempt == 0:
-                await asyncio.sleep(0.5)
-    raise HTTPException(status_code=502, detail="A transcrição não respondeu após duas tentativas. O texto digitado foi preservado; tente novamente.") from last_error
+    """Transcrição explícita com minimização e medição por tentativa."""
+    from app.services.nora_transcription import transcribe
+    return await transcribe(payload.audio_data_url, payload.mime_type, user)
 
 
 @router.post("/chat-whatsapp")
@@ -2062,28 +1943,11 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
 
         conversation_id = str(recipient.get("conversation_id") or "").strip()
         recipient_name = str(recipient.get("display_name") or conversation_id).strip()
-        approval = await create_approval(
-            user,
-            ApprovalCreate(
-                title=f"Enviar mensagem no WhatsApp para {recipient_name}"[:180],
-                description=texto_envio,
-                action="nora_whatsapp_execute",
-                source="whatsapp",
-                payload={
-                    "originalMessage": payload.texto_usuario,
-                    "conversationId": conversation_id,
-                    "recipientName": recipient_name,
-                    "messageText": texto_envio,
-                    "isGroup": bool(recipient.get("is_group")),
-                    "instanceId": str(getattr(binding, "instance_id", "")),
-                },
-                metadata={
-                    "requestedBy": "nora_chat_whatsapp",
-                    "requiresExplicitDecision": True,
-                    "channel": "whatsapp",
-                },
-            ),
-        )
+        approval = await create_exact_whatsapp_approval(user, {
+            "originalMessage": payload.texto_usuario, "conversationId": conversation_id,
+            "recipientName": recipient_name, "messageText": texto_envio,
+            "isGroup": bool(recipient.get("is_group")),
+        }, requested_by="nora_chat_whatsapp")
         return {
             "response": (
                 f"Preparei a mensagem para {recipient_name}:\n\n{texto_envio}\n\n"
@@ -2160,8 +2024,7 @@ async def gerar_rascunho_agente_mensagens(payload: AgentDraftPayload, user: dict
 
 @router.post("/agentes/mensagens/enviar")
 async def enviar_rascunho_agente_mensagens(payload: AgentExecutePayload, user: dict[str, Any] = Depends(require_nora_permission)):
-    # Envio do rascunho revisado e confirmado pela propria pessoa na tela; exige as mesmas
-    # permissoes de WhatsApp do envio manual e uma conexao ativa desta conta.
+    # The legacy draft route prepares an exact Central approval; it never sends.
     permissions = effective_permissions(user)
     if not permissions.get("chat") or not permissions.get("integracao_whatsapp"):
         raise HTTPException(status_code=403, detail="Sua conta nao pode enviar mensagens pelo WhatsApp.")
@@ -2173,15 +2036,12 @@ async def enviar_rascunho_agente_mensagens(payload: AgentExecutePayload, user: d
     binding = owned_wapi_binding(resolved_user_id)
     if not binding.exists or str(getattr(binding, "state", "")) != "connected":
         raise HTTPException(status_code=409, detail="WhatsApp nao esta conectado nesta conta.")
-    result = await agent_manager.execute_message(
-        payload.conversa_id,
-        payload.texto,
-        canal=payload.canal,
-        autorizado=payload.autorizado,
-        user_id=resolved_user_id,
-    )
-    if result.get("status") == "bloqueado_sem_autorizacao":
-        raise HTTPException(status_code=403, detail="Envio bloqueado: autorizacao explicita ausente.")
-    if result.get("status") == "falha_gateway":
-        raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio do agente.")
-    return result
+    recipient = await resolve_whatsapp_recipient(resolved_user_id, payload.conversa_id)
+    if recipient.get("status") != "resolved":
+        raise HTTPException(status_code=409, detail="Confirme um destinatário exato antes de preparar o envio.")
+    approval = await create_exact_whatsapp_approval(user, {
+        "conversationId": recipient["conversation_id"], "recipientName": recipient["display_name"],
+        "messageText": payload.texto, "isGroup": bool(recipient.get("is_group")),
+    }, requested_by="nora_draft")
+    return {"status": "aguardando_aprovacao", "sent": False, "approval": approval,
+            "response": "Rascunho preparado. Revise e aprove na Central de aprovações; nada foi enviado."}

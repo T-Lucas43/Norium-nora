@@ -31,7 +31,7 @@ class AgendaAgent:
         if session_id:
             self.sessions.pop(session_id, None)
 
-    def handle(self, *, message: str, session_id: str | None, user_id: str = "lucas123") -> dict[str, Any]:
+    def handle(self, *, message: str, session_id: str | None, user_id: str) -> dict[str, Any]:
         text = message.strip()
         normalized = self._normalize(text)
         session = self.sessions.get(session_id or "") if session_id else None

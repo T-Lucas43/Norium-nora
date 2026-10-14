@@ -12,6 +12,7 @@ from typing import Any
 
 from app.core.tenant import get_system_db_path
 from app.infrastructure.persistence import postgres_store
+from app.core.log_masking import mask_text, mask_metadata
 
 
 _LOCK = threading.RLock()
@@ -83,12 +84,12 @@ def record_system_log(
     normalized_level = level if level in _ALLOWED_LEVELS else "info"
     entry = {
         "id": f"log_{uuid.uuid4().hex}",
-        "event": str(event)[:120],
+        "event": mask_text(event)[:120],
         "level": normalized_level,
-        "message": str(message)[:500],
+        "message": mask_text(message)[:500],
         "userId": str(user_id or "anonymous")[:160],
         "workspaceId": str(workspace_id or "primary")[:120],
-        "metadata": metadata or {},
+        "metadata": mask_metadata(metadata or {}),
         "createdAt": _now_iso(),
     }
     if postgres_store.configured() or postgres_store.required():
@@ -134,3 +135,44 @@ def list_system_logs(*, limit: int = 200, level: str = "", search: str = "") -> 
             )).casefold()
         ]
     return items[: max(1, min(limit, 1000))]
+
+
+def personal_logs(user_id: str, *, purge: bool = False) -> list[dict[str, Any]]:
+    """Inclui somente eventos do titular; logs locais sobrevivem ao cutover."""
+    with _LOCK:
+        items = _read()
+        personal = [item for item in items if str(item.get("userId") or "") == user_id]
+        if purge and personal:
+            retained = [item for item in items if str(item.get("userId") or "") != user_id]
+            path = _path()
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text("".join(json.dumps(item, ensure_ascii=False) + "\n" for item in reversed(retained)), encoding="utf-8")
+            os.replace(temporary, path)
+    return personal
+
+
+def purge_logs_before(cutoff: datetime) -> int:
+    if postgres_store.configured() or postgres_store.required():
+        _ensure_postgres_schema()
+        with postgres_store.connection() as db:
+            result = db.execute("DELETE FROM norium_system_logs WHERE created_at < %s", (cutoff,))
+            return result.rowcount
+    with _LOCK:
+        items = _read()
+        retained = []
+        for item in items:
+            try:
+                at = datetime.fromisoformat(str(item.get("createdAt", "")).replace("Z", "+00:00"))
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=timezone.utc)
+            except ValueError:
+                retained.append(item)
+                continue
+            if at >= cutoff:
+                retained.append(item)
+        if len(retained) != len(items):
+            path = _path()
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text("".join(json.dumps(item, ensure_ascii=False) + "\n" for item in reversed(retained)), encoding="utf-8")
+            os.replace(temporary, path)
+        return len(items) - len(retained)

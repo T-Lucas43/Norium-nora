@@ -134,6 +134,12 @@ describe("MediaTransport", () => {
     });
     expect(peers).toHaveLength(2);
     expect(peers[0].close).toHaveBeenCalledOnce();
+    peers[1].connectionState = "disconnected";
+    (peers[1].onconnectionstatechange as unknown as () => void)();
+    expect(transport.snapshot().participantConnectionQuality?.member).toBe("poor");
+    peers[1].connectionState = "connected";
+    (peers[1].onconnectionstatechange as unknown as () => void)();
+    expect(transport.snapshot().participantConnectionQuality?.member).toBe("good");
 
     await transport.receive({
       type: "signal", callId: "call_current", userId: "member", clientId: "old-tab",

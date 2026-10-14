@@ -23,6 +23,7 @@ from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import TokenValidationError, auth_secret, decode_signed_token
 from app.core.settings import settings, validate_wapi_webhook_configuration
 from app.core.tenant import is_shared_environment
+from app.core.log_masking import configure_log_minimization
 from app.infrastructure.observability.diagnostics import record_request
 from app.infrastructure.persistence.json_repository import PersistenceError
 from app.infrastructure.persistence.postgres_store import PostgresStoreError
@@ -78,6 +79,7 @@ from app.modules.team.router import (
     stop_recording_maintenance,
 )
 from app.modules.team.studio_router import router as call_studio_router
+from app.modules.team.meeting_router import router as call_meeting_router
 from app.modules.team.turn_credentials import validate_turn_configuration
 from app.modules.team.call_configuration import validate_team_call_configuration
 from app.modules.team.sfu_tokens import validate_sfu_configuration
@@ -237,6 +239,7 @@ def create_app() -> FastAPI:
     validate_turn_configuration()
     validate_sfu_configuration()
     configure_webhook_secret_log_redaction()
+    configure_log_minimization()
     from app.modules.team.call_observability import configure_call_logging
     configure_call_logging()
     @asynccontextmanager
@@ -244,11 +247,15 @@ def create_app() -> FastAPI:
         from app.services.system_email import worker
         from app.services.system_email_reminders import worker as reminder_worker
         from app.modules.automations.events import worker as automation_worker
+        from app.services.gmail_incremental import worker as gmail_worker
+        from app.modules.team.chat_queue import worker as team_chat_worker
         await start_recording_maintenance()
         delivery = asyncio.create_task(worker())
         reminders = asyncio.create_task(reminder_worker())
         automations = asyncio.create_task(automation_worker())
         privacy_maintenance = asyncio.create_task(data_lifecycle_worker())
+        gmail_sync = asyncio.create_task(gmail_worker())
+        team_chat_queue = asyncio.create_task(team_chat_worker())
         try:
             yield
         finally:
@@ -257,6 +264,10 @@ def create_app() -> FastAPI:
             reminders.cancel()
             automations.cancel()
             privacy_maintenance.cancel()
+            gmail_sync.cancel()
+            team_chat_queue.cancel()
+            with suppress(asyncio.CancelledError):
+                await team_chat_queue
             with suppress(asyncio.CancelledError):
                 await delivery
             with suppress(asyncio.CancelledError):
@@ -265,6 +276,8 @@ def create_app() -> FastAPI:
                 await automations
             with suppress(asyncio.CancelledError):
                 await privacy_maintenance
+            with suppress(asyncio.CancelledError):
+                await gmail_sync
 
     app = FastAPI(title="Norium Engine Chat Central Unificado API", lifespan=lifespan)
 
@@ -520,6 +533,7 @@ def create_app() -> FastAPI:
     app.include_router(models_router)
     app.include_router(team_chat_router)
     app.include_router(call_studio_router)
+    app.include_router(call_meeting_router)
     app.include_router(brainstorm_router)
     app.include_router(chat_router)
     app.include_router(system_router)

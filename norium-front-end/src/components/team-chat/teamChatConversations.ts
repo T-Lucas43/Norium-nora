@@ -7,6 +7,9 @@ export type TeamConversation = {
   subteamId?: string;
   pinned: boolean;
   unreadCount: number;
+  mentionCount?: number;
+  notificationMode?: "all" | "mentions" | "none";
+  mutedUntil?: string | null;
   lastMessage?: { id: string; text: string; senderId: string; senderName: string; createdAt: string } | null;
 };
 

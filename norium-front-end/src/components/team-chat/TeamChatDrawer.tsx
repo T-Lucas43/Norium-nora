@@ -4,9 +4,28 @@ import { ArrowLeft, AtSign, CalendarDays, CalendarPlus, CheckCheck, Download, Fi
 import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authToken } from "../../utils/api";
 import { downloadWithAuth } from "../../utils/download";
-import TeamConversationList from "./TeamConversationList";
-import { mentionParts, mentionQuery, type TeamConversation } from "./teamChatConversations";
+import TeamConversationNavigation from "./TeamConversationNavigation";
+import TeamMessageActions from "./TeamMessageActions";
+import TeamChatDialog from "./TeamChatDialog";
+import { Bold, Code, List, Maximize2, Search } from "lucide-react";
+import TeamCollaborationPanel from "./TeamCollaborationPanel";
+import TeamResourceCards from "./TeamResourceCards";
+import TeamReplySummary from "./TeamReplySummary";
+import { useTeamCollaboration, type TeamContentTab } from "./useTeamCollaboration";
+import type { TeamMessage } from "./teamChatTypes";
+import TeamChatProductivityDialog, { type ProductivityAction, type ScheduleItem } from "./TeamChatProductivityDialog";
+import TeamNoraDialog, { type NoraDialogInput, type NoraSource } from "./TeamNoraDialog";
+import TeamNoraMessageTools from "./TeamNoraMessageTools";
+import TeamPollCard, { type TeamPoll } from "./TeamPollCard";
+import { Clock3, Plus } from "lucide-react";
+import TeamMessageText from "./TeamMessageText";
+import TeamStatusDialog from "./TeamStatusDialog";
+import { useTeamPresence } from "./useTeamPresence";
+import { useMessageWindow } from "./useMessageWindow";
+import { tabPath } from "../../app/navigation/tabs";
+import { mentionQuery, type TeamConversation } from "./teamChatConversations";
 import "./teamChat.css";
+import "./teamChatV3.css";
 import NoraAvatar from "../layout/NoraAvatar";
 import { NoraMarkdown } from "../nora/NoraResponseContent";
 import Button from "../shared/Button";
@@ -37,21 +56,6 @@ type Attachment = {
   expiresAt?: string;
 };
 
-type TeamMessage = {
-  id: string;
-  threadId: string;
-  scope: TeamThreadScope;
-  senderId: string;
-  senderName: string;
-  senderAvatar?: string;
-  recipientId?: string | null;
-  subteamId?: string | null;
-  text: string;
-  attachments: Attachment[];
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-};
-
 type MessageReaction = { emoji: string; userIds: string[] };
 
 type Subteam = {
@@ -62,11 +66,13 @@ type Subteam = {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  noraEnabled?: boolean;
 };
 
 type TeamChatDrawerProps = {
   open: boolean;
   onClose: () => void;
+  onOpen?: () => void;
   session: AuthSession;
   onUnread?: (count: number) => void;
   onOpenNora?: (prompt?: string) => void;
@@ -122,6 +128,7 @@ function initials(name: string) {
 function authHeaders(extra?: HeadersInit, explicitToken?: string | null): HeadersInit {
   const token = explicitToken || authToken();
   return {
+    ...(localStorage.getItem("norium-workspace-id") ? { "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary" } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(extra || {}),
   };
@@ -272,21 +279,8 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
   const parsed = parseNoraContent(message);
 
   if (!parsed) {
-    if (message.senderId === "nora") return <NoraMarkdown text={message.text} />;
-    const parts = mentionParts(message.text, message.metadata?.mentions);
-    return (
-      <p className="whitespace-pre-wrap leading-5">
-        {parts.map((part, index) =>
-          index % 2 === 1 ? (
-            <span key={`${part}-${index}`} className="team-chat-mention-token">
-              {part}
-            </span>
-          ) : (
-            part
-          ),
-        )}
-      </p>
-    );
+    if (message.senderId === "nora") return <NoraMarkdown allowImages={false} text={message.text} />;
+    return <TeamMessageText text={message.text} mentions={message.metadata?.mentions} />;
   }
 
   return (
@@ -340,7 +334,7 @@ function MessageAvatar({ name, avatar, onClick }: { name: string; avatar?: strin
   return onClick ? <button type="button" onClick={onClick} aria-label={`Abrir perfil de ${name}`} className="shrink-0 rounded-xl transition hover:ring-2 hover:ring-cyan-400/50">{avatarNode}</button> : avatarNode;
 }
 
-function useAttachmentObjectUrl(attachment: Attachment | null, token?: string) {
+function useAttachmentObjectUrl(attachment: Attachment | null, token?: string, thumbnail = false) {
   const [objectUrl, setObjectUrl] = useState("");
 
   useEffect(() => {
@@ -349,7 +343,9 @@ function useAttachmentObjectUrl(attachment: Attachment | null, token?: string) {
     setObjectUrl("");
     if (!attachment || !canPreviewAttachment(attachment)) return undefined;
 
-    fetch(attachment.url, { headers: authHeaders(undefined, token) })
+    const abort = new AbortController();
+    const url = thumbnail && isImageAttachment(attachment) ? `${attachment.url}${attachment.url.includes("?") ? "&" : "?"}preview=true` : attachment.url;
+    fetch(url, { headers: authHeaders(undefined, token), signal: abort.signal })
       .then((response) => {
         if (!response.ok) throw new Error("Falha ao carregar anexo.");
         return response.blob();
@@ -365,15 +361,16 @@ function useAttachmentObjectUrl(attachment: Attachment | null, token?: string) {
 
     return () => {
       cancelled = true;
+      abort.abort();
       if (nextUrl) URL.revokeObjectURL(nextUrl);
     };
-  }, [attachment, token]);
+  }, [attachment, token, thumbnail]);
 
   return objectUrl;
 }
 
 function TeamAttachmentCard({ attachment, onPreview, token }: { attachment: Attachment; onPreview: (attachment: Attachment) => void; token: string }) {
-  const objectUrl = useAttachmentObjectUrl(attachment, token);
+  const objectUrl = useAttachmentObjectUrl(attachment, token, true);
   const previewable = canPreviewAttachment(attachment);
   const Icon = isImageAttachment(attachment) ? ImageIcon : isVideoAttachment(attachment) ? PlayCircle : isAudioAttachment(attachment) ? Volume2 : FileText;
 
@@ -511,25 +508,28 @@ function SubteamEditorDialog({
   );
 }
 
-export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenCalendar, variant = "drawer", initialThreadId, onInitialThreadHandled }: TeamChatDrawerProps) {
+export default function TeamChatDrawer({ open, onClose, onOpen, session, onUnread, onOpenNora, onOpenCalendar, variant = "drawer", initialThreadId, onInitialThreadHandled }: TeamChatDrawerProps) {
   const [members, setMembers] = useState<NoriumUser[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [subteams, setSubteams] = useState<Subteam[]>([]);
   const [conversationSelected, setConversationSelected] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [threads, setThreads] = useState<TeamConversation[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [pinningId, setPinningId] = useState("");
   const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
+  const [urgentMention, setUrgentMention] = useState(false);
   const [cursor, setCursor] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [scope, setScope] = useState<TeamThreadScope>("team");
   const [recipientId, setRecipientId] = useState("");
   const [subteamId, setSubteamId] = useState("");
-  const [contentTab, setContentTab] = useState<"chat" | "files" | "photos">("chat");
+  const [contentTab, setContentTab] = useState<TeamContentTab>("chat");
   const [subteamEditor, setSubteamEditor] = useState<Subteam | "new" | null>(null);
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [selectedMemberId, setSelectedMemberState] = useState<string | null>(null);
   const [meetingSchedulerOpen, setMeetingSchedulerOpen] = useState(false);
+  const [meetingDraft, setMeetingDraft] = useState<{ title: string; description: string; slots?: { startsAt: string; endsAt: string }[]; basis?: string } | undefined>();
+  const [noraInput, setNoraInput] = useState<NoraDialogInput | null>(null);
+  const pendingNoraSource = useRef<NoraSource | null>(null);
   const [meetingSaving, setMeetingSaving] = useState(false);
   const [readReceiptsMessageId, setReadReceiptsMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TeamMessage[]>([]);
@@ -537,6 +537,26 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [quotedMessage, setQuotedMessage] = useState<TeamMessage | null>(null);
+  const [editMessage, setEditMessage] = useState<TeamMessage | null>(null);
+  const [editText, setEditText] = useState("");
+  const [deleteMessage, setDeleteMessage] = useState<TeamMessage | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [productivity, setProductivity] = useState<{ action: ProductivityAction; source?: TeamMessage; scheduled?: ScheduleItem } | null>(null);
+  const [queueEnabled, setQueueEnabled] = useState(false);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
+  const [scheduledItems, setScheduledItems] = useState<ScheduleItem[]>([]);
+  const [shortcuts, setShortcuts] = useState<{ id: string; name: string; shortcut: string; body: string }[]>([]);
+  const [shortcutDismissed, setShortcutDismissed] = useState(false);
+  const [mediaFilter, setMediaFilter] = useState("");
+  const [mediaPage, setMediaPage] = useState<Attachment[]>([]);
+  const [mediaMore, setMediaMore] = useState(false);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const mediaSequence = useRef(0);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const keepScroll = useRef<{ height: number; top: number } | null>(null);
+  const nearBottom = useRef(true);
   const [subteamSaving, setSubteamSaving] = useState(false);
   const [error, setError] = useState("");
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
@@ -544,14 +564,24 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [reactionMessageId, setReactionMessageId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const messageWindow = useMessageWindow(messages, listRef, nearBottom, contentTab === "chat");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastScrolledThreadRef = useRef("");
   const handledIncomingCallRef = useRef("");
+  const handledMessageLink = useRef("");
   const markedMessageIdsRef = useRef<Set<string>>(new Set());
 
   const selectedThreadId = !conversationSelected ? "" : scope === "team" ? "team" : scope === "subteam" ? `subteam:${subteamId}` : `direct:${[session.user.id, recipientId].sort().join(":")}`;
   const selectedThreadRef = useRef(selectedThreadId);
   selectedThreadRef.current = selectedThreadId;
+  const collaboration = useTeamCollaboration({ threadId: selectedThreadId, token: session.token, messages, visibleMessageIds: messageWindow.items.map((message) => message.id), tab: contentTab, setError });
+  const presence = useTeamPresence(open, session.token, collaboration.request);
+  const presenceRef = useRef(presence); presenceRef.current = presence;
+  function setSelectedMemberId(value: string | null) { if (value) collaboration.setContext(null); setSelectedMemberState(value); }
+  const detailsOpen = collaboration.context === "details";
+  const setContext = collaboration.setContext;
+  const setDetailsOpen = useCallback((next: boolean | ((previous: boolean) => boolean)) => { setContext((current) => (typeof next === "function" ? next(current === "details") : next) ? "details" : null); }, [setContext]);
+  const collaborationRef = useRef(collaboration); collaborationRef.current = collaboration;
   const loadSequence = useRef(0);
   const threadsSequence = useRef(0);
   const drafts = useRef(new Map<string, { text: string; files: File[]; mentionedUserIds: string[] }>());
@@ -567,17 +597,23 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     setScope(next?.scope || "team");
     setRecipientId(next?.recipientId || "");
     setSubteamId(next?.subteamId || "");
+    setNoraInput(null);
     const draft = drafts.current.get(nextId);
     setText(draft?.text || "");
     setFiles(draft?.files || []);
     setMentionedUserIds(draft?.mentionedUserIds || []);
+    setUrgentMention(false);
     setMessages([]);
     setError("");
     setLoading(Boolean(next));
     setContentTab("chat");
     setDetailsOpen(false);
     setMentionDismissed(true);
-  }, [session.user.id]);
+    setQuotedMessage(null); setHasMore(false); setLoadingEarlier(false);
+    setProductivity(null); setScheduledOpen(false); setShortcutDismissed(false);
+    setMediaFilter(""); setMediaPage([]); mediaSequence.current++;
+    keepScroll.current = null; nearBottom.current = true;
+  }, [session.user.id, setDetailsOpen]);
   const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
   const activeMembers = useMemo(() => members.filter((member) => member.status === "ativo"), [members]);
   const activeMemberIds = useMemo(() => new Set(activeMembers.map((member) => member.id)), [activeMembers]);
@@ -589,6 +625,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const selectedMember = selectedMemberId ? memberById.get(selectedMemberId) || null : null;
   const readReceiptsMessage = readReceiptsMessageId ? messages.find((message) => message.id === readReceiptsMessageId) || null : null;
   const selectedSubteam = useMemo(() => subteams.find((item) => item.id === subteamId) || null, [subteamId, subteams]);
+  const noraAllowed = canUse(session.user, "nora") && (scope !== "subteam" || selectedSubteam?.noraEnabled !== false);
   const conversationMembers = useMemo(() => {
     if (scope === "team") return activeMembers;
     if (scope === "subteam") return activeMembers.filter((member) => selectedSubteam?.memberIds.includes(member.id));
@@ -602,6 +639,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     subteamId: scope === "subteam" ? subteamId : null,
   }), [recipientId, scope, subteamId, threadTitle]);
   const { snapshot: call, commands: callCommands } = useCallSession();
+  const callPresence = call.active ? call.active.thread.scope === "direct" ? "call" : "meeting" : null;
+  useEffect(() => { window.dispatchEvent(new CustomEvent("norium:presence-call", { detail: callPresence })); }, [callPresence]);
   const startCall = useCallback(
     (target = callThread) => callCommands.start(target),
     [callCommands, callThread],
@@ -615,9 +654,9 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     const query = normalize(mentionMatch.query);
     const options = conversationMembers.filter((member) => member.id !== session.user.id && normalize(member.nome).includes(query))
       .map((member) => ({ id: member.id, name: member.nome, avatar: member.fotoUrl || "" }));
-    if (scope === "team" && canUse(session.user, "nora") && "nora".includes(query)) options.push({ id: "nora", name: "nora", avatar: "nora" });
+    if (noraAllowed && "nora".includes(query)) options.push({ id: "nora", name: "nora", avatar: "nora" });
     return options.slice(0, 8);
-  }, [mentionMatch, mentionDismissed, conversationMembers, scope, session.user]);
+  }, [mentionMatch, mentionDismissed, conversationMembers, noraAllowed, session.user]);
   const showMentionSuggestions = mentionOptions.length > 0;
   const loadThreads = useCallback(async () => {
     const sequence = ++threadsSequence.current;
@@ -709,7 +748,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     const sequence = ++loadSequence.current;
     if (!requestedThread) { setMessages([]); setLoading(false); return; }
     const isCurrent = () => selectedThreadRef.current === requestedThread && loadSequence.current === sequence;
-    const params = new URLSearchParams({ scope });
+    const params = new URLSearchParams({ scope, limit: "50" });
     if (scope === "direct" && recipientId) params.set("recipientId", recipientId);
     if (scope === "subteam" && subteamId) params.set("subteamId", subteamId);
     if (scope === "direct" && !recipientId) {
@@ -722,12 +761,23 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     }
     setLoading(true);
     try {
-      const messagesUrl = scope === "subteam" ? `${API_URL}/subteams/${subteamId}/messages` : `${API_URL}/messages?${params.toString()}`;
+      const messagesUrl = scope === "subteam" ? `${API_URL}/subteams/${subteamId}/messages?limit=50` : `${API_URL}/messages?${params.toString()}`;
       const response = await fetch(messagesUrl, { headers: authHeaders(undefined, session.token) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao carregar chat interno.");
       if (!isCurrent()) return;
-      const loadedMessages = (data.messages || []) as TeamMessage[];
+      let loadedMessages = (data.messages || []) as TeamMessage[];
+      if (pendingNoraSource.current?.threadId === requestedThread) {
+        const target = pendingNoraSource.current;
+        const context = await collaborationRef.current.request(`/messages/${encodeURIComponent(target.messageId)}/context`);
+        if (!isCurrent()) return;
+        loadedMessages = context.messages.filter((message: TeamMessage) => !message.replyThreadId || message.alsoInChannel);
+        data.hasMore = context.hasMore;
+        pendingNoraSource.current = null;
+        if (context.message.replyThreadId) void collaborationRef.current.openReply(context.message);
+        requestAnimationFrame(() => document.getElementById(`team-message-${context.message.replyThreadId || target.messageId}`)?.scrollIntoView({ block: "center" }));
+      }
+      setHasMore(Boolean(data.hasMore));
       setMessages((current) => [...loadedMessages, ...current.filter((message) => message.threadId === requestedThread && !loadedMessages.some((item) => item.id === message.id))].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
       void markMessagesRead(loadedMessages);
       setError("");
@@ -769,6 +819,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   socketHandlersRef.current = { open, selectedThreadId, loadSubteams, loadThreads, markMessagesRead, onUnread };
 
   useTeamSocketEvents((payload: TeamSocketEvent) => {
+    presenceRef.current.handle(payload);
     const handlers = socketHandlersRef.current;
     if (payload.type === "PRESENCE" || payload.type === "CONNECTED") setOnlineUserIds(payload.onlineUserIds || []);
     if (payload.type === "SUBTEAM_UPDATED") {
@@ -778,12 +829,14 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     if (payload.type === "TEAM_THREADS_UPDATED" || payload.type === "CONNECTED") void handlers.loadThreads();
     if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) {
       const message = payload.message as TeamMessage;
+      collaborationRef.current.handleMessage(message);
       void handlers.loadThreads();
-      if (handlers.selectedThreadId && message.threadId === handlers.selectedThreadId) {
-        setMessages((current) => [...current.filter((item) => item.id !== message.id), message]);
+      if (handlers.selectedThreadId && message.threadId === handlers.selectedThreadId && (!message.replyThreadId || message.alsoInChannel)) {
+        setMessages((current) => [...current.filter((item) => item.id !== message.id), message].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
         if (handlers.open) void handlers.markMessagesRead([message]);
       } else if (handlers.open && !["call_started", "call_ended"].includes(String(message.metadata?.action || ""))) handlers.onUnread?.(1);
     }
+    if (payload.type === "TEAM_RESOURCE_CHANGED") collaborationRef.current.invalidate();
     if (payload.type === "TEAM_MESSAGE_READ" && payload.messageId) {
       const readBy = payload.readBy && typeof payload.readBy === "object" ? payload.readBy : {};
       setMessages((current) => current.map((message) => message.id === payload.messageId ? { ...message, metadata: { ...(message.metadata || {}), readBy } } : message));
@@ -801,6 +854,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     const frame = window.requestAnimationFrame(() => {
       const list = listRef.current;
       if (!list) return;
+      if (keepScroll.current) { list.scrollTop = list.scrollHeight - keepScroll.current.height + keepScroll.current.top; keepScroll.current = null; return; }
+      if (!initialForThread && !nearBottom.current) return;
       list.scrollTo({ top: list.scrollHeight, behavior: initialForThread ? "auto" : "smooth" });
       lastScrolledThreadRef.current = threadKey;
     });
@@ -811,6 +866,19 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     const outgoingThreadId = selectedThreadRef.current;
     if (!outgoingThreadId) return;
     const outgoingText = overrideText ?? text;
+    if (overrideText === undefined && /^\/nora(?:\s|$)/i.test(outgoingText.trim())) {
+      if (!noraAllowed) { setError("A Nora não está disponível nesta conversa."); return; }
+      const command = outgoingText.trim().replace(/^\/nora\s*/i, "");
+      const source = quotedMessage || messages[messages.length-1];
+      if (/^buscar(?:\s|$)/i.test(command)) setNoraInput({ mode: "search", question: command.replace(/^buscar\s*/i, "") });
+      else if (source) setNoraInput({ mode: "ask", source, question: /^tarefa(?:\s|$)/i.test(command) ? "Proponha um título e uma descrição de tarefa a partir desta conversa. Não crie nada; vou revisar." : /^agendar(?:\s|$)/i.test(command) ? "Proponha uma pauta de reunião a partir desta conversa. Não crie nada nem invente horários livres." : "Resuma esta conversa, decisões e pendências. " + command.replace(/^resumir\s*/i, "") });
+      else setError("Abra uma conversa com mensagens para dar contexto à Nora.");
+      return;
+    }
+    if (outgoingText.length > 2000) { setError("A mensagem tem mais de 2.000 caracteres. Ajuste o texto antes de enviar."); return; }
+    if (overrideText === undefined && outgoingText.trim().toLowerCase() === "/enquete") { setProductivity({ action: "poll" }); return; }
+    if (overrideText === undefined && outgoingText.trim().toLowerCase() === "/lembrar") { const source = quotedMessage || messages[messages.length-1]; if (queueEnabled && source) setProductivity({ action: "reminder", source }); else setError("Selecione uma mensagem e ative os lembretes internos."); return; }
+    if (/\{\{[a-z_]+\}\}/.test(outgoingText)) { setError("Preencha as variáveis do modelo antes de enviar."); return; }
     const outgoingFiles = overrideFiles ?? (overrideText === undefined ? files : []);
     const outgoingScope = scope;
     const outgoingRecipientId = outgoingScope === "direct" ? recipientId : null;
@@ -827,12 +895,16 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           text: outgoingText,
           mentionedUserIds: overrideText === undefined ? mentionedUserIds : [],
           attachments,
+          quotedMessageId: overrideText === undefined ? quotedMessage?.id : undefined,
+          urgentMention: overrideText === undefined && urgentMention,
         } : {
           scope: outgoingScope,
           recipientId: outgoingRecipientId,
           text: outgoingText,
           mentionedUserIds: overrideText === undefined ? mentionedUserIds : [],
           attachments,
+          quotedMessageId: overrideText === undefined ? quotedMessage?.id : undefined,
+          urgentMention: overrideText === undefined && urgentMention,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -840,7 +912,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       if (selectedThreadRef.current === outgoingThreadId) {
         setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
         if (overrideText === undefined && overrideFiles === undefined && draftRef.current.text === outgoingText && draftRef.current.files === outgoingFiles) {
-          setText(""); setFiles([]); setMentionedUserIds([]);
+          setText(""); setFiles([]); setMentionedUserIds([]); setQuotedMessage(null); setUrgentMention(false);
         }
       }
       if (drafts.current.get(outgoingThreadId)?.text === outgoingText) drafts.current.delete(outgoingThreadId);
@@ -851,6 +923,126 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       setSending(false);
     }
   }
+
+  async function loadEarlier() {
+    if (!hasMore || loadingEarlier || !messages.length) return;
+    const requestedThread = selectedThreadRef.current;
+    setLoadingEarlier(true);
+    const params = new URLSearchParams({ scope, limit: "50", before: messages[0].id });
+    if (scope === "direct") params.set("recipientId", recipientId);
+    try {
+      const url = scope === "subteam" ? `${API_URL}/subteams/${subteamId}/messages?limit=50&before=${encodeURIComponent(messages[0].id)}` : `${API_URL}/messages?${params}`;
+      const response = await fetch(url, { headers: authHeaders(undefined, session.token) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Não foi possível carregar mensagens anteriores.");
+      if (requestedThread !== selectedThreadRef.current) return;
+      if (listRef.current) keepScroll.current = { height: listRef.current.scrollHeight, top: listRef.current.scrollTop };
+      setMessages((current) => [...data.messages, ...current.filter((item) => !data.messages.some((old: TeamMessage) => old.id === item.id))]);
+      setHasMore(Boolean(data.hasMore));
+      void markMessagesRead(data.messages);
+    } catch (reason) { if (requestedThread === selectedThreadRef.current) setError(reason instanceof Error ? reason.message : "Falha ao carregar mensagens."); }
+    finally { if (requestedThread === selectedThreadRef.current) setLoadingEarlier(false); }
+  }
+
+  async function sendReply(replyText: string, alsoInChannel: boolean) {
+    const root = collaboration.root;
+    if (!root || sending || !replyText.trim()) return false;
+    const selected = selectedThreadRef.current;
+    setSending(true);
+    try {
+      const path = scope === "subteam" ? `/subteams/${subteamId}/messages` : "/messages";
+      const data = await collaboration.request(path, { method: "POST", body: JSON.stringify({ ...(scope === "subteam" ? {} : { scope, recipientId: scope === "direct" ? recipientId : null }), text: replyText, replyThreadId: root.replyThreadId || root.id, alsoInChannel, attachments: [], mentionedUserIds: conversationMembers.filter((member) => replyText.includes(`@${member.nome}`)).map((member) => member.id) }) });
+      if (selected !== selectedThreadRef.current) return false;
+      collaboration.handleMessage(data.message);
+      if (alsoInChannel) setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
+      void loadThreads(); return true;
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível responder no fio."); return false; }
+    finally { setSending(false); }
+  }
+  const jumpToMessage = useCallback(async (message: TeamMessage) => {
+    const selected = selectedThreadRef.current;
+    try {
+      const data = await collaborationRef.current.request(`/messages/${encodeURIComponent(message.id)}/context`);
+      if (selected !== selectedThreadRef.current) return;
+      setMessages(data.messages.filter((item: TeamMessage) => !item.replyThreadId || item.alsoInChannel)); setHasMore(Boolean(data.hasMore)); setContentTab("chat"); nearBottom.current = false;
+      if (message.replyThreadId) void collaborationRef.current.openReply(message);
+      requestAnimationFrame(() => document.getElementById(`team-message-${message.replyThreadId || message.id}`)?.scrollIntoView({ block: "center" }));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível abrir o contexto."); }
+  }, []);
+  useEffect(() => {
+    if (!open || variant !== "page" || threadsLoading) return;
+    const params = new URLSearchParams(window.location.search);
+    const targetThread = params.get("teamThread"), targetMessage = params.get("teamMessage");
+    if (!targetThread || !targetMessage || handledMessageLink.current === targetMessage) return;
+    const target = threads.find((item) => item.id === targetThread);
+    if (!target) { handledMessageLink.current = targetMessage; setError("Esta conversa não está mais disponível para você."); return; }
+    if (selectedThreadId !== targetThread) { selectConversation(target); return; }
+    if (loading) return;
+    handledMessageLink.current = targetMessage;
+    void jumpToMessage({ id: targetMessage } as TeamMessage);
+  }, [open, variant, threadsLoading, threads, selectedThreadId, loading, selectConversation, jumpToMessage]);
+  useEffect(() => { if (collaboration.context === "reply" && collaboration.replies.length) void markMessagesRead(collaboration.replies); }, [collaboration.context, collaboration.replies, markMessagesRead]);
+  useEffect(() => { if (open && selectedThreadId) window.dispatchEvent(new CustomEvent("norium:presence-context", { detail: { type: "conversation", id: selectedThreadId } })); return () => { if (open && selectedThreadId) window.dispatchEvent(new CustomEvent("norium:presence-context", { detail: null })); }; }, [open, selectedThreadId]);
+  async function setNotifications(mode: "all" | "mentions" | "none", mutedUntil?: string) { try { await collaboration.request(`/threads/${encodeURIComponent(selectedThreadId)}/notifications`, { method: "PATCH", body: JSON.stringify({ mode, mutedUntil: mutedUntil ? new Date(mutedUntil).toISOString() : null }) }); void loadThreads(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao salvar notificações."); } }
+  useEffect(() => { if (!open) return; let cancelled = false; void collaborationRef.current.request("/collaboration-capabilities").then((data) => { if (!cancelled) setQueueEnabled(Boolean(data.scheduledMessages)); }).catch(() => { if (!cancelled) setQueueEnabled(false); }); return () => { cancelled = true; }; }, [open, session.token]);
+  useEffect(() => { if (!text.startsWith("/") || shortcuts.length || !selectedThreadId) return; let cancelled = false; void collaborationRef.current.request("/shortcuts").then((data) => { if (!cancelled) setShortcuts(data.templates || []); }).catch((error) => { if (!cancelled) setError(error.message); }); return () => { cancelled = true; }; }, [text, shortcuts.length, selectedThreadId]);
+  const shortcutOptions = text.startsWith("/") && !shortcutDismissed ? shortcuts.filter((item) => `${item.shortcut} ${item.name}`.toLocaleLowerCase("pt-BR").includes(text.slice(1).toLocaleLowerCase("pt-BR"))).slice(0, 6) : [];
+  function productivityDone(data: Record<string, unknown>) { const message = data.message as TeamMessage | undefined; if (message?.threadId === selectedThreadRef.current) { setMessages((current) => [...current.filter((item) => item.id !== message.id), message].sort((a, b) => a.createdAt.localeCompare(b.createdAt))); collaboration.handleMessage(message); } if (data.scheduled && !productivity?.scheduled) { setText(""); setFiles([]); } collaboration.invalidate(); void loadThreads(); }
+  async function showScheduled() { try { const data = await collaboration.request(`/scheduled-messages?threadId=${encodeURIComponent(selectedThreadId)}`); setScheduledItems(data.scheduled || []); setScheduledOpen(true); } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao abrir agendadas."); } }
+  async function cancelScheduled(job: ScheduleItem) { try { await collaboration.request(`/scheduled-messages/${encodeURIComponent(job.id)}`, { method: "DELETE" }); setScheduledItems((current) => current.filter((item) => item.id !== job.id)); } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao cancelar."); } }
+  async function openNoraSource(source: NoraSource) {
+    try {
+      setNoraInput(null);
+      const data = await collaboration.request(`/messages/${encodeURIComponent(source.messageId)}/context`);
+      const target = conversationItems.find(item => item.id === source.threadId);
+      if (!target) throw new Error("Esta conversa deixou de estar disponível.");
+      if (source.threadId === selectedThreadRef.current) await jumpToMessage(data.message);
+      else { pendingNoraSource.current = source; selectConversation(target); }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível abrir a fonte."); }
+  }
+  async function noraSchedule(message: TeamMessage) { try { const data = await collaboration.request(`/messages/${encodeURIComponent(message.id)}/nora-slots`); setNoraInput(null); setMeetingDraft({ title: "Alinhamento da equipe", description: message.text.slice(0, 1200), slots: data.slots, basis: data.basis }); setMeetingSchedulerOpen(true); } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao sugerir horários."); } }
+  async function changeNora(enabled: boolean) {
+    if (!selectedSubteam) return;
+    try { const data = await collaboration.request(`/subteams/${selectedSubteam.id}/nora`, { method: "PATCH", body: JSON.stringify({ enabled }) }); setSubteams(current => current.map(item => item.id === data.subteam.id ? data.subteam : item)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao alterar a Nora."); }
+  }
+  async function vote(message: TeamMessage, optionIds: string[]) { try { const data = await collaboration.request(`/messages/${encodeURIComponent(message.id)}/vote`, { method: "POST", body: JSON.stringify({ optionIds }) }); productivityDone(data); } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao votar."); } }
+  async function pinMessage(message: TeamMessage) { const changed = await collaboration.pin(message); if (changed) setMessages((current) => current.map((item) => item.id === changed.id ? changed : item)); }
+  const loadMedia = useCallback(async (more = false) => {
+    const sequence = ++mediaSequence.current; setMediaLoading(true);
+    const params = new URLSearchParams({ threadId: selectedThreadId, q: mediaFilter, photos: String(contentTab === "photos"), offset: more ? String(mediaPage.length) : "0" });
+    try { const data = await collaborationRef.current.request(`/conversation-attachments?${params}`); if (sequence !== mediaSequence.current) return; setMediaPage((current) => more ? [...current, ...data.attachments] : data.attachments || []); setMediaMore(Boolean(data.hasMore)); }
+    catch (reason) { if (sequence === mediaSequence.current) setError(reason instanceof Error ? reason.message : "Falha ao carregar arquivos."); }
+    finally { if (sequence === mediaSequence.current) setMediaLoading(false); }
+  }, [selectedThreadId, mediaFilter, contentTab, mediaPage.length]);
+  const loadMediaRef = useRef(loadMedia); loadMediaRef.current = loadMedia;
+  const invalidateMedia = useCallback(() => { mediaSequence.current++; }, []);
+  useEffect(() => { if (selectedThreadId && ["files", "photos"].includes(contentTab)) void loadMediaRef.current(); return invalidateMedia; }, [selectedThreadId, mediaFilter, contentTab, invalidateMedia]);
+
+  function quoteMessage(message: TeamMessage) { setQuotedMessage(message); setContentTab("chat"); requestAnimationFrame(() => inputRef.current?.focus()); }
+  function beginEdit(message: TeamMessage) { setEditMessage(message); setEditText(message.text); }
+  async function mutateMessage(message: TeamMessage, edited?: string) {
+    if (sending) return;
+    setSending(true);
+    try {
+      const response = await fetch(`${API_URL}/messages/${encodeURIComponent(message.id)}`, { method: edited === undefined ? "DELETE" : "PATCH", headers: authHeaders({ "Content-Type": "application/json" }, session.token), body: edited === undefined ? undefined : JSON.stringify({ text: edited }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Não foi possível alterar a mensagem.");
+      if (data.message.threadId === selectedThreadRef.current) setMessages((current) => current.map((item) => item.id === message.id ? data.message : item));
+      setEditMessage(null); setDeleteMessage(null); void loadThreads();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao alterar a mensagem."); }
+    finally { setSending(false); }
+  }
+  async function copyMessageLink(message: TeamMessage) {
+    const url = new URL(tabPath("Chat da Equipe"), window.location.origin); url.searchParams.set("teamThread", message.threadId); url.searchParams.set("teamMessage", message.id);
+    try { await navigator.clipboard.writeText(url.href); } catch { setError("Não foi possível copiar o link. Permita acesso à área de transferência."); }
+  }
+  function formatComposer(before: string, after = "") {
+    const start = inputRef.current?.selectionStart ?? text.length, end = inputRef.current?.selectionEnd ?? start;
+    setText(text.slice(0, start) + before + text.slice(start, end) + after + text.slice(end));
+    requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(start + before.length, end + before.length); });
+  }
+  function expandDrawer() { window.dispatchEvent(new CustomEvent("norium:deep-link", { detail: { tab: "Chat da Equipe", metadata: { threadId: selectedThreadId } } })); onClose(); }
 
   function insertEmoji(emoji: string) {
     const position = inputRef.current?.selectionStart ?? text.length;
@@ -923,6 +1115,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       if (!response.ok) throw new Error(data?.detail || "Falha ao agendar reunião.");
       if (data.message) setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
       setMeetingSchedulerOpen(false);
+      setMeetingDraft(undefined);
       setContentTab("chat");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Falha ao agendar reunião.");
@@ -974,38 +1167,47 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     <AnimatePresence>
       {open && (
         <motion.aside
+          key="team-chat"
           initial={variant === "drawer" ? { x: 420, opacity: 0 } : { opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           exit={variant === "drawer" ? { x: 420, opacity: 0 } : { opacity: 0 }}
           transition={{ type: "spring", stiffness: 260, damping: 28 }}
-          className={variant === "drawer"
+          className={"team-chat-v3 " + (variant === "drawer"
             ? `team-chat-drawer team-chat-professional ${conversationSelected ? "has-conversation" : "no-conversation"} fixed right-4 top-20 z-[95] flex h-[min(760px,calc(100dvh-104px))] w-[390px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/50 backdrop-blur-2xl`
-            : `team-chat-drawer team-chat-page team-chat-professional ${conversationSelected ? "has-conversation" : "no-conversation"} ${detailsOpen ? "with-details" : ""} mx-4 mb-4 mt-3 min-h-0 overflow-hidden rounded-lg border border-[var(--border)] text-[var(--text)]`
-          }
+            : `team-chat-drawer team-chat-page team-chat-professional ${conversationSelected ? "has-conversation" : "no-conversation"} ${collaboration.context ? "with-details" : ""} mx-4 mb-4 mt-3 min-h-0 overflow-hidden rounded-lg border border-[var(--border)] text-[var(--text)]`
+          )}
         >
           <header className="team-chat-header">
+            {variant === "drawer" && <button type="button" className="team-icon-button" aria-label="Expandir chat na mesma conversa" title="Expandir chat" onClick={expandDrawer}><Maximize2 size={16} /></button>}
             <div className="team-chat-heading"><span className="team-chat-heading-icon"><MessageSquare size={20} /></span><div><h1>Chat da equipe</h1><p><i />{actualOnlineUserIds.length} online · Colabore em tempo real</p></div></div>
-            <div className="team-chat-header-actions">{onOpenCalendar && <Button variant="ghost" size="sm" iconOnly onClick={onOpenCalendar} aria-label="Abrir calendário" title="Abrir calendário"><CalendarDays size={17} /></Button>}{variant === "drawer" ? <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar chat"><X size={18} /></Button> : <Button variant="secondary" size="sm" onClick={onClose} icon={<Users size={15} />}>Equipe</Button>}</div>
+            <div className="team-chat-header-actions">{canUse(session.user, "nora") && <button type="button" className="nx-btn is-sm" onClick={() => setNoraInput({ mode: "catch-up" })}>O que você perdeu</button>}{onOpenCalendar && <Button variant="ghost" size="sm" iconOnly onClick={onOpenCalendar} aria-label="Abrir calendário" title="Abrir calendário"><CalendarDays size={17} /></Button>}{variant === "drawer" ? <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar chat"><X size={18} /></Button> : <Button variant="secondary" size="sm" onClick={onClose} icon={<Users size={15} />}>Equipe</Button>}</div>
           </header>
           {!conversationSelected && error && <div role="alert" className="team-chat-feedback px-4 py-2 text-xs">{error}</div>}
           <div className="team-chat-body">
-          <TeamConversationList items={conversationItems} selectedId={selectedThreadId} loading={threadsLoading} pinningId={pinningId} onSelect={selectConversation} onPin={(item) => void togglePin(item)} onCreate={() => setSubteamEditor("new")} />
+          <TeamConversationNavigation user={session.user} states={presence.states} onStatus={() => setStatusOpen(true)} items={conversationItems} selectedId={selectedThreadId} loading={threadsLoading} pinningId={pinningId} onSelect={selectConversation} onPin={(item) => void togglePin(item)} onCreate={() => setSubteamEditor("new")} onNora={canUse(session.user, "nora") && onOpenNora ? () => onOpenNora() : undefined} />
           {!conversationSelected ? <main className="team-chat-unselected"><div className="team-chat-welcome-icon"><MessageSquare size={32} /></div><h2>Uma equipe. Boas conversas.</h2><p>Selecione uma conversa para trocar mensagens,<br />compartilhar arquivos e tomar decisões em equipe.</p><div className="team-chat-welcome-hints"><span><Pin size={15} /> Fixe as mais importantes</span><span><AtSign size={16} /> Mencione e notifique pessoas</span></div><Button variant="primary" size="md" onClick={() => selectConversation({ scope: "team" })} icon={<Users size={16} />}>Conversar com o time</Button></main> : <main className="team-chat-conversation">
-          <div className="team-chat-thread-header"><div className="team-chat-thread-title"><button type="button" className="team-icon-button team-chat-back" onClick={() => selectConversation(null)} aria-label="Voltar às conversas"><ArrowLeft size={18} /></button><span className="team-chat-thread-icon">{scope === "team" ? <Users size={19} /> : scope === "subteam" ? <Hash size={19} /> : <UserRound size={19} />}</span><div><h2>{threadTitle}</h2><p>{scope === "direct" ? conversationOnlineCount > 1 ? "Online agora" : "Conversa privada" : `${conversationMemberCount} participantes · ${conversationOnlineCount} online`}</p></div></div><div className="team-chat-thread-actions">
+          <div className="team-chat-thread-header"><div className="team-chat-thread-title"><button type="button" className="team-icon-button team-chat-back" onClick={() => selectConversation(null)} aria-label="Voltar às conversas"><ArrowLeft size={18} /></button><span className="team-chat-thread-icon">{scope === "team" ? <Users size={19} /> : scope === "subteam" ? <Hash size={19} /> : <UserRound size={19} />}</span><div><h2>{threadTitle}</h2><p>{scope === "direct" ? conversationOnlineCount > 1 ? "Online agora" : "Conversa privada" : `${conversationMemberCount} participantes · ${conversationOnlineCount} online`}</p></div></div><div className="team-v3-header-people" aria-label="Participantes da conversa">{conversationMembers.slice(0, 4).map((member) => <span key={member.id} data-presence={presence.states[member.id]?.state || (actualOnlineUserIdSet.has(member.id) ? "online" : "offline")} title={member.nome + " · " + (presence.states[member.id]?.label || "Membro")}><MessageAvatar name={member.nome} avatar={member.fotoUrl || ""} onClick={() => setSelectedMemberId(member.id)} /></span>)}</div><div className="team-chat-thread-actions">
             {selectedConversation && <button type="button" className={`team-icon-button ${selectedConversation.pinned ? "is-pinned" : ""}`} disabled={Boolean(pinningId)} onClick={() => void togglePin(selectedConversation)} aria-label={selectedConversation.pinned ? "Desafixar conversa atual" : "Fixar conversa atual"} title={selectedConversation.pinned ? "Desafixar conversa" : "Fixar conversa"}>{selectedConversation.pinned ? <PinOff size={16} /> : <Pin size={16} />}</button>}
+            <button type="button" className="team-icon-button" aria-label="Buscar na conversa" title="Buscar mensagens" onClick={() => collaboration.setContext(collaboration.context === "search" ? null : "search")}><Search size={16} /></button>
+            {queueEnabled && <button type="button" className="team-icon-button" aria-label="Ver meus envios agendados" title="Meus envios agendados" onClick={() => void showScheduled()}><Clock3 size={16} /></button>}
             <button type="button" className="nx-btn is-sm team-thread-button" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} aria-label="Agendar reunião" title="Agendar reunião"><CalendarPlus size={14} /><span>Agendar reunião</span></button>
             <button type="button" className="nx-btn is-sm team-thread-button team-call-action" disabled={!canStartCall} onClick={() => void startOrJoinCall()} aria-label={activeMeeting ? "Ingressar na reunião" : "Iniciar reunião"} title="Reunião por vídeo"><Video size={14} /><span>{activeMeeting ? "Ingressar" : "Chamada"}</span></button>
             <button type="button" className="team-icon-button" onClick={() => setDetailsOpen((current) => !current)} aria-label="Detalhes da conversa" aria-expanded={detailsOpen} title="Detalhes da conversa"><PanelRight size={17} /></button>
             <button type="button" className="team-icon-button team-chat-deselect" onClick={() => selectConversation(null)} aria-label="Fechar conversa" title="Fechar conversa"><X size={18} /></button>
           </div></div>
           <nav className="team-chat-tabs flex items-end gap-5 border-b border-[var(--border)] px-4">
-            <button type="button" aria-pressed={contentTab === "chat"} onClick={() => setContentTab("chat")} className={contentTab === "chat" ? "active" : ""}>Chat</button>
+            <button type="button" aria-label="Chat" aria-pressed={contentTab === "chat"} onClick={() => setContentTab("chat")} className={contentTab === "chat" ? "active" : ""}>Mensagens</button>
+            <button type="button" aria-pressed={contentTab === "replies"} className={contentTab === "replies" ? "active" : ""} onClick={() => setContentTab("replies")}>Fios</button>
             <button type="button" aria-pressed={contentTab === "files"} onClick={() => setContentTab("files")} className={contentTab === "files" ? "active" : ""}>Arquivos <span>{threadAttachments.length}</span></button>
             <button type="button" aria-pressed={contentTab === "photos"} onClick={() => setContentTab("photos")} className={contentTab === "photos" ? "active" : ""}>Fotos <span>{photoAttachments.length}</span></button>
+            {([['pins', 'Fixadas'], ['tasks', 'Tarefas']] as const).map(([id, title]) => <button type="button" key={id} aria-pressed={contentTab === id} className={contentTab === id ? "active" : ""} onClick={() => setContentTab(id)}>{title}</button>)}
           </nav>
 
           {activeMeeting && <div className="shrink-0 border-b border-[var(--border)] px-4 py-3"><TeamActiveCallCard meeting={activeMeeting} busy={call.busy || Boolean(call.active)} joined={call.active?.callId === activeMeeting.callId} onJoin={() => void callCommands.join(activeMeeting)} /></div>}
-          <div ref={listRef} className="team-chat-list min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          {["files", "photos"].includes(contentTab) && <label className="team-v3-media-filter"><Search size={15} /><input aria-label="Filtrar arquivos da conversa" value={mediaFilter} placeholder="Buscar pelo nome do arquivo" onChange={(event) => setMediaFilter(event.target.value)} maxLength={150} /></label>}
+          <div ref={listRef} onScroll={() => { const list = listRef.current; if (!list) return; nearBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 100; messageWindow.onScroll(); if (list.scrollTop < 50 && !loading) void loadEarlier(); }} className="team-chat-list min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+            {["files", "photos"].includes(contentTab) && <>{mediaLoading && <p role="status">Carregando arquivos…</p>}{mediaMore && <button type="button" className="nx-btn" disabled={mediaLoading} onClick={() => void loadMedia(true)}>Carregar mais arquivos</button>}</>}
+            {hasMore && <button type="button" className="nx-btn is-sm" disabled={loadingEarlier} onClick={() => void loadEarlier()}>{loadingEarlier ? "Carregando anteriores…" : "Carregar mensagens anteriores"}</button>}
             {loading && <p className="text-center text-xs font-bold text-[var(--text-secondary)]">Carregando conversa...</p>}
             {contentTab === "chat" && !loading && messages.length === 0 && !activeMeeting && (
               <div className="grid h-full place-items-center text-center text-[var(--text-secondary)]">
@@ -1015,22 +1217,35 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                 </div>
               </div>
             )}
-            {contentTab === "chat" && !loading && messages.map((message) => {
+            {contentTab === "chat" && messageWindow.top > 0 && <div style={{ height: messageWindow.top }} aria-hidden="true" />}
+            {contentTab === "chat" && !loading && messageWindow.items.map((message, localIndex) => {
+              const index = messageWindow.start+localIndex;
               const mine = message.senderId === session.user.id;
               const member = memberById.get(message.senderId);
               const senderAvatar = message.senderAvatar || member?.fotoUrl || (message.senderId === "nora" ? "nora" : "");
               const isNora = message.senderId === "nora";
               const readReceipts = mine ? readReceiptsFor(message) : [];
               const reactions = reactionsFor(message);
+              const quoted = messages.find((item) => item.id === message.quotedMessageId);
+              const day = new Date(message.createdAt).toLocaleDateString("pt-BR");
+              const previousDay = index ? new Date(messages[index-1].createdAt).toLocaleDateString("pt-BR") : "";
+              const deleted = Boolean(message.metadata?.deletedAt);
               return (
-                <div key={message.id} className={`team-chat-row ${mine ? "is-mine" : ""} flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
+                <div key={message.id} ref={(node) => messageWindow.measure(message.id, node)} data-virtual-id={message.id}>{day !== previousDay && <div className="team-v3-day">{day}</div>}<div id={`team-message-${message.id}`} className={`team-chat-row ${mine ? "is-mine" : ""} flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} onClick={member ? () => setSelectedMemberId(member.id) : undefined} />}
                   <div className={`team-chat-message ${isNora ? "team-chat-message-nora max-w-[94%]" : "max-w-[78%]"} ${Array.isArray(message.metadata?.mentionedUserIds) && message.metadata.mentionedUserIds.includes(session.user.id) ? "mentions-me" : ""} rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "team-chat-message-mine" : "team-chat-message-other"}`}>
                     <div className={`mb-1 flex items-center justify-between gap-3 text-xs font-bold ${mine ? "team-chat-message-meta-mine" : "team-chat-message-meta-other"}`}>
-                      <span className="min-w-0 truncate">{message.senderName}</span>
+                      <span className="min-w-0 truncate">{message.senderName}{isNora && <b className="team-v3-assistant">Assistente</b>}</span>
                       <span className="shrink-0 text-right">{formatMessageDateTime(message.createdAt)}</span>
                     </div>
-                    {message.text && <NoraMessageContent message={message} />}
+                    {!deleted && <TeamMessageActions mine={mine && !message.metadata?.action} onTask={canUse(session.user, "tarefas") ? () => setProductivity({ action: "task", source: message }) : undefined} onReminder={queueEnabled ? () => setProductivity({ action: "reminder", source: message }) : undefined} onNora={noraAllowed ? () => setNoraInput({ mode: "ask", source: message }) : undefined} onClient={noraAllowed && canUse(session.user, "central") ? () => setNoraInput({ mode: "client", source: message }) : undefined} onForward={() => setProductivity({ action: "forward", source: message })} onThread={() => void collaboration.openReply(message)} pinned={Boolean(message.metadata?.pinnedAt)} onPin={() => void pinMessage(message)} onReply={() => quoteMessage(message)} onReact={(emoji) => void toggleReaction(message.id, emoji)} onMoreReaction={() => setReactionMessageId(message.id)} onCopy={() => void copyMessageLink(message)} onEdit={() => beginEdit(message)} onDelete={() => setDeleteMessage(message)} />}
+                    {message.quotedMessageId && <div className="team-v3-quote"><div><strong>{quoted?.senderName || "Mensagem anterior"}</strong><p>{quoted?.metadata?.deletedAt ? "Mensagem apagada" : quoted?.text || "Abra o contexto para ler a mensagem citada."}</p></div></div>}
+                    {deleted ? <em className="text-xs">Mensagem apagada</em> : message.metadata?.poll ? <TeamPollCard poll={message.metadata.poll as TeamPoll} userId={session.user.id} onVote={(choices) => vote(message, choices)} /> : message.text && <NoraMessageContent message={message} />}
+                    {Boolean(message.metadata?.editedAt) && !deleted && <small>editada</small>}
+                    <TeamResourceCards cards={collaboration.cards[message.id] || []} />
+                    <TeamNoraMessageTools message={message} request={collaboration.request} onSource={source => void openNoraSource(source)} enabled={noraAllowed} onTask={canUse(session.user, "tarefas") ? () => setProductivity({ action: "task", source: message }) : undefined} onSchedule={() => noraSchedule(message)} />
+                    {Boolean(message.metadata?.pinnedAt) && <small className="team-v3-pin-label"><Pin size={11} />Fixada</small>}
+                    {Number(message.metadata?.replyCount || 0) > 0 && <button type="button" className="team-v3-reply-count" onClick={() => void collaboration.openReply(message)}><TeamReplySummary message={message} members={conversationMembers} /></button>}
                     {message.metadata?.action === "meeting_scheduled" && <TeamMeetingMessageCard metadata={message.metadata} currentUserId={session.user.id} onAddToCalendar={addMeetingToCalendar} onStart={() => void startCall()} />}
                     {message.attachments?.length > 0 && (
                       <div className="mt-2 grid gap-2">
@@ -1058,29 +1273,34 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                     {mine && <button type="button" onClick={() => setReadReceiptsMessageId(message.id)} className="mt-2 flex items-center gap-1 text-[11px] font-bold text-blue-100/75 transition hover:text-white" aria-label={`Ver confirmações de leitura: ${readReceipts.length} pessoa(s) viram`}><CheckCheck size={14} /> {readReceipts.length ? `${readReceipts.length} viram` : "Ninguém viu ainda"}</button>}
                   </div>
                   {mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} onClick={member ? () => setSelectedMemberId(member.id) : undefined} />}
-                </div>
+                </div></div>
               );
             })}
+            {contentTab === "chat" && messageWindow.bottom > 0 && <div style={{ height: messageWindow.bottom }} aria-hidden="true" />}
             {contentTab === "files" && (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {threadAttachments.map((attachment) => <TeamAttachmentCard key={attachment.id} attachment={attachment} onPreview={setPreviewAttachment} token={session.token} />)}
-                {!threadAttachments.length && <div className="col-span-full grid min-h-72 place-items-center text-center text-[var(--text-secondary)]"><div><FolderOpen className="mx-auto" size={38} /><p className="mt-3 text-sm font-bold">Nenhum arquivo nesta conversa.</p></div></div>}
+                {mediaPage.map((attachment) => <TeamAttachmentCard key={attachment.id} attachment={attachment} onPreview={setPreviewAttachment} token={session.token} />)}
+                {!mediaPage.length && !mediaLoading && <div className="col-span-full grid min-h-72 place-items-center text-center text-[var(--text-secondary)]"><div><FolderOpen className="mx-auto" size={38} /><p className="mt-3 text-sm font-bold">Nenhum arquivo nesta conversa.</p></div></div>}
               </div>
             )}
             {contentTab === "photos" && (
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
-                {photoAttachments.map((attachment) => <TeamAttachmentCard key={attachment.id} attachment={attachment} onPreview={setPreviewAttachment} token={session.token} />)}
-                {!photoAttachments.length && <div className="col-span-full grid min-h-72 place-items-center text-center text-[var(--text-secondary)]"><div><Images className="mx-auto" size={38} /><p className="mt-3 text-sm font-bold">Nenhuma foto nesta conversa.</p></div></div>}
+                {mediaPage.map((attachment) => <TeamAttachmentCard key={attachment.id} attachment={attachment} onPreview={setPreviewAttachment} token={session.token} />)}
+                {!mediaPage.length && !mediaLoading && <div className="col-span-full grid min-h-72 place-items-center text-center text-[var(--text-secondary)]"><div><Images className="mx-auto" size={38} /><p className="mt-3 text-sm font-bold">Nenhuma foto nesta conversa.</p></div></div>}
               </div>
             )}
+            {(["pins", "replies"] as TeamContentTab[]).includes(contentTab) && <div className="team-v3-collection">{collaboration.collection.map((message) => <article key={message.id}><strong>{message.senderName}</strong><NoraMessageContent message={message} />{contentTab === "replies" && <TeamReplySummary message={message} members={conversationMembers} />}<button type="button" className="nx-btn is-sm" onClick={() => contentTab === "replies" ? void collaboration.openReply(message) : void jumpToMessage(message)}>{contentTab === "replies" ? "Abrir fio" : "Ver no contexto"}</button>{contentTab === "pins" && <button type="button" className="nx-btn is-sm" onClick={() => void pinMessage(message)}>Desafixar</button>}</article>)}{!collaboration.collection.length && <p>{contentTab === "pins" ? "Nenhuma mensagem fixada." : "Você ainda não participa de um fio nesta conversa."}</p>}</div>}
+            {contentTab === "tasks" && <div><TeamResourceCards cards={collaboration.tasks} />{!collaboration.tasks.length && <p>Nenhuma tarefa criada a partir desta conversa.</p>}</div>}
           </div>
 
           {contentTab === "chat" && files.length > 0 && (
+            <>
             <div className="team-chat-pending-files flex gap-2 overflow-x-auto border-t border-[var(--border)] px-3 py-2">
               {files.map((file) => (
                 <PendingFilePreview key={`${file.name}-${file.size}`} file={file} onRemove={() => setFiles((current) => current.filter((item) => item !== file))} />
               ))}
             </div>
+            </>
           )}
 
           {contentTab === "chat" && showMentionSuggestions && <div className="team-chat-mention-panel" role="listbox" id="team-mention-options" aria-label="Mencionar participante"><p><AtSign size={14} /> Mencionar na conversa</p>{mentionOptions.map((option, index) => <button key={option.id} id={`team-mention-${index}`} type="button" role="option" aria-selected={index === Math.min(mentionIndex, mentionOptions.length - 1)} className={index === Math.min(mentionIndex, mentionOptions.length - 1) ? "is-active" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => selectMention(option)}><MessageAvatar name={option.name} avatar={option.avatar} /><span><strong>{option.id === "nora" ? "Nora" : option.name}</strong><small>{option.id === "nora" ? "Assistente da equipe" : "Receberá uma notificação"}</small></span><AtSign size={14} /></button>)}</div>}
@@ -1095,23 +1315,31 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           )}
 
           {contentTab === "chat" && <footer className="team-chat-footer">
+            {mentionedUserIds.length > 0 && <label className="team-v3-urgent"><input type="checkbox" checked={urgentMention} onChange={(event) => setUrgentMention(event.target.checked)} />Marcar menção como urgente</label>}
+            {text.startsWith("/") && !shortcutDismissed && <div className="team-v3-shortcuts" aria-label="Comandos e respostas rápidas">{noraAllowed && ["resumir", "tarefa", "agendar", "buscar"].filter(command => `nora ${command}`.includes(text.slice(1).toLowerCase())).map(command => <button key={command} type="button" onClick={() => { setText(`/nora ${command} `); setShortcutDismissed(true); inputRef.current?.focus(); }}>/nora {command}</button>)}{shortcutOptions.map((item) => <button type="button" key={item.id} onClick={() => { setText(item.body.replaceAll("{{sender_name}}", session.user.nome)); setShortcutDismissed(true); inputRef.current?.focus(); }}><strong>/{item.shortcut}</strong><small>{item.name}</small></button>)}<button type="button" onClick={() => setProductivity({ action: "poll" })}>/enquete · Criar enquete</button>{queueEnabled && messages.length > 0 && <button type="button" onClick={() => setProductivity({ action: "reminder", source: messages[messages.length-1] })}>/lembrar · Lembrar a última mensagem</button>}</div>}
+            {quotedMessage && <div className="team-v3-quote"><div><strong>Respondendo a {quotedMessage.senderName}</strong><p>{quotedMessage.text}</p></div><button type="button" className="team-icon-button" aria-label="Cancelar resposta citada" onClick={() => setQuotedMessage(null)}><X size={14} /></button></div>}
             {emojiPickerOpen && <div className="team-composer-emoji-picker"><TeamEmojiPicker onSelect={insertEmoji} onClose={() => setEmojiPickerOpen(false)} /></div>}
             <div className="team-chat-composer">
             <textarea ref={inputRef} value={text} rows={2} maxLength={2000} aria-label="Mensagem para a conversa" aria-autocomplete="list" aria-controls={showMentionSuggestions ? "team-mention-options" : undefined} aria-activedescendant={showMentionSuggestions ? `team-mention-${Math.min(mentionIndex, mentionOptions.length - 1)}` : undefined}
-              onChange={(event) => { setText(event.target.value); setCursor(event.target.selectionStart); setMentionDismissed(false); setMentionIndex(0); }}
+              onChange={(event) => { setText(event.target.value); setCursor(event.target.selectionStart); setMentionDismissed(false); setMentionIndex(0); setShortcutDismissed(false); }}
               onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) return;
+                if (event.key === "Escape" && shortcutOptions.length) { event.preventDefault(); setShortcutDismissed(true); return; }
+                if (event.key === "ArrowUp" && !text && !showMentionSuggestions) { const last = messages.findLast((message) => message.senderId === session.user.id && !message.metadata?.deletedAt && !message.metadata?.action); if (last) { event.preventDefault(); beginEdit(last); return; } }
                 if (showMentionSuggestions && ["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setMentionIndex((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + mentionOptions.length) % mentionOptions.length); return; }
                 if (showMentionSuggestions && (event.key === "Enter" || event.key === "Tab")) { event.preventDefault(); selectMention(mentionOptions[Math.min(mentionIndex, mentionOptions.length - 1)]); return; }
                 if (showMentionSuggestions && event.key === "Escape") { event.preventDefault(); setMentionDismissed(true); return; }
                 if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); }
               }} placeholder={`Mensagem para ${threadTitle}. Use @ para mencionar.`} className="team-chat-input" />
             <div className="team-chat-composer-actions"><div>
+              <button type="button" className="team-icon-button" aria-label="Criar enquete" title="Criar enquete" onClick={() => setProductivity({ action: "poll" })}><Plus size={16} /></button>
+              <button type="button" className="team-icon-button" aria-label="Negrito" onClick={() => formatComposer("**", "**")}><Bold size={16} /></button><button type="button" className="team-icon-button" aria-label="Lista" onClick={() => formatComposer("\n- ")}><List size={16} /></button><button type="button" className="team-icon-button" aria-label="Código" onClick={() => formatComposer("`", "`")}><Code size={16} /></button>
               <label className="team-icon-button" aria-label="Anexar imagem ou arquivo" title="Anexar imagem ou arquivo"><Paperclip size={18} /><input type="file" multiple className="sr-only" aria-label="Anexar arquivos" onChange={(event) => { const next = [...files, ...Array.from(event.target.files || [])]; if (next.length > 8) setError("Envie até 8 arquivos por mensagem."); else setFiles(next); event.currentTarget.value = ""; }} /></label>
               <button type="button" className="team-icon-button" aria-label="Mencionar membro" title="Mencionar membro" onClick={() => { const pos = inputRef.current?.selectionStart ?? text.length; const prefix = pos > 0 && !/\s/.test(text[pos - 1]) ? " @" : "@"; setText(text.slice(0, pos) + prefix + text.slice(pos)); setCursor(pos + prefix.length); setMentionIndex(0); setMentionDismissed(false); requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(pos + prefix.length, pos + prefix.length); }); }}><AtSign size={18} /></button>
               <button type="button" className="team-icon-button" aria-label="Escolher emoji" title="Emojis" aria-expanded={emojiPickerOpen} onClick={() => setEmojiPickerOpen((current) => !current)}><SmilePlus size={18} /></button>
               <TeamVoiceRecorder disabled={sending} onSend={(file) => void sendMessage("", [file])} onError={setError} />
+              {queueEnabled && <button type="button" className="team-icon-button" aria-label="Agendar envio" title="Agendar envio" onClick={() => setProductivity({ action: "schedule" })}><Clock3 size={16} /></button>}
             </div><Button variant="primary" size="sm" onClick={() => void sendMessage()} disabled={sending || (!text.trim() && !files.length)} icon={<Send size={15} />} className="team-chat-send"><span className="team-chat-send-label">{sending ? "Enviando..." : "Enviar"}</span></Button></div>
             </div><p className="team-chat-composer-hint"><span>Enter envia · Shift + Enter quebra a linha</span><span>{text.length}/2000</span></p>
           </footer>}
@@ -1134,24 +1362,25 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                   <strong className="mt-1 block text-xl text-emerald-300">{conversationOnlineCount}</strong>
                 </div>
               </div>
-              {scope === "team" && canUse(session.user, "nora") && (
+              {canUse(session.user, "nora") && (
                 <section className="mt-5 rounded-lg border border-cyan-400/25 bg-cyan-400/8 p-4">
                   <div className="flex items-center gap-3">
                     <NoraAvatar className="h-10 w-10" />
-                    <div><strong className="block text-sm">Nora na conversa</strong><small className="text-[var(--text-secondary)]">Ativa quando mencionada</small></div>
+                    <div><strong className="block text-sm">Nora na conversa</strong><small className="text-[var(--text-secondary)]">{noraAllowed ? "Ativa quando mencionada" : "Desativada nesta subequipe"}</small></div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => void sendMessage("@nora Resuma a conversa recente, destaque decisoes, responsaveis e proximos passos usando somente o historico deste chat.")}
-                    disabled={sending}
+                    onClick={() => { const source = messages[messages.length-1]; if (source) setNoraInput({ mode: "ask", source, question: "Resuma decisões e próximos passos desta conversa." }); }}
+                    disabled={sending || !noraAllowed || !messages.length}
                     className="mt-3 flex h-10 w-full items-center justify-center rounded-lg border border-cyan-400/25 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10"
                   >
                     {sending ? "Enviando para a Nora..." : "Resumir conversa com a Nora"}
                   </button>
+                  {selectedSubteam && (session.user.systemAdmin || (session.user.teamOwnerId || session.user.id) === session.user.id || selectedSubteam.createdBy === session.user.id) && <label className="team-v3-check"><input type="checkbox" checked={selectedSubteam.noraEnabled !== false} onChange={event => void changeNora(event.target.checked)} />Nora pode responder aqui</label>}
                 </section>
               )}
               <div className="mt-5">
-                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Membros</p>
+                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Agora na equipe</p>
                 <div className="mt-3 space-y-2">
                   {conversationMembers.map((member) => (
                     <div key={member.id} className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 hover:bg-[var(--surface-hover)]">
@@ -1160,30 +1389,42 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                         <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={actualOnlineUserIdSet.has(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{actualOnlineUserIdSet.has(member.id) ? "Online agora" : "Offline"}</small></span>
                       </button>
                       {member.id !== session.user.id && <button type="button" onClick={() => { selectConversation({ scope: "direct", recipientId: member.id }); void startCall({ scope: "direct", title: member.nome, recipientId: member.id, subteamId: null }); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--primary)] hover:bg-[var(--surface)]" aria-label={`Ligar individualmente para ${member.nome}`}><Phone size={15} /></button>}
+                      {presence.states[member.id] && <small className="team-v3-member-context">{presence.states[member.id].emoji} {[presence.states[member.id].label, presence.states[member.id].context].filter(Boolean).join(" · ")}</small>}
                     </div>
                   ))}
                 </div>
               </div>
+              <section className="team-v3-notifications"><h3>Notificações</h3><label>Receber<select aria-label="Notificações desta conversa" value={selectedConversation?.notificationMode || "all"} onChange={(event) => void setNotifications(event.target.value as "all" | "mentions" | "none")}><option value="all">Tudo</option><option value="mentions">Menções</option><option value="none">Nada</option></select></label><label>Silenciar até<input aria-label="Silenciar conversa até" type="datetime-local" onChange={(event) => void setNotifications(selectedConversation?.notificationMode || "all", event.target.value)} /></label></section>
             </aside>
           )}
+          {conversationSelected && ["reply", "search"].includes(collaboration.context || "") && <TeamCollaborationPanel key={selectedThreadId + (collaboration.root?.id || "") + collaboration.context} collaboration={collaboration} members={conversationMembers} userId={session.user.id} sending={sending} renderMessage={(message) => <>{message.metadata?.deletedAt ? <em>Mensagem apagada</em> : <><NoraMessageContent message={message} /><TeamNoraMessageTools message={message} request={collaboration.request} onSource={source => void openNoraSource(source)} enabled={noraAllowed} onAsk={noraAllowed ? () => setNoraInput({ mode: "ask", source: message }) : undefined} onTask={canUse(session.user, "tarefas") ? () => setProductivity({ action: "task", source: message }) : undefined} onSchedule={() => void noraSchedule(message)} /></>}{message.attachments?.map((attachment) => <TeamAttachmentCard key={attachment.id} attachment={attachment} onPreview={setPreviewAttachment} token={session.token} />)}</>} onSendReply={sendReply} onContext={(message) => void jumpToMessage(message)} />}
           </div>
           {previewAttachment && <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} token={session.token} />}
+          {editMessage && <TeamChatDialog title="Editar mensagem" onClose={() => setEditMessage(null)}><textarea aria-label="Texto da mensagem editada" maxLength={2000} rows={5} value={editText} onChange={(event) => setEditText(event.target.value)} /><footer><button type="button" className="nx-btn" onClick={() => setEditMessage(null)}>Cancelar</button><button type="button" className="nx-btn is-primary" disabled={sending || !editText.trim()} onClick={() => void mutateMessage(editMessage, editText)}>Salvar mensagem</button></footer></TeamChatDialog>}
+          {deleteMessage && <TeamChatDialog title="Apagar mensagem" onClose={() => setDeleteMessage(null)}><p>Apagar esta mensagem para os participantes da conversa?</p><blockquote>{deleteMessage.text}</blockquote><footer><button type="button" className="nx-btn" onClick={() => setDeleteMessage(null)}>Cancelar</button><button type="button" className="nx-btn" disabled={sending} onClick={() => void mutateMessage(deleteMessage)}>Confirmar exclusão</button></footer></TeamChatDialog>}
+          {productivity && <TeamChatProductivityDialog action={productivity.action} source={productivity.source} scheduled={productivity.scheduled} draft={text} members={conversationMembers} conversations={conversationItems} target={{ scope, recipientId: scope === "direct" ? recipientId : null, subteamId: scope === "subteam" ? subteamId : null }} request={collaboration.request} onClose={() => setProductivity(null)} onDone={productivityDone} attachments={() => prepareChatAttachments(files)} />}
+          {noraInput && <TeamNoraDialog input={noraInput} request={collaboration.request} onClose={() => setNoraInput(null)} onSource={source => void openNoraSource(source)} onMessage={message => productivityDone({ message })} onTask={canUse(session.user, "tarefas") ? message => { setNoraInput(null); setProductivity({ action: "task", source: message }); } : undefined} onSchedule={noraSchedule} />}
+          {scheduledOpen && <TeamChatDialog title="Meus envios agendados" onClose={() => setScheduledOpen(false)}>{!scheduledItems.length && <p>Nenhum envio agendado nesta conversa.</p>}{scheduledItems.map((job) => <article key={job.id} className="team-v3-scheduled"><strong>{new Date(job.dueAt).toLocaleString("pt-BR")}</strong><p>{job.message.text}</p><small>{job.message.attachments?.length || 0} anexo(s) · só você pode ver</small><footer><button type="button" className="nx-btn is-sm" onClick={() => { setScheduledOpen(false); setProductivity({ action: "schedule", scheduled: job }); }}>Editar</button><button type="button" className="nx-btn is-sm" onClick={() => void cancelScheduled(job)}>Cancelar envio</button></footer></article>)}</TeamChatDialog>}
           {subteamEditor && <SubteamEditorDialog value={subteamEditor} members={members} currentUserId={session.user.id} saving={subteamSaving} onClose={() => setSubteamEditor(null)} onSave={(input) => void saveSubteam(input)} />}
           {selectedMember && <TeamMemberPresenceDialog
             member={selectedMember}
+            presence={presence.states[selectedMember.id]}
             online={actualOnlineUserIdSet.has(selectedMember.id)}
             isCurrentUser={selectedMember.id === session.user.id}
             token={session.token}
             onClose={() => setSelectedMemberId(null)}
+            onSchedule={!canStartCall || selectedMember.id === session.user.id ? undefined : () => { selectConversation({ scope: "direct", recipientId: selectedMember.id }); setSelectedMemberId(null); setMeetingSchedulerOpen(true); }}
             onMessage={() => { selectConversation({ scope: "direct", recipientId: selectedMember.id }); setSelectedMemberId(null); }}
             onCall={() => { selectConversation({ scope: "direct", recipientId: selectedMember.id }); setSelectedMemberId(null); void startCall({ scope: "direct", title: selectedMember.nome, recipientId: selectedMember.id, subteamId: null }); }}
           />}
+          {statusOpen && <TeamStatusDialog preferences={presence.preferences} onSave={presence.save} onClose={() => setStatusOpen(false)} />}
           {meetingSchedulerOpen && <TeamMeetingSchedulerDialog
             scopeLabel={threadTitle}
+            initialDraft={meetingDraft}
             members={conversationMembers}
             currentUserId={session.user.id}
             saving={meetingSaving}
-            onClose={() => setMeetingSchedulerOpen(false)}
+            onClose={() => { setMeetingSchedulerOpen(false); setMeetingDraft(undefined); }}
             onSave={(input) => void saveMeeting(input)}
           />}
           {readReceiptsMessage && <MessageReadReceiptsDialog
@@ -1194,11 +1435,21 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
         </motion.aside>
       )}
           <TeamCallOverlay
+            key="team-call-overlay"
             snapshot={call}
             commands={callCommands}
             members={members}
             currentUserId={session.user.id}
             attachmentToken={session.token}
+            onReplyIncoming={() => {
+              const thread = call.incoming?.thread;
+              if (!thread) return;
+              const id = thread.scope === "team" ? "team" : thread.scope === "subteam" ? `subteam:${thread.subteamId}` : `direct:${[session.user.id, thread.recipientId].sort().join(":")}`;
+              const destinationText = selectedThreadRef.current === id ? draftRef.current.text : drafts.current.get(id)?.text;
+              selectConversation(thread);
+              if (!destinationText) setText("Não consigo entrar agora. Podemos conversar por aqui?");
+              onOpen?.();
+            }}
             onDownloadAttachment={(attachment) => { void downloadWithAuth(attachment.url, attachment.name, session.token); }}
           />
     </AnimatePresence>

@@ -46,7 +46,7 @@ _nora = NoraIAService()
 
 
 class CriarTarefaPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     projectId: str = "default"
     projectName: str | None = Field(default=None, max_length=160)
     title: str = Field(min_length=1, max_length=160)
@@ -61,7 +61,7 @@ class CriarTarefaPayload(StrictModel):
 
 
 class AtualizarTarefaPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     projectName: str | None = Field(default=None, max_length=160)
     title: str | None = None
     description: str | None = None
@@ -76,7 +76,7 @@ class AtualizarTarefaPayload(StrictModel):
 
 
 class ComentarioPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     projectId: str = "default"
     projectName: str | None = Field(default=None, max_length=160)
     author: str = "Operador"
@@ -84,7 +84,7 @@ class ComentarioPayload(StrictModel):
 
 
 class AnexoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     projectId: str = "default"
     projectName: str | None = Field(default=None, max_length=160)
     file_name: str = Field(min_length=1, max_length=180)
@@ -98,7 +98,7 @@ AnexoPayload.model_rebuild(force=True)
 
 
 class TaskAgentPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     message: str = Field(min_length=1)
 
 
@@ -110,7 +110,7 @@ class TaskDescriptionNoraPayload(StrictModel):
 
 
 class ProjetoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     name: str = Field(min_length=1, max_length=160)
     category: str = "operacao"
     description: str = ""
@@ -130,7 +130,7 @@ class ProjetoPayload(StrictModel):
 
 
 class AtualizarProjetoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     name: str | None = Field(default=None, max_length=160)
     category: str | None = None
     description: str | None = None
@@ -491,7 +491,7 @@ async def record_task_deleted(task: dict[str, Any] | None, task_id: str, project
 
 @router.get("")
 async def obter_tarefas(
-    user_id: str = "lucas123",
+    user_id: str | None = None,
     project_id: str | None = None,
     status: str | None = None,
     q: str | None = None,
@@ -517,7 +517,7 @@ async def obter_tarefas(
 
 
 @router.get("/projetos")
-async def listar_projetos(user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def listar_projetos(user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     return {"projects": await accessible_team_projects(user), "updatedAt": now_iso()}
 
 
@@ -608,7 +608,7 @@ async def atualizar_projeto(project_id: str, payload: AtualizarProjetoPayload, u
 
 
 @router.delete("/projetos/{project_id}")
-async def apagar_projeto(project_id: str, user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def apagar_projeto(project_id: str, user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     if delete_project(resolved_user_id, project_id):
         await record_event(
@@ -741,7 +741,7 @@ async def atualizar_tarefa(task_id: str, payload: AtualizarTarefaPayload, user: 
 @router.delete("/{task_id}")
 async def apagar_tarefa(
     task_id: str,
-    user_id: str = "lucas123",
+    user_id: str | None = None,
     project_id: str | None = None,
     project_name: str | None = None,
     user: dict[str, Any] = Depends(current_user),

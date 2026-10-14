@@ -57,12 +57,22 @@ class AgentSendRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(403, caught.exception.status_code)
         execute.assert_not_awaited()
 
-    async def test_reviewed_draft_is_sent_with_permissions(self) -> None:
+    async def test_reviewed_draft_prepares_exact_approval_without_sending(self) -> None:
         execute = AsyncMock(return_value={"status": "enviado", "sent": True})
-        with patch.object(nora_router.agent_manager, "execute_message", execute), patch.object(nora_router, "owned_wapi_binding", return_value=CONNECTED):
+        recipient = {"status": "resolved", "conversation_id": "5511999999999@c.us", "display_name": "Pessoa sintética", "is_group": False}
+        approval = {"id": "approval-test", "digest": "a" * 64}
+        with (patch.object(nora_router.agent_manager, "execute_message", execute),
+              patch.object(nora_router, "resolve_whatsapp_recipient", new=AsyncMock(return_value=recipient)),
+              patch.object(nora_router, "create_exact_whatsapp_approval", new=AsyncMock(return_value=approval)) as create,
+              patch.object(nora_router, "owned_wapi_binding", return_value=CONNECTED)):
             result = await self.send(user(chat=True, integracao_whatsapp=True))
-        self.assertEqual("enviado", result["status"])
-        execute.assert_awaited_once()
+        self.assertEqual("aguardando_aprovacao", result["status"])
+        self.assertFalse(result["sent"])
+        self.assertEqual(approval, result["approval"])
+        create.assert_awaited_once()
+        self.assertEqual("Olá!", create.await_args.args[1]["messageText"])
+        self.assertEqual(recipient["conversation_id"], create.await_args.args[1]["conversationId"])
+        execute.assert_not_awaited()
 
 
 if __name__ == "__main__":

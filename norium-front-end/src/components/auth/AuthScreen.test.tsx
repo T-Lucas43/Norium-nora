@@ -24,9 +24,14 @@ describe("AuthScreen", () => {
     const email = screen.getByLabelText("E-mail");
     const password = screen.getByLabelText("Senha");
     expect(email).toHaveAttribute("autocomplete", "username");
+    expect(email).toHaveAttribute("name", "username");
+    expect(email).toHaveAttribute("autocapitalize", "none");
+    expect(email).toHaveAttribute("spellcheck", "false");
     expect(password).toHaveAttribute("autocomplete", "current-password");
+    expect(password).toHaveAttribute("name", "current-password");
     fireEvent.click(screen.getByRole("button", { name: "Mostrar senha" }));
     expect(password).toHaveAttribute("type", "text");
+    expect(screen.getByRole("button", { name: "Ocultar senha" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByLabelText("Manter conectado neste navegador por até 7 dias"));
     fireEvent.change(email, { target: { value: "a@b.invalid" } });
     fireEvent.change(password, { target: { value: "segredo" } });
@@ -39,6 +44,8 @@ describe("AuthScreen", () => {
     render(<AuthScreen onAuthenticated={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Criar novo cadastro" }));
     expect(screen.getByLabelText("Senha")).toHaveAttribute("autocomplete", "new-password");
+    expect(screen.getByLabelText("Senha")).toHaveAttribute("name", "new-password");
+    expect(screen.getByLabelText("Nome")).toHaveAttribute("name", "name");
     const submit = screen.getByRole("button", { name: "Criar conta" });
     expect(submit).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));

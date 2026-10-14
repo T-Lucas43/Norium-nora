@@ -18,8 +18,9 @@ function ModuleLink({ tab, children }: { tab: string; children: ReactNode }) {
   }}>{children}</a>;
 }
 
-function MarkdownBody({ text }: { text: string }) {
+function MarkdownBody({ text, allowImages = true }: { text: string; allowImages?: boolean }) {
   return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+    ...(allowImages ? {} : { img: ({ alt }: { alt?: string }) => <span>{alt || "Imagem externa omitida"}</span> }),
     table: ({ children }) => <div className="nora-table-scroll" role="region" aria-label="Tabela da resposta" tabIndex={0}><table>{children}</table></div>,
   }}>{text}</ReactMarkdown>;
 }
@@ -40,16 +41,16 @@ function markdownSections(text: string) {
   return { intro: intro.join("\n").trim(), sections: sections.filter((section) => section.body) };
 }
 
-export function NoraMarkdown({ text }: { text: string }) {
+export function NoraMarkdown({ text, allowImages = true }: { text: string; allowImages?: boolean }) {
   const tabId = useId();
   const parsed = useMemo(() => markdownSections(text), [text]);
   const [activeTab, setActiveTab] = useState(0);
   const active = parsed.sections[activeTab] || parsed.sections[0];
   if (parsed.sections.length < 2) {
-    return <div className="nora-message-markdown"><MarkdownBody text={text} /></div>;
+    return <div className="nora-message-markdown"><MarkdownBody text={text} allowImages={allowImages} /></div>;
   }
   return <div className="nora-message-markdown nora-markdown-tabs">
-    {parsed.intro ? <div className="nora-markdown-intro"><MarkdownBody text={parsed.intro} /></div> : null}
+    {parsed.intro ? <div className="nora-markdown-intro"><MarkdownBody text={parsed.intro} allowImages={allowImages} /></div> : null}
     <div className="nora-markdown-tablist" role="tablist" aria-label="Seções da resposta">
       {parsed.sections.map((section, index) => <button
         key={`${section.title}-${index}`}
@@ -67,7 +68,7 @@ export function NoraMarkdown({ text }: { text: string }) {
       role="tabpanel"
       id={`${tabId}-panel-${Math.max(0, activeTab)}`}
       aria-labelledby={`${tabId}-tab-${Math.max(0, activeTab)}`}
-    ><MarkdownBody text={active.body} /></div> : null}
+    ><MarkdownBody text={active.body} allowImages={allowImages} /></div> : null}
   </div>;
 }
 

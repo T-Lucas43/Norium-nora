@@ -353,7 +353,8 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         attachment = result["message"]["attachments"][0]
         self.assertEqual("image/png", attachment["mimeType"])
         self.assertEqual("captura.png", attachment["name"])
-        self.assertEqual(image_bytes, (self.upload_dir / attachment["storedName"]).read_bytes())
+        self.assertTrue(attachment["storageKey"].startswith("user_owner/"))
+        self.assertEqual(image_bytes, (Path(self.temp_dir.name) / attachment["storageKey"]).read_bytes())
 
     async def test_members_list_only_reports_active_connected_users_and_last_login(self) -> None:
         manager = team_router.PresenceManager()

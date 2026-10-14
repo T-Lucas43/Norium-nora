@@ -20,11 +20,13 @@ class JsonCallStateStore:
         read_document: Callable[[str], dict[str, Any]],
         write_document: Callable[[str, dict[str, Any]], None],
         lock: asyncio.Lock,
+        lock_for_team: Callable[[str], asyncio.Lock] | None = None,
         on_call_removed: Callable[[dict[str, Any]], None | Awaitable[None]] | None = None,
     ) -> None:
         self._read_document = read_document
         self._write_document = write_document
         self._lock = lock
+        self._lock_for_team = lock_for_team
         self._on_call_removed = on_call_removed
 
     @staticmethod
@@ -45,7 +47,7 @@ class JsonCallStateStore:
             raise
 
     async def load(self, team_id: str) -> CallState:
-        async with self._lock:
+        async with (self._lock_for_team(team_id) if self._lock_for_team else self._lock):
             document = await asyncio.to_thread(self._read_document, team_id)
         return CallState(
             active_calls=copy.deepcopy([
@@ -64,7 +66,7 @@ class JsonCallStateStore:
         *,
         append_messages: tuple[dict[str, Any], ...] = (),
     ) -> None:
-        async with self._lock:
+        async with (self._lock_for_team(team_id) if self._lock_for_team else self._lock):
             # The same shared document lock covers read, merge and write.
             # Normal updates need one worker dispatch, rather than handing
             # the lock back to the event loop between two I/O dispatches.
@@ -92,7 +94,6 @@ class JsonCallStateStore:
         document["endedCallIds"] = dict(state.ended_call_ids)
         if append_messages:
             document.setdefault("messages", []).extend(copy.deepcopy(list(append_messages)))
-            document["messages"] = document["messages"][-2000:]
         # Awaitable cleanup retains its original ordering before the write;
         # no document or authorization snapshot is cached across operations.
         if self._on_call_removed and removed_calls:

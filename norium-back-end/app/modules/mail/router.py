@@ -44,7 +44,7 @@ AttachmentPayload.model_rebuild(force=True)
 
 
 class SendEmailPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     to: list[str] = Field(min_length=1)
     cc: list[str] = []
     bcc: list[str] = []
@@ -54,7 +54,7 @@ class SendEmailPayload(StrictModel):
 
 
 class ReplyEmailPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     body: str = Field(min_length=1)
     attachments: list[AttachmentPayload] = []
 
@@ -64,7 +64,7 @@ class DraftEmailPayload(SendEmailPayload):
 
 
 class ModifyMessagePayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     action: Literal[
         "read",
         "unread",
@@ -84,18 +84,18 @@ class ModifyMessagePayload(StrictModel):
 
 
 class LabelPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     name: str = Field(min_length=1, max_length=225)
 
 
 class EmailAgentPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     session_id: str | None = None
     message: str = Field(min_length=1)
 
 
 class DisconnectPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
 
 
 def tenant_id(user: dict[str, Any]) -> str:
@@ -319,7 +319,7 @@ async def create_gmail_label(payload: LabelPayload, user: dict[str, Any] = Depen
 
 @router.get("/api/emails/gmail/messages")
 async def list_gmail_messages(
-    user_id: str = "lucas123",
+    user_id: str | None = None,
     folder: str = "inbox",
     q: str | None = None,
     page_token: str | None = None,
@@ -343,7 +343,7 @@ async def list_gmail_messages(
 
 
 @router.post("/api/emails/gmail/sync-central")
-async def sync_gmail_to_central(user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def sync_gmail_to_central(user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     try:
         resolved_user_id = tenant_id(user)
         service = GmailService(resolved_user_id)
@@ -361,7 +361,7 @@ async def sync_gmail_to_central(user_id: str = "lucas123", user: dict[str, Any] 
 
 
 @router.get("/api/emails/gmail/messages/{message_id}")
-async def get_gmail_message(message_id: str, user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def get_gmail_message(message_id: str, user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     try:
         return GmailService(tenant_id(user)).get_message(message_id)
     except GmailConfigError as exc:
@@ -443,7 +443,7 @@ async def create_gmail_draft(payload: DraftEmailPayload, user: dict[str, Any] = 
 
 
 @router.post("/api/emails/gmail/drafts/{draft_id}/send")
-async def send_gmail_draft(draft_id: str, user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def send_gmail_draft(draft_id: str, user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     try:
         return GmailService(tenant_id(user)).send_draft(draft_id)
     except GmailConfigError as exc:
@@ -505,7 +505,7 @@ async def download_gmail_attachment(
     attachment_id: str = Query(...),
     filename: str = Query(default="anexo"),
     mime_type: str = Query(default="application/octet-stream"),
-    user_id: str = "lucas123",
+    user_id: str | None = None,
     user: dict[str, Any] = Depends(current_user),
 ):
     try:

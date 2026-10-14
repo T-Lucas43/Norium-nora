@@ -17,7 +17,7 @@ Money = Annotated[float, Field(ge=0, le=1_000_000, allow_inf_nan=False)]
 
 
 class TariffPayload(StrictModel):
-    provider: Literal["groq", "google", "openai", "openai-compatible", "anthropic", "unknown"]
+    provider: Literal["groq", "google", "openai", "openai-compatible", "anthropic", "brave", "unknown"]
     model: str = Field(min_length=1, max_length=200)
     name: str = Field(min_length=1, max_length=120)
     baseUrl: str = Field(default="", max_length=500)
@@ -26,6 +26,7 @@ class TariffPayload(StrictModel):
     outputUsd: Money
     cachedInputUsd: Money | None = None
     cacheWriteUsd: Money | None = None
+    requestUsd: Money | None = None
     source: str = Field(default="Cadastro administrativo", max_length=500)
     validUntil: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
@@ -49,6 +50,7 @@ class TariffPayload(StrictModel):
 class LimitPayload(StrictModel):
     monthlyBudgetUsd: Money | None = None
     monthlyTokenLimit: int | None = Field(default=None, ge=0, le=1_000_000_000_000)
+    callsLimit: int | None = Field(default=None, ge=0, le=1_000_000_000)
     period: Literal["weekly", "monthly"] = "monthly"
     startDate: date | None = None
     autoRenew: bool = True

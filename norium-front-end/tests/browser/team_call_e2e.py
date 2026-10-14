@@ -1231,13 +1231,13 @@ async def scenario_screen_share(runtime: ScenarioRuntime) -> dict[str, Any]:
     assert await join_call(member.page, "on") == call_id
     await owner.page.get_by_role("button", name="Transmitir tela", exact=True).click()
     await wait_diagnostic(owner.page, "value.sharingScreen === true && value.displayRequests === 1")
-    screen_rtp = await wait_rtp(member.page, "inbound", "video")
     # Viewing requires each receiver's explicit choice before playback.
     watch_button = member.page.get_by_role("button", name="Assistir transmissão", exact=True)
     await expect(watch_button).to_be_visible()
     await expect(member.page.get_by_label("Tela compartilhada por Owner", exact=True)).to_have_count(0)
     await watch_button.click()
     await wait_video(member.page, "Tela compartilhada por Owner")
+    screen_rtp = await wait_rtp(member.page, "inbound", "video")
     await expect(member.page.get_by_role("button", name="Parar de assistir", exact=True)).to_be_visible()
     await owner.page.get_by_role("button", name="Parar transmissão de tela", exact=True).first.click()
     await wait_diagnostic(owner.page, "value.sharingScreen === false")
@@ -1554,6 +1554,8 @@ async def scenario_call_layout(runtime: ScenarioRuntime) -> dict[str, Any]:
     await owner.page.get_by_role("button", name="Fechar painel", exact=True).click()
     await owner.page.get_by_label("Layout da chamada", exact=True).select_option("auto")
     await owner.page.get_by_role("button", name="Transmitir tela", exact=True).click()
+    await expect(member.page.get_by_label("Tela compartilhada por Owner", exact=True)).to_have_count(0)
+    await member.page.get_by_role("button", name="Assistir transmissão", exact=True).click()
     await wait_video(member.page, "Tela compartilhada por Owner")
     await expect(member.page.get_by_label("Palco da chamada")).to_have_attribute("data-layout", "presentation")
     await expect(owner.page.get_by_label("Controles de quem apresenta")).to_be_visible()

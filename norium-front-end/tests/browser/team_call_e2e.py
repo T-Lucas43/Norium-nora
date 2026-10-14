@@ -1600,6 +1600,10 @@ async def scenario_call_layout(runtime: ScenarioRuntime) -> dict[str, Any]:
             Array.from(document.querySelectorAll('.team-call-presenter-bar [role=alert]')).some(node => node.textContent.includes('Não foi possível destacar'))""")
         opened = await owner.page.evaluate("!!window.documentPictureInPicture?.window")
         if opened:
+            # The native PiP window exists before React commits its portal.
+            # Wait for the actual control, as a user must, before clicking it.
+            await owner.page.wait_for_function("""() => !!window.documentPictureInPicture?.window?.document
+                .querySelector('[aria-label="Alternar microfone durante apresentação"]')""", timeout=DEFAULT_TIMEOUT_MS)
             before_mute = (await diagnostics(owner.page))["muted"]
             await owner.page.evaluate("window.documentPictureInPicture.window.document.querySelector('[aria-label=\"Alternar microfone durante apresentação\"]').click()")
             await wait_diagnostic(owner.page, "value.muted !== argument", before_mute)

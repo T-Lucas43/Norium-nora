@@ -124,3 +124,8 @@ pendências operacionais C–E, jurídicas ou de ativação dos workers.
   USN oficial e o changelog oficial, com três tentativas limitadas, TLS e URLs
   fixos. O pacote é vinculado à seção Ubuntu 26.04 da tabela, incluindo rowspan.
   Não utiliza espelhos de terceiros nem documentos locais como fallback.
+- CI `a5f2601`: segurança da imagem, backend/frontend e PostgreSQL aprovados;
+  navegador 51/54, somente as três execuções de layout falharam ao clicar no
+  microfone PiP antes de React montar o portal. Transmissão e RTP já funcionam.
+  O teste agora aguarda o controle real no prazo original de mídia, sem retirar
+  a verificação de alternância do microfone ou relaxar qualquer outro critério.

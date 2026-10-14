@@ -372,6 +372,22 @@ INIT_SCRIPT = """
   window.__NORIUM_CONFIG__ = { API_URL: apiUrl, WS_URL: wsUrl };
   window.__peerConnections = [];
   window.__audioContexts = [];
+  window.__mediaOperationErrors = [];
+  const captureOperationError = (method, error) => {
+    if (window.__mediaOperationErrors.length < 64) {
+      window.__mediaOperationErrors.push({method, errorType: error?.name || 'Error'});
+    }
+  };
+  for (const method of ['setLocalDescription', 'setRemoteDescription', 'addIceCandidate']) {
+    const original = RTCPeerConnection.prototype[method];
+    RTCPeerConnection.prototype[method] = function(...args) {
+      return original.apply(this, args).catch(error => { captureOperationError(method, error); throw error; });
+    };
+  }
+  const originalReplace = RTCRtpSender.prototype.replaceTrack;
+  RTCRtpSender.prototype.replaceTrack = function(...args) {
+    return originalReplace.apply(this, args).catch(error => { captureOperationError('replaceTrack', error); throw error; });
+  };
   const NativeAudioContext = window.AudioContext || window.webkitAudioContext;
   if (NativeAudioContext) {
     window.AudioContext = class FixtureAudioContext extends NativeAudioContext {
@@ -427,7 +443,7 @@ def register_browser_diagnostics(page: Page, events: list[str]) -> None:
     page.on("requestfailed", lambda _request: record("requestfailed"))
 
 
-def sanitized_call_state(value: dict[str, Any]) -> dict[str, str]:
+def sanitized_call_state(value: dict[str, Any]) -> dict[str, Any]:
     """Project only known enum values; discard notices, identifiers and media."""
     allowed = {
         "phase": {"idle", "prejoin", "joining", "connected", "reconnecting", "ending", "failed"},
@@ -435,10 +451,16 @@ def sanitized_call_state(value: dict[str, Any]) -> dict[str, str]:
         "microphonePermission": {"unknown", "requesting", "granted", "denied", "unavailable"},
         "cameraPermission": {"unknown", "requesting", "granted", "denied", "unavailable"},
     }
-    return {
+    result = {
         key: item if isinstance(item := value.get(key), str) and item in choices else "unknown"
         for key, choices in allowed.items()
     }
+    for key in ("sharingScreen", "screenChangePending"):
+        result[key] = value.get(key) is True
+    for key in ("remoteScreenCount", "displayRequests"):
+        item = value.get(key)
+        result[key] = item if type(item) is int and 0 <= item <= 32 else 0
+    return result
 
 
 def sanitized_media_state(value: Any) -> dict[str, Any]:
@@ -487,6 +509,9 @@ def sanitized_media_state(value: Any) -> dict[str, Any]:
         "audioContextStates": [enum(item, {"running", "suspended", "interrupted", "closed"})
                                for item in (states[:32] if isinstance(states, list) else [])],
         "sourceAudioTracks": audio_tracks(value.get("sourceAudioTracks")),
+        "operationErrors": [{"method": enum(item.get("method"), {"setLocalDescription", "setRemoteDescription", "addIceCandidate", "replaceTrack"}),
+                             "errorType": enum(item.get("errorType"), {"Error", "OperationError", "InvalidStateError", "InvalidModificationError", "TypeError", "NotSupportedError"})}
+                            for item in (value.get("operationErrors") or [])[:64] if isinstance(item, dict)],
     }
 
 
@@ -518,7 +543,7 @@ async def media_diagnostics(page: Page) -> dict[str, Any]:
           senderAudioTracks: audioTracks(peer.getSenders().map(sender => sender.track)),
           receiverAudioTracks: audioTracks(peer.getReceivers().map(receiver => receiver.track)), rtp});
       }
-      return {peerCount: connections.length, peers,
+      return {peerCount: connections.length, peers, operationErrors: window.__mediaOperationErrors || [],
         audioContextStates: (window.__audioContexts || []).slice(0, 32).map(reference => reference.deref()?.state),
         sourceAudioTracks: audioTracks((window.__callFixture?.userMediaStreams || []).flatMap(stream => stream.getTracks()))};
     }""")

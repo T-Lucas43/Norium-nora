@@ -95,3 +95,22 @@ Após CI/revisão: promover a imagem imutável do SHA exato, com backup e restau
 isolada conferidos, mesmas credenciais/volumes, rollback preservado e readiness
 PostgreSQL. Verificar `/api/system/release` e smoke; publicação não encerra as
 pendências operacionais C–E, jurídicas ou de ativação dos workers.
+
+### Revisão humana e última validação — 14/10
+
+- O usuário aprovou tecnicamente `274606b`: “Aprovo a revisão técnica”.
+- `9f424d3` conserva o peer criado por sinais anteriores à primeira admissão,
+  mantendo a substituição em nova admissão/reload. Passaram 67 testes focados,
+  TypeScript e 15/15 ensaios locais. CI integral: 48/54 navegador, três falhas
+  bloqueantes da apresentação e três transitórias; carga 3×100 aprovada.
+- A imagem já contém `libcurl3t64-gnutls` `8.18.0-1ubuntu2.8`. O scanner ainda
+  marcou `CVE-2026-92392`; Canonical USN-8927-1, tracker e changelog confirmam
+  a correção nessa versão. O usuário aprovou explicitamente tratar apenas essa
+  combinação como corrigida pelo fornecedor. A comprovação gera OpenVEX `fixed`
+  para PURL exato, revalida fontes oficiais, vincula imagem/revisão/relatório,
+  preserva relatório original e expira em 15/10/2026 às 20:33 UTC. Versão,
+  plataforma, imagem ou fontes divergentes bloqueiam. Outros achados mantêm o gate.
+- Diagnóstico de navegador registra somente enums/contadores/classes de erros
+  de operação, sem SDP, candidatos, IP, mídia, tickets ou conteúdo. O ensaio
+  focado antecipado não substitui o gate obrigatório de 54 cenários e carga.
+- O deploy ainda não foi realizado; homologação permanece em `637106e` saudável.

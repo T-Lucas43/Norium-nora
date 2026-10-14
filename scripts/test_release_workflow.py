@@ -69,7 +69,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("npm audit --omit=dev --audit-level=moderate", commands)
         self.assertNotIn("continue-on-error", validation)
 
-    def test_image_audit_pins_scanner_and_scans_exact_local_image_without_suppressions(self):
+    def test_image_audit_pins_scanner_and_preserves_raw_scan_with_reviewed_vendor_correction(self):
         job = self.workflow()["jobs"]["shard-image-security"]
         self.assertEqual(job["permissions"], {"contents": "read"})
         audit = next(step for step in job["steps"] if step.get("name") == "Audit exact image packages and browser inventory")
@@ -99,6 +99,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('image["Id"] != image_id', commands)
         self.assertIn('"NORIUM_RELEASE_SHA=" + commit', commands)
         self.assertLess(commands.index("sha256sum --check --strict"), commands.index('trivy" --version'))
+        self.assertEqual(commands.count('--vex "$evidence/ubuntu-vendor-fix.openvex.json"'), 1)
+        self.assertIn("python scripts/verify_ubuntu_curl_fix.py", commands)
+        self.assertIn("--installed-version", commands)
+        self.assertIn("--show-suppressed", commands)
+        self.assertLess(commands.index('image-vulnerabilities.json'), commands.index("verify_ubuntu_curl_fix.py"))
+        self.assertLess(commands.index('image-sbom.cdx.json'), commands.index("verify_ubuntu_curl_fix.py"))
 
     def test_image_audit_preserves_failed_gate_evidence_and_browser_version_hash(self):
         job = self.workflow()["jobs"]["shard-image-security"]

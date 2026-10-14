@@ -65,6 +65,8 @@ class BrowserHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({
             'phase': 'failed', 'socketState': 'open',
             'microphonePermission': 'unavailable', 'cameraPermission': 'unknown',
+            'sharingScreen': False, 'screenChangePending': False,
+            'remoteScreenCount': 0, 'displayRequests': 0,
         }, result)
 
     async def test_default_browser_uses_full_chromium_and_never_silently_falls_back(self):

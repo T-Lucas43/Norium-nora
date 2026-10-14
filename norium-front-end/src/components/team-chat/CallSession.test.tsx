@@ -201,6 +201,7 @@ function PrejoinProbe() {
     <button type="button" onClick={() => commands.setEntryCameraEnabled(true)}>Ativar câmera</button>
     <button type="button" onClick={() => void commands.setEntryPreviewEnabled(true)}>Mostrar prévia</button>
     <button type="button" onClick={() => void commands.enter()}>Entrar agora</button>
+    <button type="button" onClick={() => void commands.enter({ cameraEnabled: false })}>Entrar sem câmera</button>
   </>;
 }
 
@@ -531,6 +532,21 @@ describe("CallSession", () => {
     await waitFor(() => expect(mocked.runtime!.startCall).toHaveBeenCalledWith(
       { scope: "direct", title: "Member", recipientId: "member" },
       { microphoneMode: "listen-only", cameraEnabled: false },
+    ));
+  });
+
+  it("entrar sem câmera substitui a escolha da prévia sem depender de outro render", async () => {
+    mocked.runtime!.prepareAudio = vi.fn().mockResolvedValue(true);
+    mocked.runtime!.prepareCameraPreview = vi.fn().mockResolvedValue(true);
+    render(<CallSessionProvider session={authSession}><PrejoinProbe /></CallSessionProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Preparar direta" }));
+    await waitFor(() => expect(screen.getByLabelText("prejoin")).not.toHaveTextContent("none"));
+    fireEvent.click(screen.getByRole("button", { name: "Ativar câmera" }));
+    await waitFor(() => expect(screen.getByLabelText("prejoin")).toHaveTextContent("muted:true"));
+    fireEvent.click(screen.getByRole("button", { name: "Entrar sem câmera" }));
+    await waitFor(() => expect(mocked.runtime!.startCall).toHaveBeenCalledWith(
+      { scope: "direct", title: "Member", recipientId: "member" },
+      { microphoneMode: "muted", cameraEnabled: false },
     ));
   });
 

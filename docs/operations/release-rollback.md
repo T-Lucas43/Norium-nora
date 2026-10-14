@@ -1,22 +1,30 @@
-# Release, observabilidade e rollback
+# Release e rollback — GitHub e Shard Cloud
 
-O release publica imagem imutável, registra a imagem ativa anterior e mantém uma
-única revisão e réplica. Readiness verifica leitura/escrita/fsync e espaço no
-volume, além do PostgreSQL da Nora quando habilitado. Liveness continua leve em
-`/health` para não reiniciar uma instância por falha transitória de dependência.
+GitHub é fonte e produtor da imagem imutável. CI deve concluir validação,
+PostgreSQL, chamadas reais de browser, segurança da imagem e artefato de fonte.
+Console autenticado Shard pode transportar essa mesma imagem aprovada, verificando
+hashes das partes/arquivo e camadas. Não reconstruir código na VPS.
 
-Qualquer gate posterior ao deploy que falhar aciona o passo final de rollback. O
-workflow reaplica a imagem imutável anterior, mantém uma réplica, espera
-`/health/ready` e confirma que a referência ativa voltou exatamente à imagem
-registrada. Se o rollback falhar, o job permanece vermelho e exige intervenção.
+Antes da promoção registrar container/imagem anterior e políticas; fazer backup
+fresco de PostgreSQL e volume; provar restore isolado com contagens e hashes.
+Preservar secrets, volume, proxy, rede, sessões e rollback. Não imprimir conteúdo
+privado, configuração completa ou credenciais.
 
-Antes de uma migração incompatível, o operador deve provar restauração do backup
-e preparar uma migração reversa; a troca de imagem não reverte dados. O ensaio
-trimestral usa staging, provoca uma falha de smoke sintética, confirma a volta da
-imagem e mede o RTO. Registre somente revisão, digests, duração e resultado.
+Parar escritores para troca e manter container anterior recuperável. Novo runtime
+usa uma réplica, UID não root, rootfs readonly, CapDrop ALL, seccomp e
+no-new-privileges. Readiness confirma PostgreSQL e revisão; health prova liveness.
+Confirmar release público e smoke humano autenticado.
 
-Os diagnósticos autenticados expõem erros e p95 por integração. A operação deve
-encaminhar logs do Container Apps a um workspace externo e manter alertas para
-readiness, HTTP 5xx, latência, capacidade do volume, filas e falha de backup. O
-destinatário de plantão é configuração externa obrigatória e não deve ser
-inventado no repositório.
+Falha nos gates da promoção restaura container anterior com a mesma configuração,
+volume e digest e verifica readiness. Status continua falho se rollback não
+concluir. Trocar imagem não desfaz dados; migração incompatível precisa estratégia
+reversa previamente revisada e restauração provada.
+
+Restauração não pode ressuscitar dados excluídos: reaplicar ledger atual de
+exclusões conforme `backup-and-restore.md` antes de reabrir acessos; manter
+workers/integrações desligados no banco restaurado até concluir.
+
+Alertas do operador devem cobrir readiness, reinícios, HTTP 5xx, latência,
+capacidade, filas e falha de backup. Plantão e SLA são configurações externas a
+confirmar; não inventar contato no repositório. RTO real de rollback/restore deve
+ser medido em ensaio aprovado, com evidência minimizada.

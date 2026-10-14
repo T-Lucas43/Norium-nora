@@ -87,6 +87,21 @@ function dependencies(): MediaTransportDependencies {
 }
 
 describe("LiveKitMediaTransport", () => {
+  it("reports remote quality only for the current participant identity and clears it on exit", async () => {
+    const room = new FakeRoom();
+    const remote = { identity: "opaque-member-session", metadata: JSON.stringify({ userId: "member" }), tracks: [] };
+    room.remoteParticipants = [remote];
+    const transport = new LiveKitMediaTransportFactory({ getAccess: async () => ({ serverUrl: "wss://sfu.example.test", token: "temporary", expiresAt: "2099-01-01T00:00:00Z" }) }, { createRoom: () => room }).create(dependencies());
+    await transport.open({ callId: "call-quality", selfUserId: "owner", clientId: "client" }, media());
+    room.observer!.connectionQualityChanged("poor", false, remote);
+    expect(transport.snapshot().participantConnectionQuality?.member).toBe("poor");
+    room.observer!.connectionQualityChanged("excellent", false, { ...remote, identity: "unknown-tab" });
+    expect(transport.snapshot().participantConnectionQuality?.member).toBe("poor");
+    room.observer!.participantDisconnected(remote);
+    expect(transport.snapshot().participantConnectionQuality?.member).toBeUndefined();
+    await transport.close();
+    expect(transport.snapshot().participantConnectionQuality).toEqual({});
+  });
   it("requests a short-lived token for the exact admitted call and client", async () => {
     const request = vi.fn(async () => new Response(JSON.stringify({
       serverUrl: "wss://sfu.example.test",

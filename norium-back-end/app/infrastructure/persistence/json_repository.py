@@ -60,6 +60,15 @@ def _discard_cached(key: str) -> None:
         _cache_bytes -= entry[2]
 
 
+def forget_directory(directory: str | Path) -> int:
+    root = Path(directory).resolve()
+    with _cache_guard:
+        keys = [key for key in _cache if Path(key).is_relative_to(root)]
+        for key in keys:
+            _discard_cached(key)
+    return len(keys)
+
+
 def _remember(key: str, signature: tuple[int, int, int], payload: Any) -> None:
     global _cache_bytes
     size = signature[1]
@@ -161,7 +170,9 @@ def write_json(path: str | Path, payload: Any) -> None:
     from app.infrastructure.persistence.files import local_write_budget
     # Shared mode uses canonical PostgreSQL keys above. Local configuration and
     # disposable fixtures outside the managed data root retain the existing writer.
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    snapshot = copy.deepcopy(payload)
+    encoded = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
+    snapshot = json.loads(encoded)
     budget = local_write_budget(file_path, len(encoded.encode("utf-8"))) if file_path.resolve().is_relative_to(get_data_root().resolve()) else nullcontext()
 
     with budget, _lock_for(file_path):
@@ -175,16 +186,27 @@ def write_json(path: str | Path, payload: Any) -> None:
                 suffix=".tmp",
                 delete=False,
             ) as temporary_file:
+                temporary_path = Path(temporary_file.name)
                 temporary_file.write(encoded)
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
-                temporary_path = Path(temporary_file.name)
+                written = os.fstat(temporary_file.fileno())
+                signature = written.st_mtime_ns, written.st_size, written.st_ino
 
             for attempt in range(7):
                 try:
                     os.replace(temporary_path, file_path)
-                    with _cache_guard:
-                        _discard_cached(str(file_path.resolve()))
+                    key = str(file_path.resolve())
+                    if snapshot is None:
+                        # JSON null must still be diagnosed as invalid on read.
+                        with _cache_guard:
+                            _discard_cached(key)
+                    else:
+                        # Use the inode/signature of OUR temporary file, never a
+                        # post-replace stat that could belong to another writer.
+                        # A replacement by another process invalidates this
+                        # entry at the next read's normal signature comparison.
+                        _remember(key, signature, snapshot)
                     temporary_path = None
                     break
                 except PermissionError:

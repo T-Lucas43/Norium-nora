@@ -24,6 +24,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.modules.team import router as team
 from app.modules.team.studio_router import router as studio_router
+from app.modules.team.meeting_router import router as meeting_router
+from app.modules.team import meeting_router as meeting
+from app.modules.team.call_coordinator import _public_nora
+from app.modules.team.nora_call_agent import TranscriptSegment
+from app.modules.team.meeting_intelligence import MeetingFact, MeetingUnderstanding
 from app.modules.team import studio_router as studio
 from app.infrastructure import auth_sessions as fixture_sessions
 from app.services import brainstorm_store as studio_library
@@ -43,6 +48,7 @@ _RECORDING_LIMIT_ENV = {
     "orphanGraceSeconds": "TEAM_RECORDING_ORPHAN_GRACE_SECONDS",
 }
 _original_recording_env = {name: os.environ.get(name) for name in _RECORDING_LIMIT_ENV.values()}
+_original_nora_enabled = os.environ.get("NORA_CALL_ENABLED")
 _data = tempfile.TemporaryDirectory(prefix="norium-call-browser-")
 _data_root = Path(_data.name)
 _fixture_lock = asyncio.Lock()
@@ -57,6 +63,7 @@ def _base_users() -> list[dict[str, Any]]:
             "id": name,
             "nome": name.title(),
             "teamOwnerId": "owner",
+            "plan": "equipe",
             "status": "ativo",
             "teamChatEnabled": True,
             "permissions": {"chat": True, "nora": True},
@@ -135,6 +142,7 @@ _patches = [
     patch("app.core.tenant.get_data_root", return_value=_data_root),
     patch.object(fixture_sessions, "get_data_root", return_value=_data_root),
     patch.object(studio.nora_service, "perguntar_nora", AsyncMock(return_value="Plano sugerido pela Nora: validar as decisões e definir os próximos passos.")),
+    patch.object(meeting.nora_service, "perguntar_nora", AsyncMock(return_value='{"text":"A proposta será revisada, conforme a transcrição.","segmentIds":["nora-ui-1"]}')),
     patch.object(studio_library, "read_user_db", side_effect=lambda tenant, _db, fallback: team.read_json_file(_data_root / f"studio_library_{tenant}.json", fallback)),
     patch.object(studio_library, "write_user_db", side_effect=lambda tenant, _db, value: team.write_json_file(_data_root / f"studio_library_{tenant}.json", value)),
     patch.object(team, "UPLOAD_DIR", _data_root),
@@ -159,6 +167,7 @@ app.add_middleware(
 app.dependency_overrides[team.current_user] = fixture_user
 app.include_router(team.router)
 app.include_router(studio_router)
+app.include_router(meeting_router)
 
 
 @app.get("/__test__/studio-library")
@@ -254,6 +263,8 @@ async def reset_fixture() -> dict[str, Any]:
     async with _fixture_lock:
         closed = await _close_matching_connections()
         await _wait_for_websocket_handlers()
+        if _closing_connections:
+            await asyncio.wait_for(asyncio.gather(*list(_closing_connections.values())), WEBSOCKET_SHUTDOWN_DEADLINE_SECONDS)
         await _cancel_reconcile_tasks()
         await team.stop_recording_maintenance()
         team.manager.connections.clear()
@@ -264,10 +275,40 @@ async def reset_fixture() -> dict[str, Any]:
         team.manager.socket_session_version.clear()
         team._call_coordinator_instance = None
         team._recording_coordinator_instance = None
+        if _original_nora_enabled is None:
+            os.environ.pop("NORA_CALL_ENABLED", None)
+        else:
+            os.environ["NORA_CALL_ENABLED"] = _original_nora_enabled
+        meeting._results.clear()
+        meeting._pending.clear()
         _restore_recording_limits()
         _users = _base_users()
         _clear_fixture_files()
     return {"reset": True, "closedConnections": closed, "userCount": len(_users)}
+
+
+@app.post("/__test__/nora-ui/{call_id}")
+async def seed_nora_ui(call_id: str) -> dict:
+    """Synthetic read/WS boundary only; never enables an RTC agent or provider."""
+    os.environ["NORA_CALL_ENABLED"] = "1"
+    coordinator = team.call_coordinator()
+    runtime = coordinator._runtime("owner")
+    async with runtime.lock:
+        call = runtime.calls.get(call_id)
+        if not call:
+            raise HTTPException(404, "Chamada sintética não encontrada.")
+        audience = frozenset(call.get("participantSessions", {}))
+        session = coordinator._meeting_session(runtime, call_id)
+        values = (TranscriptSegment("nora-ui-1", call_id, "owner", 10, 15, "Decidimos revisar a proposta."),
+                  TranscriptSegment("nora-ui-2", call_id, "member", 16, 20, "CPF 123.456.789-00 senha=segredo."))
+        segments = session.append(values, audience, coordinator._now())
+        session.understanding = MeetingUnderstanding(decisions=(MeetingFact("nora-ui-1", values[0].text, "owner", 10, 15),))
+        state = _public_nora(call)
+        await team.manager.send_to_users("owner", set(audience), {
+            "type": "CALL_NORA_TRANSCRIPT", "callId": call_id, "revision": state["revision"],
+            "sequence": session.sequence, "segments": segments, "nora": state,
+        })
+    return {"syntheticTranscriptBoundary": True, "rtcAgentConnected": False, "liveProviders": False}
 
 
 @app.post("/__test__/users/{user_id}/status")

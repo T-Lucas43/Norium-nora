@@ -505,6 +505,11 @@ class RecordingCoordinator:
             )
             if team_usage + chunk_size > self._limits.max_team_bytes:
                 raise RecordingError(413, "Consumo de gravacoes da equipe acima do limite configurado.")
+            if isinstance(self._files, LocalRecordingFiles):
+                from app.infrastructure.storage_limits import workspace_usage
+                usage = await asyncio.to_thread(workspace_usage, actor.team_id, "primary")
+                if usage["usedBytes"] + chunk_size > usage["quotaBytes"]:
+                    raise RecordingError(413, "A cota de armazenamento deste workspace foi atingida.")
             temp_name = str(recording.get("tempStoredName") or "")
             if not temp_name:
                 raise RecordingError(500, "Arquivo temporario da gravacao indisponivel.")

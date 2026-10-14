@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import unittest
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -15,6 +16,17 @@ from app.services.conversation_store import (
     whatsapp_conversation_mutation_lock,
     whatsapp_conversation_mutation_locks,
 )
+from app.core.request_context import current_workspace_id
+
+
+def bind_approval(approval: dict, user_id: str) -> dict:
+    approval["payload"].update(ownerId=user_id, sender="5511999990000")
+    approval["metadata"] = {"workspace": current_workspace_id(), "version": operations_service.WHATSAPP_EXACT_VERSION}
+    approval["expiresAt"] = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    approval["digest"] = operations_service.approval_digest(
+        approval["action"], approval["source"], approval["title"], approval.get("description", ""),
+        approval["payload"], current_workspace_id(), user_id, operations_service.WHATSAPP_EXACT_VERSION)
+    return approval
 
 
 def owner(user_id: str = "tenant-nora") -> dict:
@@ -145,6 +157,9 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         whatsapp_conversation_mutation_locks.clear()
         operations_service.approval_decision_locks.clear()
+        self.sender_patch = patch.object(operations_service, "whatsapp_sender", AsyncMock(return_value="5511999990000"))
+        self.sender_patch.start()
+        self.addCleanup(self.sender_patch.stop)
 
     def tearDown(self) -> None:
         whatsapp_conversation_mutation_locks.clear()
@@ -164,7 +179,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.dict(os.environ, {"NORA_INTENT_LLM": "0"}),
             patch.object(nora_router, "prepare_whatsapp_action", AsyncMock(return_value=prepared)),
-            patch.object(nora_router, "create_approval", create),
+            patch.object(operations_service, "create_approval", create),
             patch.object(
                 nora_router.wb,
                 "get_owned_binding",
@@ -201,7 +216,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.dict(os.environ, {"NORA_INTENT_LLM": "0"}),
             patch.object(nora_router, "prepare_whatsapp_action", AsyncMock(return_value=prepared)),
-            patch.object(nora_router, "create_approval", AsyncMock(return_value={"id": "approval-2"})),
+            patch.object(operations_service, "create_approval", AsyncMock(return_value={"id": "approval-2"})),
             patch.object(
                 nora_router.wb,
                 "get_owned_binding",
@@ -216,7 +231,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("whatsapp", direct["intent"])
 
     async def test_approved_executor_uses_authenticated_tenant(self) -> None:
-        send = AsyncMock(return_value={"agent_id": "mensagens", "status": "enviado", "sent": True})
+        send = AsyncMock(return_value={"agent_id": "mensagens", "status": "enviado", "sent": True, "messageId": "provider-test-1"})
         receipt = AsyncMock(return_value={"id": "receipt-1"})
         approval = {
             "id": "approval-1",
@@ -242,7 +257,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(operations_service, "record_receipt", receipt),
         ):
-            result = await operations_service.execute_approved_action(owner("tenant-real"), approval)
+            result = await operations_service.execute_approved_action(owner("tenant-real"), bind_approval(approval, "tenant-real"))
 
         self.assertTrue(result["ok"])
         self.assertEqual("tenant-real", send.await_args.kwargs["user_id"])
@@ -278,6 +293,42 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["ok"])
         self.assertIn("permissao", result["error"])
         send.assert_not_awaited()
+
+    async def test_tampered_or_legacy_approval_never_sends(self) -> None:
+        import copy
+        base = bind_approval({"id": "approval-exact", "title": "Enviar WhatsApp para Ana", "description": "Oi",
+            "action": "nora_whatsapp_execute", "source": "whatsapp", "payload": {
+                "originalMessage": "mande oi", "conversationId": "5511999999999@c.us",
+                "recipientName": "Ana", "messageText": "Oi", "instanceId": "INST-EXACT"}}, "tenant-exact")
+        mutations = [
+            lambda a: a.pop("digest"),
+            lambda a: a["payload"].update(messageText="Outro texto"),
+            lambda a: a["payload"].update(conversationId="5511888880000@c.us"),
+            lambda a: a["payload"].update(ownerId="another-user"),
+            lambda a: a["metadata"].update(workspace="second"),
+            lambda a: a.update(expiresAt=(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()),
+        ]
+        for mutate in mutations:
+            approval = copy.deepcopy(base); mutate(approval)
+            with (patch("app.services.agent_manager.AgentManager.execute_message", AsyncMock()) as send,
+                  patch.object(operations_service, "record_receipt", AsyncMock(return_value={"id": "receipt"}))):
+                result = await operations_service.execute_approved_action(owner("tenant-exact"), approval)
+                self.assertFalse(result["ok"])
+                send.assert_not_awaited()
+
+    async def test_changed_sender_never_sends(self) -> None:
+        approval = bind_approval({"id": "approval-sender", "title": "Enviar WhatsApp", "description": "Oi",
+            "action": "nora_whatsapp_execute", "source": "whatsapp", "payload": {
+                "originalMessage": "mande oi", "conversationId": "5511999999999@c.us",
+                "recipientName": "Ana", "messageText": "Oi", "instanceId": "INST-EXACT"}}, "tenant-exact")
+        with (patch.object(operations_service, "whatsapp_sender", AsyncMock(return_value="5511777770000")),
+              patch("app.services.wapi_binding.get_owned_binding",
+                    return_value=SimpleNamespace(exists=True, state="connected", instance_id="INST-EXACT")),
+              patch("app.services.agent_manager.AgentManager.execute_message", AsyncMock()) as send,
+              patch.object(operations_service, "record_receipt", AsyncMock(return_value={"id": "receipt"}))):
+            result = await operations_service.execute_approved_action(owner("tenant-exact"), approval)
+            self.assertFalse(result["ok"]); self.assertIn("remetente", result["error"])
+            send.assert_not_awaited()
 
     async def test_message_agent_keeps_approved_text_exact_in_local_history(self) -> None:
         from app.services.agent_manager import AgentManager
@@ -328,6 +379,10 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             patch.object(operations_service, "list_items", AsyncMock(return_value=[current])),
             patch.object(operations_service, "replace_item", AsyncMock(side_effect=replace)),
             patch.object(operations_service, "record_audit", AsyncMock()),
+            patch("app.services.wapi_binding.get_owned_binding",
+                  return_value=SimpleNamespace(exists=True, state="connected", instance_id="INST-EDIT")),
+            patch("app.services.nora_whatsapp_action.resolve_whatsapp_recipient", AsyncMock(return_value={
+                "status": "resolved", "conversation_id": "5511999999999@c.us", "display_name": "Ana", "is_group": False})),
         ):
             edited = await operations_service.edit_approval(
                 owner("tenant-edit"),
@@ -343,8 +398,11 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("5511999999999@c.us", edited["payload"]["conversationId"])
         self.assertEqual("Ana", edited["payload"]["recipientName"])
         self.assertEqual("Enviar mensagem no WhatsApp para Ana", edited["title"])
+        self.assertTrue(edited["digest"])
+        self.assertEqual("tenant-edit", edited["payload"]["ownerId"])
+        self.assertEqual("5511999990000", edited["payload"]["sender"])
 
-        send = AsyncMock(return_value={"status": "enviado", "sent": True})
+        send = AsyncMock(return_value={"status": "enviado", "sent": True, "messageId": "provider-test-edit"})
         with (
             patch("app.services.agent_manager.AgentManager.execute_message", send),
             patch(
@@ -413,7 +471,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ),
             patch.object(nora_router, "gerar_texto_de_envio_whatsapp", AsyncMock(return_value="Texto final revisavel")),
-            patch.object(nora_router, "create_approval", create),
+            patch.object(operations_service, "create_approval", create),
             patch.object(
                 nora_router.wb,
                 "get_owned_binding",
@@ -462,7 +520,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(operations_service, "record_receipt", AsyncMock(return_value={"id": "receipt-binding"})),
         ):
-            result = await operations_service.execute_approved_action(owner("tenant-binding"), approval)
+            result = await operations_service.execute_approved_action(owner("tenant-binding"), bind_approval(approval, "tenant-binding"))
 
         self.assertFalse(result["ok"])
         self.assertIn("mudou", result["error"])
@@ -488,7 +546,8 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             return dict(state)
 
         execute = AsyncMock(return_value={"ok": True, "result": {"status": "enviado"}})
-        decision = ApprovalDecision(decision="approved")
+        state["digest"] = "synthetic-revision"
+        decision = ApprovalDecision(decision="approved", expectedDigest="synthetic-revision")
         with (
             patch.object(operations_service, "list_items", AsyncMock(side_effect=list_current)),
             patch.object(operations_service, "replace_item", AsyncMock(side_effect=replace)),
@@ -528,7 +587,8 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             return {"ok": True, "result": {"status": "enviado"}}
 
         execute = AsyncMock(side_effect=execute_once)
-        decision = ApprovalDecision(decision="approved")
+        state["digest"] = "synthetic-revision"
+        decision = ApprovalDecision(decision="approved", expectedDigest="synthetic-revision")
         with (
             patch.object(operations_service, "list_items", AsyncMock(side_effect=list_current)),
             patch.object(operations_service, "replace_item", AsyncMock(side_effect=replace)),
@@ -582,7 +642,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             result = await operations_service.execute_approved_action(owner("tenant-compound"), legacy)
 
         self.assertFalse(result["ok"])
-        self.assertIn("aprovacao individual", result["error"])
+        self.assertIn("cada operação exata", result["error"])
         execute_plan.assert_not_awaited()
 
 

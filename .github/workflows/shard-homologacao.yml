@@ -63,12 +63,13 @@ jobs:
           python -m pip check
 
       - name: Validate release workflow and deterministic Shard packaging
-        run: python -m unittest scripts.test_release_workflow scripts.test_shard_release_package scripts.test_deploy_shard_vps scripts.test_split_shard_image_artifact -v
+        run: python -m unittest scripts.test_release_workflow scripts.test_shard_release_package scripts.test_deploy_shard_vps scripts.test_split_shard_image_artifact scripts.test_verify_ubuntu_curl_fix -v
 
       - name: Scan backend dependencies and source
         working-directory: norium-back-end
         run: |
           pip-audit -r requirements.lock.txt -f cyclonedx-json -o ../output/backend-sbom.cdx.json
+          pip-audit --require-hashes --no-deps --disable-pip -r requirements-nora-call.lock.txt -f cyclonedx-json -o ../output/nora-call-sbom.cdx.json
           bandit -q -r app -x tests -ll
 
       - name: Preserve revision-bound backend SBOM
@@ -197,6 +198,27 @@ jobs:
 
       - name: Install isolated Chromium runtime
         run: python -m playwright install --with-deps chromium
+
+      - name: Capture focused presentation diagnostics before the full gate
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set +e
+          python norium-front-end/tests/browser/team_call_e2e.py \
+            --scenario call_layout --repeat 1 \
+            --artifacts-dir output/team-call-diagnostics
+          diagnostic_status=$?
+          echo "Focused diagnostic status=${diagnostic_status}; the mandatory full gate follows."
+          exit 0
+
+      - name: Preserve focused aggregate diagnostics
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: team-call-diagnostics-${{ github.run_id }}
+          path: output/team-call-diagnostics/**
+          if-no-files-found: error
+          retention-days: 5
 
       - name: Exercise real browser media, signaling, and load gates three times
         shell: bash
@@ -341,9 +363,17 @@ jobs:
             --ignorefile "$evidence/empty-trivyignore" --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
             --exit-code 0 --format cyclonedx --output "$evidence/image-sbom.cdx.json" "$NORIUM_AUDIT_IMAGE_ID"
           cp "$RUNNER_TEMP/trivy-cache/db/metadata.json" "$evidence/trivy-db-metadata.json"
+          # Human-approved Canonical backport, verified anew against both official
+          # sources and the exact installed package. Raw reports stay unchanged;
+          # every other HIGH/CRITICAL remains blocking. Verification expires.
+          installed_curl="$(docker run --rm --network none --read-only --cap-drop=ALL \
+            --security-opt no-new-privileges --entrypoint dpkg-query "$NORIUM_AUDIT_IMAGE_ID" \
+            -W -f='${Version}' libcurl3t64-gnutls)"
+          python scripts/verify_ubuntu_curl_fix.py --evidence-dir "$evidence" --installed-version "$installed_curl"
           "$scanner" --config= --cache-dir "$RUNNER_TEMP/trivy-cache" --timeout 15m image \
             --disable-telemetry --offline-scan --skip-db-update --image-src docker --scanners vuln --pkg-types os,library \
             --ignorefile "$evidence/empty-trivyignore" --severity HIGH,CRITICAL --exit-code 1 --exit-on-eol 1 \
+            --vex "$evidence/ubuntu-vendor-fix.openvex.json" --show-suppressed \
             --format json --output "$evidence/image-vulnerability-gate.json" "$NORIUM_AUDIT_IMAGE_ID"
 
       - name: Bind image audit reports to exact image and revision
@@ -356,7 +386,8 @@ jobs:
           output = pathlib.Path(os.environ["RUNNER_TEMP"]) / "shard-image-audit"
           output.mkdir(exist_ok=True)
           expected = ["image-provenance.json", "chromium-inventory.json", "image-vulnerabilities.json",
-                      "image-sbom.cdx.json", "image-vulnerability-gate.json", "trivy-db-metadata.json", "trivy-version.txt"]
+                      "image-sbom.cdx.json", "image-vulnerability-gate.json", "trivy-db-metadata.json", "trivy-version.txt",
+                      "ubuntu-vendor-fix.openvex.json", "ubuntu-vendor-fix-receipt.json"]
           provenance_file = output / "image-provenance.json"
           provenance = json.loads(provenance_file.read_text()) if provenance_file.exists() else {}
           files = [{"path": name, "sha256": hashlib.sha256((output / name).read_bytes()).hexdigest()}

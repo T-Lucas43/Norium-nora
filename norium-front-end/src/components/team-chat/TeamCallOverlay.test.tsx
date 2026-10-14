@@ -49,6 +49,11 @@ function sessionProps(call: ReturnTypeOfTeamCall) {
   };
 }
 
+function clickMenuControl(name: string) {
+  if (!screen.queryByRole("button", { name })) fireEvent.click(screen.getByRole("button", { name: "Mais opções da chamada" }));
+  fireEvent.click(screen.getByRole("button", { name }));
+}
+
 describe("tela da reuniao do Modo Equipe", () => {
   it("mostra rejeicao de capacidade mesmo sem chamada ativa", () => {
     const dismissFailure = vi.fn();
@@ -258,6 +263,7 @@ describe("tela da reuniao do Modo Equipe", () => {
 
     const view = render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Mais opções da chamada" }));
     expect(screen.getByRole("button", { name: "Parar gravação" })).toBeInTheDocument();
     expect(screen.getByText("Todos foram avisados")).toBeInTheDocument();
     expect(screen.getByText(/Upload 50%/)).toBeInTheDocument();
@@ -270,7 +276,7 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByRole("status", { name: "Estados da chamada" })).toHaveTextContent("Gravação: ativa");
     expect(screen.getByText(/01:05/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Configurar qualidade da transmissão" }));
+    clickMenuControl("Configurar qualidade da transmissão");
     fireEvent.change(screen.getByLabelText("Qualidade da transmissão"), { target: { value: "720p" } });
     fireEvent.change(screen.getByLabelText("Taxa de quadros"), { target: { value: "60" } });
     expect(call.selectScreenShareQuality).toHaveBeenCalledWith("720p");
@@ -296,7 +302,7 @@ describe("tela da reuniao do Modo Equipe", () => {
     fireEvent.click(screen.getByRole("button", { name: "Restaurar chamada" }));
     expect(screen.queryByLabelText("Chamada minimizada")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Selecionar câmera e dispositivos de áudio" }));
+    clickMenuControl("Selecionar câmera e dispositivos de áudio");
     expect(screen.getByLabelText("Dispositivos da chamada")).toBeInTheDocument();
     expect(screen.getByText("Dispositivo de entrada")).toBeInTheDocument();
     expect(screen.getByText("Dispositivo de saída")).toBeInTheDocument();
@@ -368,7 +374,7 @@ describe("tela da reuniao do Modo Equipe", () => {
     } as unknown as ReturnTypeOfTeamCall;
 
     render(<TeamCallOverlay {...sessionProps(call)} members={[]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Selecionar câmera e dispositivos de áudio" }));
+    clickMenuControl("Selecionar câmera e dispositivos de áudio");
     expect(screen.getByText("Câmera · permissão pendente")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Permitir e listar câmeras" }));
     await waitFor(() => expect(requestCameraPermission).toHaveBeenCalledOnce());
@@ -471,9 +477,9 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(requestFullscreen).toHaveBeenCalledOnce();
     fireEvent.change(screen.getByRole("slider", { name: "Volume de Fernando" }), { target: { value: "175" } });
     expect(screen.getByText("175%")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Mutar fones" }));
+    clickMenuControl("Mutar fones");
     expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", true);
-    fireEvent.click(screen.getByRole("button", { name: "Ativar fones" }));
+    clickMenuControl("Ativar fones");
     expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", false);
     fireEvent.click(screen.getByRole("button", { name: "Silenciar microfone de Fernando para mim" }));
     expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", true);

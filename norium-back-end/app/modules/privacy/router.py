@@ -23,6 +23,8 @@ from app.core.tenant import get_data_root, read_json_file, safe_tenant_id, write
 from app.modules.auth import router as auth
 from app.infrastructure.persistence import postgres_store
 from app.shared.schemas import StrictModel
+from app.modules.privacy.storage_catalog import (legacy_uploads, sqlite_personal_data,
+                                                clear_personal_cache, ROW_SCOPES)
 
 
 router = APIRouter(prefix="/api/auth/privacy", tags=["Privacidade"])
@@ -38,6 +40,12 @@ class DeleteAccountPayload(StrictModel):
 def _redact(value: Any) -> Any:
     if isinstance(value, list):
         return [_redact(item) for item in value]
+    if isinstance(value, str) and value.lstrip().startswith(("{", "[")):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return value
+        return json.dumps(_redact(decoded), ensure_ascii=False) if isinstance(decoded, (dict, list)) else value
     if not isinstance(value, dict):
         return value
     return {
@@ -99,6 +107,8 @@ def _build_export(user: dict[str, Any]) -> bytes:
             manifest.append({"path": "dados/postgresql-relacional.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
         elif directory.exists():
             for path in sorted(item for item in directory.rglob("*") if item.is_file()):
+                if path.is_symlink() or not path.resolve().is_relative_to(directory.resolve()):
+                    raise RuntimeError("unsafe personal export path")
                 relative = path.relative_to(directory)
                 data = path.read_bytes()
                 if path.suffix.casefold() == ".json":
@@ -109,12 +119,69 @@ def _build_export(user: dict[str, Any]) -> bytes:
                 name = f"dados/{relative.as_posix()}"
                 archive.writestr(name, data)
                 manifest.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        from app.infrastructure.persistence import files
+        from app.modules.privacy.shared_data import personal_team_messages
+        team_messages, team_attachments = personal_team_messages(user)
+        if team_messages:
+            data = json.dumps(_redact(team_messages), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            archive.writestr("dados/equipe-mensagens-pessoais.json", data)
+            manifest.append({"path": "dados/equipe-mensagens-pessoais.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        for path in sorted(set(team_attachments)):
+            data = files.read(path)
+            name = "dados/equipe-anexos-pessoais/" + path.name
+            archive.writestr(name, data)
+            manifest.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        for path in legacy_uploads(user_id):
+            data = files.read(path)
+            name = "dados/anexos-legados/" + path.relative_to(get_data_root()).as_posix()
+            archive.writestr(name, data)
+            manifest.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        uploads = _chat_upload_directory(user_id)
+        if not (postgres_store.configured() or postgres_store.required()) and uploads.is_dir():
+            for path in sorted(uploads.rglob("*")):
+                if path.is_file() and not path.is_symlink():
+                    data = path.read_bytes()
+                    name = "dados/" + path.relative_to(get_data_root()).as_posix()
+                    archive.writestr(name, data)
+                    manifest.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        from app.modules.privacy.brain_data import brain_personal_data
+        brain_rows = brain_personal_data(user_id)
+        if brain_rows:
+            data = json.dumps(_redact(brain_rows), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            archive.writestr("dados/cerebro-relacional.json", data)
+            manifest.append({"path": "dados/cerebro-relacional.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        local_rows = sqlite_personal_data(user_id)
+        if local_rows:
+            data = json.dumps(_redact(local_rows), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            archive.writestr("dados/sqlite-relacional.json", data)
+            manifest.append({"path": "dados/sqlite-relacional.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        from app.infrastructure.auth_sessions import export_personal_sessions
+        sessions = export_personal_sessions(user_id)
+        if sessions["sessions"] or sessions["events"]:
+            data = json.dumps(sessions, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            archive.writestr("dados/sessoes-eventos.json", data)
+            manifest.append({"path": "dados/sessoes-eventos.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        from app.services.system_logs import personal_logs
+        logs = personal_logs(user_id)
+        if logs:
+            data = json.dumps(_redact(logs), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            archive.writestr("dados/logs-sistema.json", data)
+            manifest.append({"path": "dados/logs-sistema.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
         manifest_bytes = json.dumps({"generatedAt": datetime.now(timezone.utc).isoformat(), "files": manifest}, ensure_ascii=False, indent=2).encode("utf-8")
         archive.writestr("manifesto.json", manifest_bytes)
     return stream.getvalue()
 
 
 def _purge_personal_files(user_id: str) -> None:
+    from app.infrastructure.persistence import files
+    for path in legacy_uploads(user_id):
+        files.delete(path)
+    from app.modules.privacy.brain_data import brain_personal_data
+    brain_personal_data(user_id, purge=True)
+    sqlite_personal_data(user_id, purge=True)
+    from app.services.system_logs import personal_logs
+    personal_logs(user_id, purge=True)
+    clear_personal_cache(user_id)
     if postgres_store.configured() or postgres_store.required():
         prefixes = (f"user_{safe_tenant_id(user_id)}/", f"{safe_tenant_id(user_id)}/",
                     f"uploads/{safe_tenant_id(user_id)}/")
@@ -123,7 +190,7 @@ def _purge_personal_files(user_id: str) -> None:
         for key in {key for prefix in prefixes for key in postgres_store.list_blob_keys(prefix)}:
             postgres_store.delete_blob(key)
         _purge_postgres_relational(user_id)
-        return
+        # Local remnants from a prior cutover are also personal data.
     for directory in (_user_directory(user_id), _chat_upload_directory(user_id)):
         if directory.exists():
             shutil.rmtree(directory)
@@ -131,6 +198,22 @@ def _purge_personal_files(user_id: str) -> None:
 
 def _table_exists(db: Any, table: str) -> bool:
     return db.execute("SELECT to_regclass(%s) AS name", (table,)).fetchone()["name"] is not None
+
+
+def _postgres_tombstone_ids(db: Any, user_id: str, workspace_id: str | None = None) -> list[str]:
+    from app.modules.privacy.storage_catalog import tombstone_ids
+    identifiers = set()
+    if _table_exists(db, "nora_jobs"):
+        query, params = "SELECT * FROM nora_jobs WHERE (tenant=%s OR actor=%s)", (user_id, user_id)
+        if workspace_id is not None:
+            query, params = query + " AND workspace=%s", params + (workspace_id,)
+        identifiers.update(tombstone_ids([dict(row) for row in db.execute(query, params).fetchall()]))
+    if _table_exists(db, "nora_tombstone_scopes"):
+        query, params = "SELECT id FROM nora_tombstone_scopes WHERE (tenant=%s OR actor=%s)", (user_id, user_id)
+        if workspace_id is not None:
+            query, params = query + " AND workspace=%s", params + (workspace_id,)
+        identifiers.update(row["id"] for row in db.execute(query, params).fetchall())
+    return sorted(identifiers)
 
 
 def _postgres_relational_export(user_id: str) -> dict[str, Any]:
@@ -157,10 +240,26 @@ def _postgres_relational_export(user_id: str) -> dict[str, Any]:
         "nora_budget": ("account=%s", (user_id,)),
     }
     exported: dict[str, Any] = {}
+    for table, fields in ROW_SCOPES.items():
+        queries.setdefault(table, (" OR ".join(f"{field}=%s" for field in fields.split("|")),
+                                  tuple(user_id for _ in fields.split("|"))))
     with postgres_store.connection() as db:
+        from app.modules.privacy.storage_catalog import validate_postgres_coverage
+        validate_postgres_coverage(db)
+        if _table_exists(db, "nora_tombstones"):
+            rows = db.execute("SELECT * FROM nora_tombstones WHERE id=ANY(%s)", (_postgres_tombstone_ids(db, user_id),)).fetchall()
+            if rows:
+                exported["nora_tombstones"] = [dict(row) for row in rows]
         for table, (where, params) in queries.items():
             if not _table_exists(db, table):
                 continue
+            if table in ROW_SCOPES:
+                columns = {row["column_name"] for row in db.execute("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s", (table,)).fetchall()}
+                from app.modules.privacy.storage_catalog import scope_clause
+                scope = scope_clause(table, columns, user_id, placeholder="%s")
+                if scope is None:
+                    raise RuntimeError("personal storage without privacy coverage")
+                where, params = scope
             row = db.execute(f"SELECT COALESCE(jsonb_agg(to_jsonb(t)), '[]'::jsonb) AS rows FROM {table} t WHERE {where}", params).fetchone()  # nosec B608 -- fixed table/where map
             if row and row["rows"]:
                 exported[table] = row["rows"]
@@ -190,9 +289,24 @@ def _purge_postgres_relational(user_id: str) -> None:
         ("nora_jobs", "tenant=%s OR actor=%s", (user_id, user_id)),
         ("nora_budget", "account=%s", (user_id,)),
     )
+    covered = {statement[0] for statement in statements}
+    statements += tuple((table, " OR ".join(f"{field}=%s" for field in fields.split("|")),
+                         tuple(user_id for _ in fields.split("|")))
+                        for table, fields in ROW_SCOPES.items() if table not in covered)
     with postgres_store.connection() as db:
+        from app.modules.privacy.storage_catalog import validate_postgres_coverage
+        validate_postgres_coverage(db)
+        if _table_exists(db, "nora_tombstones"):
+            db.execute("DELETE FROM nora_tombstones WHERE id=ANY(%s)", (_postgres_tombstone_ids(db, user_id),))
         for table, where, params in statements:
             if _table_exists(db, table):
+                if table in ROW_SCOPES:
+                    columns = {row["column_name"] for row in db.execute("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s", (table,)).fetchall()}
+                    from app.modules.privacy.storage_catalog import scope_clause
+                    scope = scope_clause(table, columns, user_id, placeholder="%s")
+                    if scope is None:
+                        raise RuntimeError("personal storage without privacy coverage")
+                    where, params = scope
                 db.execute(f"DELETE FROM {table} WHERE {where}", params)  # nosec B608 -- fixed table/where tuple
 
 
@@ -235,12 +349,26 @@ def _purge_due_workspace_directories(now: datetime | None = None) -> int:
             target = (account_directory / f"workspace_{workspace_id}").resolve()
             if target.parent != account_directory or not target.name.startswith("workspace_"):
                 continue
+            tenant_id = account_directory.name.removeprefix("user_")
+            from app.modules.privacy.deletion_ledger import record_deletion
+            record_deletion(tenant_id, workspace_id)
+            from app.modules.privacy.storage_catalog import personal_documents
+            from app.infrastructure.persistence import files, document_cache
+            scoped_prefix = f"{account_directory.name}/workspace_{workspace_id}/"
+            documents = [(key, payload) for key, payload in personal_documents(tenant_id) if key.startswith(scoped_prefix)]
+            for path in legacy_uploads(tenant_id, documents=documents):
+                files.delete(path)
+            sqlite_personal_data(tenant_id, purge=True, workspace_id=workspace_id)
+            from app.modules.privacy.brain_data import brain_personal_data
+            brain_personal_data(tenant_id, purge=True, workspace_id=workspace_id)
             if in_postgres:
                 tenant_id = account_directory.name.removeprefix("user_")
                 prefix = f"{account_directory.name}/workspace_{workspace_id}/"
                 document_keys = postgres_store.list_document_keys(prefix)
                 blob_keys = postgres_store.list_blob_keys(prefix)
                 with postgres_store.connection() as db:
+                    if _table_exists(db, "nora_tombstones"):
+                        db.execute("DELETE FROM nora_tombstones WHERE id=ANY(%s)", (_postgres_tombstone_ids(db, tenant_id, workspace_id),))
                     for table, where in (
                         ("scheduling_notification_attempts", "tenant_id=%s AND workspace_id=%s"),
                         ("scheduling_holds", "page_id IN (SELECT id FROM scheduling_pages WHERE tenant_id=%s AND workspace_id=%s)"),
@@ -262,8 +390,17 @@ def _purge_due_workspace_directories(now: datetime | None = None) -> int:
                         db.execute("DELETE FROM norium_documents WHERE store_key=%s", (key,))
                     for key in blob_keys:
                         db.execute("DELETE FROM norium_blobs WHERE object_key=%s", (key,))
+                    for table in ("norium_outbound_receipts", "nora_outbound_receipts", "nora_knowledge_embeddings", "nora_tombstone_scopes"):
+                        if _table_exists(db, table):
+                            columns = {row["column_name"] for row in db.execute("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s", (table,)).fetchall()}
+                            from app.modules.privacy.storage_catalog import scope_clause
+                            clause = scope_clause(table, columns, tenant_id, placeholder="%s")
+                            if clause and "workspace" in columns:
+                                db.execute(f"DELETE FROM {table} WHERE ({clause[0]}) AND workspace=%s", clause[1] + (workspace_id,))  # nosec B608 -- fixed map
+                document_cache.forget_prefix(prefix)
             elif target.exists():
                 shutil.rmtree(target)
+            document_cache.forget_prefix(scoped_prefix)
             workspace["name"] = "Workspace excluido"
             for key in ("legalName", "document", "domain", "logoUrl", "emailSignature", "reportFooter"):
                 workspace[key] = ""
@@ -286,12 +423,19 @@ async def run_data_lifecycle_maintenance() -> dict[str, int]:
             for item in store.get("users", [])
             if item.get("status") == "inativo" and item.get("deletionStatus") == "purging"
         ]
+        pending_users = {str(item.get("id") or ""): dict(item) for item in store.get("users", []) if str(item.get("id") or "") in pending_ids}
     for user_id in pending_ids:
         try:
+            from app.modules.privacy.google_revocation import revoke_google_for_account
+            await asyncio.to_thread(revoke_google_for_account, user_id)
+            from app.modules.privacy.deletion_ledger import record_deletion
+            await asyncio.to_thread(record_deletion, user_id)
+            from app.modules.privacy.shared_data import personal_team_messages
+            await asyncio.to_thread(personal_team_messages, pending_users[user_id], purge=True)
             await asyncio.to_thread(_purge_personal_files, user_id)
             from app.infrastructure.auth_sessions import erase_personal_sessions
             await asyncio.to_thread(erase_personal_sessions, user_id)
-        except OSError:
+        except (OSError, RuntimeError):
             logger.exception("Personal data purge failed for a pending tombstone")
             continue
         async with auth.auth_lock:
@@ -303,7 +447,9 @@ async def run_data_lifecycle_maintenance() -> dict[str, int]:
                 await auth.write_user_store(store)
                 accounts += 1
     workspaces = await asyncio.to_thread(_purge_due_workspace_directories)
-    return {"accounts": accounts, "workspaces": workspaces}
+    from app.modules.privacy.retention import maintain_retention
+    retained = await asyncio.to_thread(maintain_retention)
+    return {"accounts": accounts, "workspaces": workspaces, **retained}
 
 
 async def data_lifecycle_worker() -> None:
@@ -359,6 +505,15 @@ async def export_personal_data(user: dict[str, Any] = Depends(auth.current_user)
     )
 
 
+@router.get("/storage")
+async def storage_usage(user: dict[str, Any] = Depends(auth.current_user)) -> dict[str, Any]:
+    from app.core.identity import require_team_id
+    from app.core.request_context import current_workspace_id
+    from app.infrastructure.storage_limits import workspace_usage
+    # Authentication middleware has already checked access to this workspace.
+    return await asyncio.to_thread(workspace_usage, require_team_id(user), current_workspace_id())
+
+
 @router.delete("/account")
 async def delete_own_account(
     payload: DeleteAccountPayload,
@@ -380,6 +535,8 @@ async def delete_own_account(
         if active_members:
             raise HTTPException(status_code=409, detail="Remova ou transfira os membros ativos antes de excluir a conta proprietaria.")
         deleted_at = datetime.now(timezone.utc).isoformat()
+        from app.modules.privacy.deletion_ledger import record_deletion
+        await asyncio.to_thread(record_deletion, str(target["id"]))
         target["status"] = "inativo"
         target["sessionVersion"] = int(target.get("sessionVersion") or 0) + 1
         target["deletionStatus"] = "purging"

@@ -24,6 +24,7 @@ from app.core.tenant import get_data_root, is_production, public_api_url, read_p
 from app.core.credentials import CredentialConfigurationError, CredentialRecoveryError
 from app.services import oauth_credentials
 from app.services.oauth_state import active_oauth_attempts, find_oauth_attempt, oauth_attempts_payload
+from app.core.identity import require_user_id
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -62,8 +63,9 @@ class CalendarConfigError(RuntimeError):
 
 
 class CalendarService:
-    def __init__(self, user_id: str = "lucas123") -> None:
-        self.user_id = user_id
+    def __init__(self, user_id: str) -> None:
+        # Sem usuario identificado nao ha conta padrao: falha fechada.
+        self.user_id = require_user_id({"id": user_id})
 
     @staticmethod
     def user_id_from_state(state: str | None) -> str | None:
@@ -262,6 +264,20 @@ class CalendarService:
              if isinstance(item, dict) and item.get("id") == local_id),
             None,
         )
+
+    @serialized_calendar_mutation
+    def get_event(self, event_id: str) -> dict[str, Any]:
+        """Read one exact event without substituting a local event after remote failure."""
+        if str(event_id).startswith("local_"):
+            found = next((item for item in self._read_profile_section("calendarLocalEvents", [])
+                          if isinstance(item, dict) and item.get("id") == event_id), None)
+            if found is None:
+                raise CalendarConfigError("Evento não encontrado.")
+            return dict(found)
+        if not self.status().get("connected"):
+            raise CalendarConfigError("Conecte a agenda original antes de consultar este evento.")
+        raw = self._service().events().get(calendarId="primary", eventId=event_id).execute()
+        return self._normalize_event(raw, "google")
 
     @serialized_calendar_mutation
     def update_event(self, event_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -833,4 +849,7 @@ class CalendarService:
         self._write_profile(profile)
 
     def _safe_user_id(self) -> str:
-        return re.sub(r"[^a-zA-Z0-9_.-]+", "_", self.user_id or "lucas123").strip("._") or "lucas123"
+        safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", require_user_id({"id": self.user_id})).strip("._")
+        if not safe:
+            raise ValueError("Usuario invalido para armazenar credenciais.")
+        return safe

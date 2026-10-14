@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from app.core.tenant import get_user_db_path, read_json_file, write_json_file
+from app.core.identity import require_user_id
 from app.infrastructure.persistence import postgres_store
 
 ChatChannel = Literal["whatsapp"]
@@ -32,10 +33,10 @@ def _now_payload() -> tuple[str, int]:
 
 
 def _json_file_for_user(user_id: str) -> Path:
-    return Path(get_user_db_path(user_id, "conversas"))
+    return Path(get_user_db_path(require_user_id({"id": user_id}), "conversas"))
 
 
-def _read_json_sync(user_id: str = "lucas123") -> Dict[str, Any]:
+def _read_json_sync(user_id: str | None = None) -> Dict[str, Any]:
     json_file = _json_file_for_user(user_id)
     if postgres_store.configured() or postgres_store.required():
         payload = read_json_file(json_file, {})
@@ -57,7 +58,7 @@ def _read_json_sync(user_id: str = "lucas123") -> Dict[str, Any]:
         return {}
 
 
-def _write_json_sync(data: Dict[str, Any], user_id: str = "lucas123") -> None:
+def _write_json_sync(data: Dict[str, Any], user_id: str | None = None) -> None:
     json_file = _json_file_for_user(user_id)
     if postgres_store.configured() or postgres_store.required():
         write_json_file(json_file, data)
@@ -67,12 +68,12 @@ def _write_json_sync(data: Dict[str, Any], user_id: str = "lucas123") -> None:
         json.dump(data, arquivo, ensure_ascii=False, indent=4)
 
 
-async def load_conversations(user_id: str = "lucas123") -> Dict[str, Any]:
+async def load_conversations(user_id: str | None = None) -> Dict[str, Any]:
     data = await asyncio.to_thread(_read_json_sync, user_id)
     return normalize_database(data)
 
 
-async def save_conversations(data: Dict[str, Any], user_id: str = "lucas123") -> None:
+async def save_conversations(data: Dict[str, Any], user_id: str | None = None) -> None:
     normalized = normalize_database(data)
     await asyncio.to_thread(_write_json_sync, normalized, user_id)
 
@@ -240,7 +241,7 @@ def new_conversation(
     )
 
 
-async def append_message(conversa_id: str, mensagem: Dict[str, Any], *, contato: Optional[str] = None, channel: ChatChannel = "whatsapp", user_id: str = "lucas123") -> Dict[str, Any]:
+async def append_message(conversa_id: str, mensagem: Dict[str, Any], *, contato: Optional[str] = None, channel: ChatChannel = "whatsapp", user_id: str | None = None) -> Dict[str, Any]:
     db = await load_conversations(user_id)
     conversa = db.get(conversa_id) or new_conversation(conversa_id, contato=contato, channel=channel)
     normalized_message = normalize_message(mensagem, _normalize_channel(conversa.get("canal") or channel))
@@ -265,7 +266,7 @@ async def append_outgoing_message(
     status: Literal["enviado", "entregue", "lido"] = "enviado",
     message_id: Optional[str] = None,
     citada: Optional[Dict[str, Any]] = None,
-    user_id: str = "lucas123",
+    user_id: str | None = None,
 ) -> Dict[str, Any]:
     hora, timestamp = _now_payload()
     prefix = f"[{sender_label}]: " if sender_label else ""
@@ -288,7 +289,7 @@ async def append_outgoing_message(
     )
 
 
-async def delete_message(conversa_id: str, mensagem_id: str, user_id: str = "lucas123") -> bool:
+async def delete_message(conversa_id: str, mensagem_id: str, user_id: str | None = None) -> bool:
     db = await load_conversations(user_id)
     conversa = db.get(conversa_id)
     if not conversa:
@@ -313,7 +314,7 @@ async def delete_message(conversa_id: str, mensagem_id: str, user_id: str = "luc
     return True
 
 
-async def delete_conversation(conversa_id: str, user_id: str = "lucas123") -> bool:
+async def delete_conversation(conversa_id: str, user_id: str | None = None) -> bool:
     db = await load_conversations(user_id)
     if conversa_id not in db:
         return False
@@ -322,7 +323,7 @@ async def delete_conversation(conversa_id: str, user_id: str = "lucas123") -> bo
     return True
 
 
-async def modify_conversation(conversa_id: str, field: str, value: Any, user_id: str = "lucas123") -> bool:
+async def modify_conversation(conversa_id: str, field: str, value: Any, user_id: str | None = None) -> bool:
     db = await load_conversations(user_id)
     conversa = db.get(conversa_id)
     if not conversa:
@@ -337,7 +338,7 @@ async def modify_conversation(conversa_id: str, field: str, value: Any, user_id:
     return True
 
 
-async def build_conversation_history(conversa_id: str, limit: int = 25, user_id: str = "lucas123") -> str:
+async def build_conversation_history(conversa_id: str, limit: int = 25, user_id: str | None = None) -> str:
     db = await load_conversations(user_id)
     conversa = db.get(conversa_id)
     mensagens = conversa.get("mensagens", []) if conversa else []

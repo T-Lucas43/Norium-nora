@@ -185,7 +185,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       <h1 className="ac-title">{isLogin ? "Entrar" : "Criar conta"}</h1>
       <p className="ac-sub">{isLogin ? "Acesse seu painel Norium." : "Crie um usuário principal individual."}</p>
 
-      <div className="ac-form">
+      <div className="ac-form" aria-busy={loading}>
         {!isLogin && (
           <div className="ac-field">
             <label className="ac-label" htmlFor={ids.nome}>Nome</label>
@@ -193,6 +193,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               <UserRound size={16} aria-hidden="true" />
               <input
                 id={ids.nome}
+                name="name"
                 value={nome}
                 autoComplete="name"
                 onChange={(event) => setNome(event.target.value)}
@@ -207,7 +208,11 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             <Mail size={16} aria-hidden="true" />
             <input
               id={ids.email}
+              name={isLogin ? "username" : "email"}
               type="email"
+              inputMode="email"
+              autoCapitalize="none"
+              spellCheck={false}
               value={email}
               autoComplete={isLogin ? "username" : "email"}
               onChange={(event) => setEmail(event.target.value)}
@@ -224,6 +229,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             <LockKeyhole size={16} aria-hidden="true" />
             <input
               id={ids.senha}
+              name={isLogin ? "current-password" : "new-password"}
               type={showPassword ? "text" : "password"}
               value={password}
               minLength={isLogin ? 1 : 10}
@@ -239,6 +245,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               className="ac-eye"
               onClick={() => setShowPassword((current) => !current)}
               aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+              aria-pressed={showPassword}
             >
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>

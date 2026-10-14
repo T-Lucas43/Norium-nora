@@ -69,15 +69,58 @@ class Engine:
         return self.repo.mutate(job_id, None, change, lease=lease)
 
     async def _plan(self, job, user):
+        if hasattr(self.planner, "authorize"):
+            self.planner.authorize(user)
         limit = PROFILES[job["profile"]]
         remaining = limit.tokens - job["budget"]["tokens"] - job["budget"]["reserved"]
+        # Both conversation paths consume the same operational memory. The SQL
+        # preferences table is an execution receipt, not a second authority.
+        from app.modules.operations.service import list_nora_memory
+        memories = await list_nora_memory(user)
+        job = {**job, "preferences": [{key:item.get(key) for key in ("key", "value", "scope", "category")}
+                                      for item in memories[:20]]}
         catalogue, context = self.planner.context(job, user, self.registry)
         reserve, output = self.planner.reservation(context, catalogue, remaining, limit.context)
         if hasattr(self.planner, "preflight"):
             self.planner.preflight(job["profile"])
-        job = self.budget.reserve(job["id"], job["lease"], reserve)
+        meter = None
+        if hasattr(self.planner, "billing_provider"):
+            from app.services.ai_costs import Meter
+            from fastapi import HTTPException
+            meter = Meter(self.planner.billing_provider(job["profile"]), {"context": context, "tools": catalogue},
+                          output, user_id=job["scope"]["user"], source="nora-brain")
+            try:
+                await meter.__aenter__()
+            except HTTPException as exc:
+                if exc.status_code == 402:
+                    def pause(current, connection):
+                        from app.services.ai_costs import database, get_limit, cycle_for
+                        with database() as db:
+                            cycle = cycle_for(get_limit(db, current["scope"]["user"]))
+                        current["budgetResumeAt"] = cycle.get("nextResetAt")
+                    self.repo.mutate(job["id"], None, pause, lease=job["lease"])
+                    raise BrainError("account_budget_exhausted") from None
+                raise
+            output = min(output, meter.max_output)
         try:
+            job = self.budget.reserve(job["id"], job["lease"], reserve)
+        except BaseException:
+            if meter is not None:
+                await meter.__aexit__(None, None, None)
+            raise
+        if meter is not None:
+            def link_usage(current, connection):
+                current["reservation"]["ledger"] = {"id": meter.reservation, "provider": meter.provider,
+                    "input": meter.input_bound, "output": meter.max_output, "createdAt": meter.started_at}
+            job = self.repo.mutate(job["id"], None, link_usage, lease=job["lease"])
+        try:
+            if meter is not None:
+                meter.sent()
             reply = await asyncio.wait_for(self.planner.decide(context, catalogue, job["profile"], output), timeout=60)
+            if meter is not None:
+                await meter.record({"model": reply.model, "usage": {"input_tokens": reply.input_tokens,
+                    "output_tokens": reply.output_tokens, "prompt_tokens": reply.input_tokens,
+                    "completion_tokens": reply.output_tokens}})
             settled = self.budget.settle(job["id"], job["lease"], reply.input_tokens, reply.output_tokens, reply.model)
         except BaseException:
             # The provider may have accepted work even when usage was not returned.
@@ -85,6 +128,9 @@ class Engine:
             # pretending the failed observation cost zero.
             self.budget.forfeit(job["id"], job["lease"], "provider_usage_unknown")
             raise
+        finally:
+            if meter is not None:
+                await meter.__aexit__(None, None, None)
         if settled["status"] == "budget_paused":
             return
         # Permissions might have changed during the model call.
@@ -153,6 +199,7 @@ class Engine:
             if target.get("approval", {}).get("approvedAt") is not None:
                 target["approval"]["consumedAt"] = self.repo.clock()
             target["status"], target["attempts"] = "executing", target["attempts"] + 1
+            target["intentAt"] = self.repo.clock()
             current["budget"]["tools"] += 1
             self.repo.event(connection, current, "operation_intent", {"step": target["id"], "operation": exact})
         current = self.repo.mutate(job["id"], scope, prepare, lease=lease)

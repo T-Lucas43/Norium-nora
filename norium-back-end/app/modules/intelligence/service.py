@@ -7,6 +7,7 @@ import json
 import os
 import re
 import uuid
+import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -485,7 +486,8 @@ async def reindex_knowledge_source(user: dict[str, Any], source_id: str) -> dict
 
 
 def tokens(value: str) -> list[str]:
-    return [match.group(0).lower() for match in TOKEN_PATTERN.finditer(value)]
+    normalized = "".join(c for c in unicodedata.normalize("NFKD", value.casefold()) if not unicodedata.combining(c))
+    return [match.group(0) for match in TOKEN_PATTERN.finditer(normalized)]
 
 
 def quote_for(text: str, terms: list[str]) -> str:
@@ -525,6 +527,43 @@ def search_knowledge(user: dict[str, Any], query: str, base_ids: list[str] | Non
                 })
     scored.sort(key=lambda item: (-item["score"], item["sourceTitle"], item["position"]))
     return {"query": query, "results": scored[:limit], "total": len(scored), "searchedBaseIds": list(bases)}
+
+
+async def search_knowledge_semantic(user, query, base_ids=None, limit=6):
+    lexical = search_knowledge(user, query, base_ids, limit)
+    lexical["retrieval"] = "lexical"
+    if os.getenv("NORA_KNOWLEDGE_EMBEDDINGS_ENABLED") != "1":
+        return lexical
+    from app.services.knowledge_embeddings import ensure_vectors, embed, cosine
+    store = read_store(tenant_id(user))
+    wanted = set(base_ids or [])
+    bases = {b["id"]:b for b in store["knowledgeBases"] if b.get("active", True) and (not wanted or b["id"] in wanted)}
+    candidates = [(source, chunk) for source in store["knowledgeSources"]
+        if source.get("baseId") in bases and source.get("status") == "indexed"
+        and (bases[source["baseId"]].get("visibility") != "private" or source.get("createdBy") == tenant_id(user))
+        for chunk in source.get("chunks", [])][:128]
+    if not candidates:
+        return lexical
+    try:
+        vectors = await ensure_vectors(user, [chunk for _,chunk in candidates])
+        query_vector = (await embed(user, [query]))[0]
+    except Exception:
+        # Fallback is explicit and never discloses provider details or keys.
+        lexical["retrieval"] = "lexical_fallback"
+        return lexical
+    scored = []
+    for source, chunk in candidates:
+        score = cosine(query_vector, vectors.get(chunk["id"], []))
+        if score <= 0.15:
+            continue
+        base = bases[source["baseId"]]
+        scored.append({"score":score,"baseId":base["id"],"baseName":base["name"],
+            "sourceId":source["id"],"sourceTitle":source["title"],"sourceUrl":source.get("url") or "",
+            "quote":quote_for(chunk["text"],tokens(query)),"position":chunk.get("position",0),
+            "stale":bool(source.get("stale")),"indexedAt":source.get("indexedAt")})
+    scored.sort(key=lambda r:(-r["score"],r["sourceId"],r["position"]))
+    return {**lexical,"results":scored[:limit] or lexical["results"],"total":len(scored),
+            "retrieval":"semantic" if scored else "lexical_fallback", "coverage":{"chunksConsidered":len(candidates),"maxChunks":128}}
 
 
 MARKETPLACE_CATALOG = [
@@ -829,6 +868,7 @@ def all_providers(user_id: str) -> list[dict[str, Any]]:
 
 
 def route_model(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    from app.core.ai_provider_policy import approved_provider, ProviderPolicyError
     user_id = tenant_id(user)
     store = read_store(user_id)
     policy = find_item(store["modelPolicies"], str(payload.get("policyId") or ""))
@@ -840,7 +880,13 @@ def route_model(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]
     rejected: list[dict[str, str]] = []
     for provider in all_providers(user_id):
         reason = ""
-        if not provider.get("enabled") or not (provider.get("encryptedSecret") or provider.get("configured")):
+        try:
+            approved_provider(user, provider)
+        except ProviderPolicyError:
+            reason = "provedor não aprovado para este ambiente"
+        if reason:
+            pass
+        elif not provider.get("enabled") or not (provider.get("encryptedSecret") or provider.get("configured")):
             reason = "desativado ou sem credencial"
         elif not requirements.issubset(set(provider.get("capabilities", []))):
             reason = "capacidade obrigatoria ausente"
@@ -877,6 +923,12 @@ async def test_provider(user: dict[str, Any], provider_id: str, timeout_seconds:
     provider = next((item for item in providers if item["id"] == provider_id), None)
     if not provider:
         raise HTTPException(status_code=404, detail="Provedor nao encontrado.")
+    from app.core.ai_provider_policy import approved_provider, ProviderPolicyError
+
+    try:
+        _, base_url = approved_provider(user, provider)
+    except ProviderPolicyError as exc:
+        raise HTTPException(status_code=403, detail="Provedor não aprovado para este ambiente de trabalho.") from exc
     if provider_id == "nora-runtime":
         secret = os.getenv("GROQ_API_KEY", "").strip()
     elif provider_id == "gemini-runtime":
@@ -886,9 +938,6 @@ async def test_provider(user: dict[str, Any], provider_id: str, timeout_seconds:
         secret = decrypt_secret(encrypted) if encrypted else ""
     if not secret:
         return {"ok": False, "providerId": provider_id, "detail": "Salve uma credencial antes de testar."}
-    base_url = str(provider.get("baseUrl") or "").rstrip("/")
-    if not base_url:
-        base_url = "https://api.groq.com/openai/v1" if provider.get("provider") == "groq" else "https://api.anthropic.com/v1" if provider.get("provider") == "anthropic" else "https://generativelanguage.googleapis.com/v1beta" if provider.get("provider") == "google" else "https://api.openai.com/v1"
     _, host = validate_public_url(base_url)
     await assert_public_dns(host)
     headers = {"x-api-key": secret, "anthropic-version": "2023-06-01"} if provider.get("provider") == "anthropic" else {"x-goog-api-key": secret} if provider.get("provider") == "google" else {"Authorization": f"Bearer {secret}"}
@@ -965,6 +1014,12 @@ async def complete_with_provider(
     provider = next((item for item in providers if item["id"] == provider_id), None)
     if not provider:
         raise HTTPException(status_code=404, detail="Modelo selecionado nao foi encontrado.")
+    from app.core.ai_provider_policy import approved_provider, ProviderPolicyError
+
+    try:
+        provider_kind, base_url = approved_provider(user, provider)
+    except ProviderPolicyError as exc:
+        raise HTTPException(status_code=403, detail="Provedor não aprovado para este ambiente de trabalho.") from exc
     if provider_id == "nora-runtime":
         secret = os.getenv("GROQ_API_KEY", "").strip()
     elif provider_id == "gemini-runtime":
@@ -974,16 +1029,6 @@ async def complete_with_provider(
         secret = decrypt_secret(encrypted) if encrypted else ""
     if not secret:
         raise HTTPException(status_code=409, detail="O modelo selecionado ainda nao possui credencial configurada.")
-    provider_kind = str(provider.get("provider") or "")
-    base_url = str(provider.get("baseUrl") or "").rstrip("/")
-    if provider_kind == "groq":
-        base_url = base_url or "https://api.groq.com/openai/v1"
-    elif provider_kind == "openai":
-        base_url = base_url or "https://api.openai.com/v1"
-    elif provider_kind == "anthropic":
-        base_url = base_url or "https://api.anthropic.com/v1"
-    elif provider_kind == "google":
-        base_url = base_url or "https://generativelanguage.googleapis.com/v1beta"
     if not base_url:
         raise HTTPException(status_code=409, detail="Configure a URL base do provedor.")
     _, host = validate_public_url(base_url)

@@ -141,6 +141,8 @@ class BinaryStorageLimitsTests(unittest.TestCase):
                 return self
             def fetchone(self):
                 return {'global_used': 0, 'workspace_used': 0, 'previous': 0}
+            def fetchall(self):
+                return []
 
         @contextmanager
         def conn():
@@ -151,7 +153,7 @@ class BinaryStorageLimitsTests(unittest.TestCase):
         self.assertIn('lock_timeout', calls[0][0])
         self.assertIn('pg_advisory_xact_lock', calls[1][0])
         self.assertIn('global_used', calls[2][0])
-        self.assertIn('INSERT INTO norium_blobs', calls[3][0])
+        self.assertIn('INSERT INTO norium_blobs', calls[-1][0])
         self.assertEqual(('user_a/', 'user_a/workspace_', 'user_a/workspace_', 'user_a/clients/a.pdf', 'blob'), calls[2][1])
 
     def test_postgres_exhaustion_prevents_insert(self):
@@ -163,6 +165,8 @@ class BinaryStorageLimitsTests(unittest.TestCase):
                 return self
             def fetchone(self):
                 return {'global_used': 100, 'workspace_used': 0, 'previous': 0}
+            def fetchall(self):
+                return []
 
         @contextmanager
         def conn():

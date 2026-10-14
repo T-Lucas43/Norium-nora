@@ -284,6 +284,13 @@ async def record_event(
     if not resolved_user_id:
         raise ValueError("record_event exige metadata.userId para impedir mistura entre usuarios.")
     event_payload, changed = await persist_event(event, resolved_user_id)
+    if changed:
+        from app.modules.team.chat_resources import publish_resource_change
+        try:
+            await publish_resource_change(metadata)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning("Atualização dos cartões do chat indisponível.")
     # Queue first, before optional notifications. Queue failures never roll back
     # the user's original message/task; duplicate deliveries are idempotent.
     from app.modules.automations.events import publish_event

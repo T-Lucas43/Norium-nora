@@ -167,7 +167,7 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def default_project(user_id: str = "lucas123") -> dict[str, Any]:
+def default_project(user_id: str) -> dict[str, Any]:
     return {
         "id": "default",
         "name": "Operacao Norium",
@@ -195,7 +195,7 @@ def default_project(user_id: str = "lucas123") -> dict[str, Any]:
 
 
 @serialized
-def load_workspace(user_id: str = "lucas123", *, db: dict[str, Any] | None = None) -> dict[str, Any]:
+def load_workspace(user_id: str, *, db: dict[str, Any] | None = None) -> dict[str, Any]:
     if db is None:
         db = _read_db()
     if user_id not in db:
@@ -259,7 +259,7 @@ def _validate_workspace(workspace: Any, path: Path) -> None:
                 raise PersistenceError(path, "schema")
 
 
-def list_projects(user_id: str = "lucas123") -> dict[str, Any]:
+def list_projects(user_id: str) -> dict[str, Any]:
     db = _read_db()
     if user_id not in db:
         load_workspace(user_id, db=db)
@@ -366,7 +366,7 @@ def delete_project(user_id: str, project_id: str) -> bool:
 
 
 def list_tasks(
-    user_id: str = "lucas123",
+    user_id: str,
     *,
     project_id: str | None = None,
     status: str | None = None,
@@ -572,7 +572,8 @@ def add_attachment(user_id: str, task_id: str, *, file_name: str, mime_type: str
     owner_id, workspace, _task = resolved
     file_bytes, detected_mime = decode_data_url(data_url, mime_type)
     safe_name = safe_upload_name(file_name, detected_mime)
-    file_path = TASK_UPLOAD_DIR / safe_name
+    from app.infrastructure.storage_limits import owned_upload_path, upload_storage_key
+    file_path = owned_upload_path(TASK_UPLOAD_DIR, owner_id, safe_name)
     persistent_files.write(file_path, file_bytes, content_type=detected_mime)
 
     attachment = {
@@ -582,6 +583,7 @@ def add_attachment(user_id: str, task_id: str, *, file_name: str, mime_type: str
         "size": len(file_bytes),
         "url": public_api_url(f"/api/tarefas/anexos/{quote(safe_name)}"),
         "storedName": safe_name,
+        "storageKey": upload_storage_key(TASK_UPLOAD_DIR, file_path),
         "createdAt": now_iso(),
     }
 
@@ -601,6 +603,7 @@ def attachment_path(user_id: str, file_name: str) -> Path | None:
     safe_name = Path(file_name).name
     db = _read_db()
     authorized = False
+    record = {}
     for owner_id, workspace in db.items():
         if not isinstance(workspace, dict):
             continue
@@ -612,21 +615,17 @@ def attachment_path(user_id: str, file_name: str) -> Path | None:
             )
             if not project or not project_accessible(normalize_project(project, str(owner_id)), user_id):
                 continue
-            if any(
-                Path(str(attachment.get("storedName") or "")).name == safe_name
-                for attachment in task.get("attachments", [])
-                if isinstance(attachment, dict)
-            ):
+            record = next((attachment for attachment in task.get("attachments", [])
+                           if isinstance(attachment, dict) and str(attachment.get("storedName") or "") == safe_name), {})
+            if record:
                 authorized = True
                 break
         if authorized:
             break
     if not authorized:
         return None
-    path = TASK_UPLOAD_DIR / safe_name
-    if not persistent_files.exists(path):
-        return None
-    return path
+    from app.infrastructure.storage_limits import resolve_upload_path
+    return resolve_upload_path(TASK_UPLOAD_DIR, safe_name, str(record.get("storageKey") or ""))
 
 
 def build_stats(tasks: list[dict[str, Any]]) -> dict[str, int]:

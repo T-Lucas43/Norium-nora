@@ -57,6 +57,10 @@ def strict_schema(schema):
     """Make Pydantic schemas satisfy provider strict-function requirements."""
     if isinstance(schema, dict):
         result = {key: strict_schema(value) for key, value in schema.items()}
+        # JSON Schema number already includes integers. Groq strict tools reject
+        # overlapping integer|number alternatives (spreadsheet cells, for example).
+        if isinstance(result.get("anyOf"), list) and any(option.get("type") == "number" for option in result["anyOf"] if isinstance(option, dict)):
+            result["anyOf"] = [option for option in result["anyOf"] if not isinstance(option, dict) or option.get("type") != "integer"]
         if result.get("type") == "object" or "properties" in result:
             properties = result.get("properties") or {}
             result["additionalProperties"] = False

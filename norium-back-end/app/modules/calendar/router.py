@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class CriarEventoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     titulo: str = Field(min_length=1)
     inicio: str = Field(min_length=1)
     fim: str = Field(min_length=1)
@@ -37,7 +37,7 @@ class CriarEventoPayload(StrictModel):
 
 
 class AtualizarEventoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     titulo: str | None = None
     inicio: str | None = None
     fim: str | None = None
@@ -48,7 +48,7 @@ class AtualizarEventoPayload(StrictModel):
 
 
 class AgendaAgentPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     session_id: str | None = None
     message: str = Field(min_length=1)
 
@@ -176,7 +176,7 @@ async def finalizar_oauth_integracoes(
 
 @router.get("/eventos")
 async def listar_eventos(
-    user_id: str = "lucas123",
+    user_id: str | None = None,
     time_min: str | None = None,
     time_max: str | None = None,
     q: str | None = None,
@@ -264,7 +264,7 @@ async def atualizar_evento(event_id: str, payload: AtualizarEventoPayload, user:
 
 
 @router.post("/sync")
-async def sincronizar_agenda(user_id: str = "lucas123", payload: dict[str, Any] | None = None, user: dict[str, Any] = Depends(current_user)):
+async def sincronizar_agenda(user_id: str | None = None, payload: dict[str, Any] | None = None, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     now = datetime.now(timezone.utc)
     result = CalendarService(resolved_user_id).list_events(

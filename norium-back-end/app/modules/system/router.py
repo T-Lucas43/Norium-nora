@@ -99,7 +99,7 @@ def _readiness_snapshot() -> dict[str, Any]:
                 marker.unlink(missing_ok=True)
 
     if os.getenv("NORA_BRAIN_ENABLED", "0").strip() == "1":
-        from app.modules.nora.brain.repository import repository
+        from app.modules.nora.brain.runtime import repository
 
         checks["noraBrain"] = repository().ping()
     return {

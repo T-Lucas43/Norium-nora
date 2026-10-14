@@ -92,10 +92,13 @@ async def search_all(
 @router.get("/auditoria")
 async def get_audit(
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0, le=100000),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     items = await list_items(require_user_id(user), AUDIT_DB)
-    return {"items": items[:limit], "total": len(items)}
+    end = offset + limit
+    return {"items": items[offset:end], "total": len(items), "offset": offset,
+            "nextOffset": end if end < len(items) else None}
 
 
 @router.get("/auditoria/exportar")
@@ -103,7 +106,7 @@ async def export_audit(user: dict[str, Any] = Depends(current_user)) -> Response
     items = await list_items(require_user_id(user), AUDIT_DB)
     stream = io.StringIO(newline="")
     writer = csv.writer(stream, delimiter=";")
-    writer.writerow(["data_hora", "acao", "origem", "status", "usuario", "email", "tipo_registro", "id_registro", "descricao"])
+    writer.writerow(["data_hora", "acao", "origem", "status", "usuario_id", "tipo_registro", "id_registro", "descricao"])
     for item in items:
         actor = item.get("actor") if isinstance(item.get("actor"), dict) else {}
         writer.writerow([
@@ -111,8 +114,7 @@ async def export_audit(user: dict[str, Any] = Depends(current_user)) -> Response
             item.get("action") or "",
             item.get("source") or "",
             item.get("status") or "",
-            actor.get("name") or "",
-            actor.get("email") or "",
+            actor.get("id") or "",
             item.get("entityType") or "",
             item.get("entityId") or "",
             item.get("description") or "",
@@ -127,7 +129,7 @@ async def export_audit(user: dict[str, Any] = Depends(current_user)) -> Response
 
 @router.post("/auditoria")
 async def create_audit(payload: AuditCreate, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    return {"item": await record_audit(user, payload)}
+    raise HTTPException(403, "A trilha de auditoria e registrada exclusivamente pelo servidor.")
 
 
 @router.get("/comprovantes")

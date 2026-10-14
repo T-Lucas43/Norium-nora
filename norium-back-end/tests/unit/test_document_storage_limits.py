@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -31,6 +32,18 @@ class DocumentStorageLimitsTests(unittest.TestCase):
         write_json(document, {"x": ""})
         files.write(self.root / "user_a/file.bin", b"12")
         self.assertEqual(10, sum(item.stat().st_size for item in document.parent.iterdir()))
+
+    def test_extended_path_spelling_preserves_drive_unc_and_outside_root_denial(self):
+        normalize = postgres_store._strip_windows_extended_prefix
+        self.assertEqual("C:\\data\\user\\file.bin", normalize("\\\\?\\C:\\data\\user\\file.bin"))
+        self.assertEqual("\\\\server\\share\\file.bin", normalize("\\\\?\\UNC\\server\\share\\file.bin"))
+        self.assertEqual("\\\\?\\GLOBALROOT\\Device", normalize("\\\\?\\GLOBALROOT\\Device"))
+        with self.assertRaises(postgres_store.PostgresStoreError):
+            postgres_store.canonical_key(self.root.parent / "outside.bin")
+        if os.name == "nt":
+            candidate = self.root / "user_a/file.bin"
+            with patch.object(Path, "resolve", side_effect=[self.root.resolve(), Path("\\\\?\\"+str(candidate))]):
+                self.assertEqual("user_a/file.bin", postgres_store.canonical_key(candidate))
 
     def test_global_budget_covers_json_in_different_accounts(self):
         with patch.dict("os.environ", {"NORIUM_STORAGE_GLOBAL_QUOTA_BYTES": "15"}):
@@ -63,6 +76,8 @@ class DocumentStorageLimitsTests(unittest.TestCase):
                 if "AS size" in self.query and "WITH objects" not in self.query:
                     return {"size": 8}
                 return {"global_used": 2, "workspace_used": 2, "previous": 0}
+            def fetchall(self):
+                return []
         @contextmanager
         def connection():
             yield Database()
@@ -71,4 +86,4 @@ class DocumentStorageLimitsTests(unittest.TestCase):
         self.assertIn("pg_advisory_xact_lock", calls[1][0])
         self.assertIn("norium_blobs", calls[3][0])
         self.assertIn("norium_documents", calls[3][0])
-        self.assertIn("INSERT INTO norium_documents", calls[4][0])
+        self.assertIn("INSERT INTO norium_documents", calls[-1][0])

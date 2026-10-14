@@ -36,6 +36,7 @@ from app.core.credentials import CredentialConfigurationError, CredentialRecover
 from app.services import oauth_credentials
 from app.services.oauth_state import active_oauth_attempts, find_oauth_attempt, oauth_attempts_payload
 from app.services.gmail_read_limits import execute_read, raise_if_throttled, reserve_read
+from app.core.identity import require_user_id
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -88,8 +89,9 @@ class GmailConfigError(RuntimeError):
 
 
 class GmailService:
-    def __init__(self, user_id: str = "lucas123") -> None:
-        self.user_id = user_id
+    def __init__(self, user_id: str) -> None:
+        # Sem usuario identificado nao ha conta padrao: falha fechada.
+        self.user_id = require_user_id({"id": user_id})
 
     @staticmethod
     def user_id_from_state(state: str | None) -> str | None:
@@ -1168,4 +1170,7 @@ class GmailService:
         self._write_integration_store(integration)
 
     def _safe_user_id(self) -> str:
-        return re.sub(r"[^a-zA-Z0-9_.-]+", "_", self.user_id or "lucas123").strip("._") or "lucas123"
+        safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", require_user_id({"id": self.user_id})).strip("._")
+        if not safe:
+            raise ValueError("Usuario invalido para armazenar credenciais.")
+        return safe

@@ -45,6 +45,8 @@ enumerados de chamada/permissão e até 256 categorias de evento por sessão.
 
 | Cenário | Evidência exigida |
 | --- | --- |
+| `call_layout` | três participantes, layout/painéis, fixação global, convite de apresentação, anotações/expiração/bloqueio, Document PiP, minimizar/restaurar e 375 px nos dois temas |
+| `video_interest` | vídeo RTP pausa ao minimizar/ocultar, áudio continua, outro receptor mantém vídeo e a retomada ocorre dentro do deadline de mídia existente; fronteira de visibilidade sintética em headless, complementada pelo teste de observer sem frames |
 | `group_media` | três participantes, microfone inicial desligado, modo somente escuta e bytes/pacotes RTP nos dois sentidos |
 | `entry_modes` | entrada apenas com áudio não solicita câmera; somente escuta não solicita nenhuma captura |
 | `direct_chat_context` | chamada direta, drawer deliberadamente apontado para outra conversa, mensagem entregue apenas ao participante da chamada |
@@ -153,3 +155,11 @@ O job `team-call-quality` do workflow `.github/workflows/azure-container-apps.ym
 O workflow foi validado por parse e invariantes locais, mas não foi executado remotamente nesta etapa. Nenhuma imagem foi publicada e nenhum deploy foi feito.
 
 Resultados estruturados locais: `output/team-call-quality/browser-87f715e-final-2/summary.json` e `output/team-call-quality/load-87f715e-final/team-call-load.json`. `output/` é ignorado pelo Git.
+
+## Continuidade aprovada — integrações locais
+
+O cenário `nora_panel` verifica painel/legendas, mascaramento, resposta privada com fontes e largura de 375 px. RTP dos humanos é real; segmentos/entendimento são injetados exclusivamente no fixture sintético. Não comprova agente SFU conectado, Groq real ou concessão operacional de entitlement.
+
+O ensaio nativo offline usa duas AudioSource/AudioStream, PCM mono 16 kHz e filas limitadas. Não usa sala/credenciais/provedor. Critério de memória: crescimento positivo da memória privada comprometida após aquecimento <16 MiB e faixa de alocações Python <2 MiB. Faixa RSS é informativa, pois também aumenta quando a memória residente cai. O resultado antigo reprovado permanece preservado; o novo critério exige nova execução completa. Limites de latência/carga existentes não foram alterados.
+
+No Windows, `WorkingSetSize` mede memória residente e `PrivateUsage` mede o compromisso privado do processo, conforme [PROCESS_MEMORY_COUNTERS_EX da Microsoft](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-process_memory_counters_ex). Registrar valores absolutos de ambas as métricas, além do crescimento. O gate de estabilidade local não certifica a capacidade de agentes na Shard/Linux; essa homologação continua pendente.

@@ -5,6 +5,8 @@ import json
 import mimetypes
 import re
 import uuid
+import threading
+from functools import wraps
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,7 @@ from app.core.tenant import get_data_root, get_user_db_path, public_api_url, rea
 from app.infrastructure.persistence.json_repository import PersistenceError
 from app.infrastructure.persistence import files as persistent_files
 from app.infrastructure.persistence import postgres_store
+from app.infrastructure.storage_limits import owned_upload_path, resolve_upload_path, upload_candidates, upload_storage_key
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 FINANCE_PATH = BASE_DIR / "financeiro_db.json"
@@ -27,11 +30,23 @@ STATUS = {"pendente", "pago", "cancelado"}
 FREQUENCIES = {"unico", "semanal", "mensal", "anual"}
 
 
+mutation_lock = threading.RLock()
+
+
+def serialized_finance_mutation(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with mutation_lock:
+            return function(*args, **kwargs)
+    return wrapped
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def load_workspace(user_id: str = "lucas123") -> dict[str, Any]:
+@serialized_finance_mutation
+def load_workspace(user_id: str) -> dict[str, Any]:
     db = _read_db(user_id)
     if user_id not in db:
         db[user_id] = {
@@ -45,7 +60,7 @@ def load_workspace(user_id: str = "lucas123") -> dict[str, Any]:
     return db[user_id]
 
 
-def list_finance(user_id: str = "lucas123") -> dict[str, Any]:
+def list_finance(user_id: str) -> dict[str, Any]:
     workspace = load_workspace(user_id)
     lancamentos = [normalize_lancamento(item) for item in workspace.get("lancamentos", [])]
     programados = [normalize_programado(item) for item in workspace.get("programados", [])]
@@ -60,6 +75,7 @@ def list_finance(user_id: str = "lucas123") -> dict[str, Any]:
     }
 
 
+@serialized_finance_mutation
 def create_lancamento(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -88,6 +104,7 @@ def create_lancamento(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return lancamento
 
 
+@serialized_finance_mutation
 def update_lancamento(user_id: str, lancamento_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -110,6 +127,7 @@ def update_lancamento(user_id: str, lancamento_id: str, updates: dict[str, Any])
     return None
 
 
+@serialized_finance_mutation
 def delete_lancamento(user_id: str, lancamento_id: str) -> bool:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -124,6 +142,7 @@ def delete_lancamento(user_id: str, lancamento_id: str) -> bool:
     return True
 
 
+@serialized_finance_mutation
 def restore_lancamento(user_id: str, snapshot: dict[str, Any]) -> dict[str, Any] | None:
     """Restaura um lançamento com o mesmo identificador e anexos do snapshot."""
     lancamento_id = str(snapshot.get("id") or "").strip()
@@ -146,6 +165,7 @@ def restore_lancamento(user_id: str, snapshot: dict[str, Any]) -> dict[str, Any]
     return restored
 
 
+@serialized_finance_mutation
 def create_programado(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -172,6 +192,7 @@ def create_programado(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return programado
 
 
+@serialized_finance_mutation
 def update_programado(user_id: str, programado_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -192,6 +213,7 @@ def update_programado(user_id: str, programado_id: str, updates: dict[str, Any])
     return None
 
 
+@serialized_finance_mutation
 def delete_programado(user_id: str, programado_id: str) -> bool:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -206,6 +228,7 @@ def delete_programado(user_id: str, programado_id: str) -> bool:
     return True
 
 
+@serialized_finance_mutation
 def save_boletos(user_id: str, boletos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -220,6 +243,7 @@ def save_boletos(user_id: str, boletos: list[dict[str, Any]]) -> list[dict[str, 
     return normalized
 
 
+@serialized_finance_mutation
 def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_type: str, data_url: str) -> dict[str, Any] | None:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -228,7 +252,8 @@ def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_typ
         return None
     file_bytes, detected_mime = decode_data_url(data_url, mime_type)
     safe_name = safe_upload_name(file_name, detected_mime)
-    file_path = FINANCE_UPLOAD_DIR / safe_name
+    # Gravado sob o dono para contar na cota do workspace.
+    file_path = owned_upload_path(FINANCE_UPLOAD_DIR, user_id, safe_name)
     persistent_files.write(file_path, file_bytes, content_type=detected_mime)
     attachment = {
         "id": f"fin_att_{uuid.uuid4().hex}",
@@ -237,6 +262,7 @@ def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_typ
         "size": len(file_bytes),
         "url": public_api_url(f"/api/financeiro/anexos/{quote(safe_name)}"),
         "storedName": safe_name,
+        "storageKey": upload_storage_key(FINANCE_UPLOAD_DIR, file_path),
         "createdAt": now_iso(),
     }
 
@@ -252,6 +278,7 @@ def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_typ
     return None
 
 
+@serialized_finance_mutation
 def remove_attachment(user_id: str, lancamento_id: str, attachment_id: str) -> dict[str, Any] | None:
     db = _read_db(user_id)
     workspace = load_workspace(user_id)
@@ -278,8 +305,8 @@ def remove_attachment(user_id: str, lancamento_id: str, attachment_id: str) -> d
 
         stored_name = Path(str(removed.get("storedName") or "")).name
         if stored_name and not _attachment_file_still_used(workspace, stored_name):
-            path = FINANCE_UPLOAD_DIR / stored_name
-            persistent_files.delete(path)
+            for path in upload_candidates(FINANCE_UPLOAD_DIR, stored_name, str(removed.get("storageKey") or "")):
+                persistent_files.delete(path)
         return removed
 
     return None
@@ -288,18 +315,15 @@ def remove_attachment(user_id: str, lancamento_id: str, attachment_id: str) -> d
 def attachment_path(user_id: str, file_name: str) -> Path | None:
     safe_name = Path(file_name).name
     workspace = load_workspace(user_id)
-    authorized = any(
-        Path(str(attachment.get("storedName") or "")).name == safe_name
+    record = next((
+        attachment
         for lancamento in workspace.get("lancamentos", [])
         for attachment in lancamento.get("attachments", [])
-        if isinstance(attachment, dict)
-    )
-    if not authorized:
+        if isinstance(attachment, dict) and Path(str(attachment.get("storedName") or "")).name == safe_name
+    ), None)
+    if record is None:
         return None
-    path = FINANCE_UPLOAD_DIR / safe_name
-    if not persistent_files.exists(path):
-        return None
-    return path
+    return resolve_upload_path(FINANCE_UPLOAD_DIR, safe_name, str(record.get("storageKey") or ""))
 
 
 def _attachment_file_still_used(workspace: dict[str, Any], stored_name: str) -> bool:

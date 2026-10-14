@@ -45,6 +45,12 @@ def local_write_budget(target: Path, incoming: int):
             if prefix and relative.startswith(prefix) and not (excluded and relative.startswith(excluded)):
                 workspace_used += size
         previous = target.stat().st_size if target.exists() else 0
+        if prefix:
+            from app.modules.privacy.storage_catalog import personal_documents, legacy_uploads
+            owner = prefix.split("/", 1)[0].removeprefix("user_")
+            documents = [(key, payload) for key, payload in personal_documents(owner)
+                         if key.startswith(prefix) and not (excluded and key.startswith(excluded))]
+            workspace_used += sum(path.stat().st_size for path in legacy_uploads(owner, documents=documents))
         enforce_growth(global_used, workspace_used, previous, incoming, has_workspace=bool(prefix))
         yield
 

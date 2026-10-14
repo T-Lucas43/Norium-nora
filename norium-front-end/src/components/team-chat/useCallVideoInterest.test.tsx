@@ -1,0 +1,65 @@
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useCallVideoInterest } from "./useCallVideoInterest";
+import type { VideoSubscriptionInterest } from "./media/videoSubscriptionPolicy";
+
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); document.body.innerHTML = ""; });
+describe("rendered video interest", () => {
+  it("assina a transmissão somente depois de escolher assistir e interrompe ao parar", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const element = document.createElement("div"), tile = document.createElement("section");
+    tile.dataset.participant = "presenter"; tile.dataset.tile = "screen"; tile.dataset.watching = "false";
+    tile.getBoundingClientRect = () => ({ width: 640, height: 360 }) as DOMRect;
+    element.append(tile); document.body.append(element);
+    const update = vi.fn(async (_interest: VideoSubscriptionInterest) => undefined);
+    const view = renderHook(() => useCallVideoInterest({ current: element }, "call", ["presenter"], false, true, update));
+    await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+    expect(update.mock.calls.at(-1)?.[0].screens).toEqual([]);
+    await act(async () => { tile.dataset.watching = "true"; await Promise.resolve(); await vi.advanceTimersByTimeAsync(25); });
+    expect(update.mock.calls.at(-1)?.[0].screens).toEqual([{ userId: "presenter", width: 640, height: 360 }]);
+    await act(async () => { tile.dataset.watching = "false"; await Promise.resolve(); await vi.advanceTimersByTimeAsync(25); });
+    expect(update.mock.calls.at(-1)?.[0].screens).toEqual([]);
+    view.unmount();
+  });
+  it("follows intersections, minimizes without audio work, resumes and disposes observers", async () => {
+    vi.useFakeTimers();
+    let intersect!: (entries: Array<{ target: Element; isIntersecting: boolean; intersectionRatio: number }>) => void;
+    const observe = vi.fn(), disconnect = vi.fn(), unobserve = vi.fn();
+    vi.stubGlobal("IntersectionObserver", class { constructor(callback: typeof intersect) { intersect = callback; } observe = observe; disconnect = disconnect; unobserve = unobserve; });
+    vi.stubGlobal("ResizeObserver", class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn(); });
+    const element = document.createElement("div"), tile = document.createElement("section");
+    tile.dataset.participant = "member"; tile.dataset.tile = "member";
+    tile.getBoundingClientRect = () => ({ width: 320, height: 180 }) as DOMRect;
+    element.append(tile); document.body.append(element);
+    const root = { current: element }, update = vi.fn(async (_interest: VideoSubscriptionInterest) => undefined);
+    const view = renderHook(({ minimized }) => useCallVideoInterest(root, "call", [], minimized, false, update), { initialProps: { minimized: false } });
+    expect(observe).toHaveBeenCalledWith(tile);
+    act(() => intersect([{ target: tile, isIntersecting: true, intersectionRatio: 1 }]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+    expect(update).toHaveBeenLastCalledWith({ hidden: false, cameras: [{ userId: "member", width: 320, height: 180 }], screens: [], cameraQuality: "adaptive" });
+    const panel = document.createElement("aside"); panel.className = "team-call-side-panel"; panel.style.position = "absolute";
+    await act(async () => { element.append(panel); await Promise.resolve(); await vi.advanceTimersByTimeAsync(25); });
+    expect(update).toHaveBeenLastCalledWith({ hidden: true, cameras: [], screens: [], cameraQuality: "adaptive" });
+    await act(async () => { panel.remove(); await Promise.resolve(); await vi.advanceTimersByTimeAsync(25); });
+    expect(update.mock.calls.at(-1)?.[0].cameras).toHaveLength(1);
+    view.rerender({ minimized: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+    expect(update).toHaveBeenLastCalledWith({ hidden: true, cameras: [], screens: [], cameraQuality: "adaptive" });
+    view.rerender({ minimized: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+    expect(update.mock.calls.at(-1)?.[0].cameras).toHaveLength(1);
+    act(() => intersect([{ target: tile, isIntersecting: false, intersectionRatio: 0 }]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+    expect(update.mock.calls.at(-1)?.[0].cameras).toHaveLength(0);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    // No animation frame/timer can run while a real document is hidden.
+    expect(update).toHaveBeenLastCalledWith({ hidden: true, cameras: [], screens: [], cameraQuality: "adaptive" });
+    const count = update.mock.calls.length;
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(update).toHaveBeenCalledTimes(count);
+  });
+});

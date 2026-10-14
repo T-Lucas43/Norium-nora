@@ -1,6 +1,28 @@
 # Changelog
 
+## Candidato de homologação — 14/10/2026
+
+- Consolida fases 6–7, novo Chat com Nora sob demanda e anexos na prévia de e-mail.
+- Integra o novo layout das chamadas e otimização de vídeo mantendo controles de
+  áudio e a escolha de assistir à transmissão.
+- Nora dentro das chamadas permanece parcial e desligada por padrão. Estado,
+  pendências, revisão técnica e evidências no handoff de consolidação de 14/10.
+
 Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
+
+## [Não publicado] — novo Chat da equipe, 13/10/2026
+
+- feat(chat): estrutura de conversas, gaveta de 440 px, contexto único de 340 px, temas nx, compositor formatado, citação, edição e exclusão confirmada; mensagens próprias à direita e avatares preservados.
+- feat(chat): fios com replyThreadId aditivo, participantes notificados, fixadas, busca e contexto por permissão; cartões resolvidos para cada leitor e eventos restritos aos leitores do recurso.
+- feat(chat): tarefa com origem, enquete/voto ao vivo, encaminhamento interno, modelos com canal equipe e atalhos; foco/status, notificações por conversa e presença limitada com pausa, expiração e contexto autorizado.
+- perf(chat): páginas de 50 mensagens, janela limitada para históricos longos, catálogo de arquivos paginado e miniaturas autenticadas; fila interna opt-in com identidade fixa e estado gravado junto à mensagem.
+- fix(privacidade): exportação e exclusão do membro incluem preferências, envios agendados, lembretes e votos; preservam dados dos demais membros.
+- fix(admin): edição exclusiva do limite de chamadas preserva o valor administrativo existente; a franquia operacional continua em tokens.
+- feat(chat): Nora contextual sob demanda, até 12 mensagens minimizadas por acesso, fontes, respostas privadas quando necessário e comandos com revisão; resumo de mensagens não lidas e controle da Nora por subequipe.
+- feat(chat): transcrição de áudio selecionado com política Groq, DLP e medição por tentativa; preparação de e-mail/WhatsApp para cliente acessível com aprovação exata, sem envio automático.
+- fix(chat): contadores públicos dos fios não incluem respostas privadas; histórico paginado preservado ao publicar respostas e reuniões; imagens externas do texto não carregam automaticamente.
+- fix(storage): normalização do prefixo estendido Windows após resolução do caminho, mantendo a rejeição de arquivos fora da raiz e a quota concorrente.
+- docs(chat): autorizações contextuais e de áudio recebidas em 13/10/2026; ensaio sintético e gates locais registrados no handoff. Publicação e deploy conjunto seguem pendentes.
 
 ## [Não publicado] — painel administrativo, 12/10/2026
 
@@ -14,6 +36,19 @@ Formato: uma linha por mudança relevante. Versionamento `MAJOR.MINOR.PATCH`.
 - fix(carregamento): service worker devolve Response também sem rede/cache, preserva uma geração pública anterior e não apaga caches pessoais ou intercepta API/recursos privados.
 - fix(interface): página de entrada e falhas React/import exibem mensagem com logo oficial e tentativa explícita de carregar novamente, em vez de tela vazia; sem mudar autenticação ou reexecutar ações.
 - docs(operacao): recuperação do proxy HTTPS existente após colisão de reserva IP interna com a API; mesmo contêiner, portas, segurança, certificados e volumes preservados, PostgreSQL/HTTPS conferidos.
+
+## [Não publicado] — fases 6 e 7, revisão local de 12/10/2026
+
+- fix(seguranca): verbos/alvos financeiros, digest por dono/workspace, WhatsApp preparado por operação exata, DLP central e provedores autorizados por tenant.
+- feat(nora): ferramentas de negócio no executor durável, aprovações por operação, memória unificada e reconciliação de envios com ledger anterior ao provedor; tentativas inconclusivas permanecem unknown.
+- feat(consumo): franquias de plano/pessoa/equipe, alertas 80/95, medição central, cache por workspace e resumo minimizado; interface de consumo integrada.
+- feat(conhecimento): embeddings mascarados em PostgreSQL, citações/fallback lexical e Brave atribuído à pessoa; testes simulados enquanto as chaves não forem autorizadas.
+- feat(gmail): sincronização incremental por historyId e IDs apenas, limites de leitura/checkpoint/backoff; worker opt-in, sem ativação em homologação.
+- feat(privacidade): catálogo de exportação/exclusão, quotas, retenção opt-in, revogação Google, invalidação de caches e ledger de exclusões independente dos backups.
+- fix(auditoria): logs minimizados e trilha produzida pelo servidor; cliente não pode forjar registros.
+- docs(operacao): minutas LGPD/subprocessadores e procedimento Shard de backup/restauração/rollback, com reaplicação de exclusões em ensaio isolado.
+- test(nora): Groq real 27/30 (90%) com argumentos validados; piloto HTTP autenticado + PostgreSQL + worker real sem efeitos externos. Regressão backend final 1.465 testes sem falhas.
+- feat(interface): telas de acesso, consumo e privacidade; fases estruturais locais dependem da revisão humana exigida por docs/AI_GOVERNANCE.md antes de promoção/ativação.
 
 ## [Não publicado] — branch `feat/fase1-seguranca-voz`
 

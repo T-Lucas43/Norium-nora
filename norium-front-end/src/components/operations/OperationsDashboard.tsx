@@ -1,6 +1,8 @@
 import "../../styles/screens/trabalho-comum.css";
 import "../../styles/screens/controle.css";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { apiRequest } from "../../core/api/client";
+import { workspaceScope } from "../../core/api/sessionScope";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
@@ -72,7 +74,7 @@ type OperationEntry = {
   description: string;
   status: string;
   timestamp: string;
-  actor?: { name?: string };
+  actor?: { id?: string; name?: string };
   entityType?: string | null;
   entityId?: string | null;
   undoAction?: string | null;
@@ -193,6 +195,22 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("receipts");
+  const [auditPage, setAuditPage] = useState<{ items: OperationEntry[]; total: number; nextOffset: number | null } | null>(null);
+  const [auditOffset, setAuditOffset] = useState(0);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState("");
+  const activeWorkspace = workspaceScope();
+  useEffect(() => { setAuditOffset(0); setAuditPage(null); }, [userId, activeWorkspace]);
+  useEffect(() => {
+    if (timelineMode !== "audit") return;
+    const controller = new AbortController();
+    setAuditLoading(true); setAuditError("");
+    void apiRequest<{ items: OperationEntry[]; total: number; nextOffset: number | null }>(`/api/operacao/auditoria?limit=50&offset=${auditOffset}`, { signal: controller.signal })
+      .then(result => { if (!controller.signal.aborted) setAuditPage(result); })
+      .catch(reason => { if (!controller.signal.aborted) setAuditError(reason instanceof Error ? reason.message : "Não foi possível carregar a auditoria."); })
+      .finally(() => { if (!controller.signal.aborted) setAuditLoading(false); });
+    return () => controller.abort();
+  }, [timelineMode, auditOffset, userId, activeWorkspace]);
   const [activeSection, setActiveSection] = useState("operations-approvals");
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalTitle, setApprovalTitle] = useState("");
@@ -212,7 +230,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
     () => (overview?.approvals || []).filter((approval) => approval.status === "pending"),
     [overview?.approvals],
   );
-  const timeline = timelineMode === "receipts" ? overview?.receipts || [] : overview?.audit || [];
+  const timeline = timelineMode === "receipts" ? overview?.receipts || [] : auditPage?.items || overview?.audit || [];
   const editingWhatsAppApproval = editingApproval?.source === "whatsapp" && editingApproval.action === "nora_whatsapp_execute";
 
   function closeApprovalDialog() {
@@ -498,6 +516,8 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
               </div>
             </div>
             <div className="nxo-history">
+              {timelineMode === "audit" && auditError && <p role="alert" className="nxo-status">{auditError}</p>}
+              {timelineMode === "audit" && auditLoading && <p role="status" className="nxo-status">Carregando auditoria…</p>}
               {!ready.history ? sectionStatus("history", "Registros") : timeline.length === 0 ? (
                 <EmptyState icon={FileCheck2} title="Histórico pronto para registrar" description="As próximas ações concluídas aparecerão aqui." />
               ) : timeline.map((entry) => (
@@ -507,7 +527,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
                     <div className="nxo-entry-head"><strong className="nxw-row-t nx-ell">{entry.title || entry.action}</strong><time className="nx-faint nx-small">{formatDate(entry.timestamp)}</time></div>
                     <p className="nxw-row-sub nxo-clamp" style={{ margin: "2px 0 0" }}>{entry.description}</p>
                     <div className="nxo-entry-meta">
-                      <span className="nx-badge is-blue">{entry.actor?.name || "Norium"}</span>
+                      <span className="nx-badge is-blue">{entry.actor?.name || entry.actor?.id || "Norium"}</span>
                       {entry.entityId && <span className="nx-faint nx-small nx-ell">Registro: {entry.entityId}</span>}
                       {timelineMode === "receipts" && entryTarget(entry) && onNavigate && (
                         <button type="button" onClick={() => onNavigate(entryTarget(entry) as string)} className="nxo-link">
@@ -524,6 +544,11 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
                   </div>
                 </article>
               ))}
+              {timelineMode === "audit" && auditPage && <nav aria-label="Páginas da auditoria" className="flex flex-wrap items-center justify-between gap-3 p-3">
+                <button type="button" className="nx-btn is-sm" disabled={auditLoading || auditOffset === 0} onClick={() => setAuditOffset(value => Math.max(0, value - 50))}>Anterior</button>
+                <span className="nx-small">{auditPage.total === 0 ? 0 : auditOffset + 1}–{Math.min(auditOffset + auditPage.items.length, auditPage.total)} de {auditPage.total}</span>
+                <button type="button" className="nx-btn is-sm" disabled={auditLoading || auditPage.nextOffset === null} onClick={() => setAuditOffset(auditPage.nextOffset ?? auditOffset)}>Próxima</button>
+              </nav>}
             </div>
           </section>
         </div>

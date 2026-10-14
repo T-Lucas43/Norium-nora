@@ -259,14 +259,46 @@ async def send_email(user, prepared, job):
             return Outcome("rejected", {}, {"reason": "attachment_changed", "attachment": item["id"]})
         attachments.append({"fileName": item["name"], "mimeType": item["mimeType"],
                             "dataUrl": "data:" + item["mimeType"] + ";base64," + base64.b64encode(content).decode()})
+    from app.services.gmail_reconcile import EMAIL_KEY_HEADER
     result = service.send_message(
         **{k: prepared[k] for k in ("to", "cc", "bcc", "subject", "body")},
         attachments=attachments,
+        extra_headers={EMAIL_KEY_HEADER: job["operationId"]},
     )
     message_id = (result.get("message") or {}).get("id")
     if not result.get("sent") or not message_id:
         return Outcome("unknown", {}, {"reason": "provider_not_confirmed"})
-    return Outcome("succeeded", {"messageId": message_id}, {"messageId": message_id, "sender": prepared["sender"]})
+    return Outcome("succeeded", {"messageId": message_id}, {"messageId": message_id, "sender": prepared["sender"],
+                                                             "operationId": job["operationId"]})
+
+
+async def reconcile_email(user, prepared, job, *, now=None):
+    """Read-only: find the exact send in Sent by X-Norium-Email-Key; never resends."""
+    from app.services.gmail_service import GmailService
+    from app.services.gmail_reconcile import find_sent_by_key
+    from . import outbound
+    operation_id = job["operationId"]
+    service = GmailService(user["id"])
+    if service.status().get("email") != prepared["sender"]:
+        return Outcome("unknown", {}, {"reason": "sender_changed", "operationId": operation_id})
+    started = outbound.intent_time(job, operation_id)
+    if started is None:
+        return Outcome("unknown", {}, {"reason": "intent_time_missing", "operationId": operation_id})
+    try:
+        found = find_sent_by_key(service, operation_id, after_epoch=int(started) - 86400)
+    except Exception:
+        return Outcome("unknown", {}, {"reason": "provider_unavailable", "operationId": operation_id})
+    if found["found"]:
+        return Outcome("succeeded", {"messageId": found["messageId"]}, {
+            "confirmedApplied": True, "operationId": operation_id, "messageId": found["messageId"],
+            "sender": prepared["sender"], "method": "sent_header",
+        })
+    # Sent is mutable and indexing may lag. Even a complete search cannot
+    # prove that a previously submitted message was never delivered.
+    return Outcome("unknown", {}, {
+        "reason": "sent_search_incomplete" if not found["complete"] else "no_delivery_evidence",
+        "operationId": operation_id, "scanned": found["scanned"],
+    })
 
 
 class WhatsAppText(Strict):
@@ -304,28 +336,103 @@ async def prepare_whatsapp(user, args, job):
     }
 
 
-async def send_whatsapp(user, prepared, job):
-    from app.modules.chat.router import whatsapp_integration, wapi_connect
-    from app.modules.whatsapp import RemoteOutcomeUnknown, RemoteRejected, SendText, WhatsAppIntegrationError
-    current = await wapi_connect.status(user["id"])
-    if current.get("status") != "conectado" or str(current.get("numero") or "").strip() != prepared["sender"]:
-        return Outcome("rejected", {}, {"reason": "sender_changed"})
-    try:
-        result = await whatsapp_integration.send(
-            user["id"], SendText(conversation_id=prepared["conversationId"], text=prepared["text"]),
-        )
-    except RemoteOutcomeUnknown:
-        return Outcome("unknown", {}, {"reason": "provider_outcome_unknown"})
-    except RemoteRejected:
-        return Outcome("rejected", {}, {"reason": "provider_rejected"})
-    except WhatsAppIntegrationError:
-        return Outcome("unknown", {}, {"reason": "provider_state_unavailable"})
-    if not result.message_id:
-        return Outcome("unknown", {}, {"reason": "provider_receipt_missing"})
-    return Outcome("succeeded", {"messageId": result.message_id}, {
-        "messageId": result.message_id, "sender": prepared["sender"],
-        "recipient": prepared["recipient"], "conversationId": prepared["conversationId"],
-    })
+def whatsapp_tools(repo):
+    """WhatsApp send with an operationId receipt before and after the provider call."""
+    from . import outbound
+
+    async def send(user, prepared, job):
+        from app.modules.chat.router import whatsapp_integration, wapi_connect
+        from app.modules.whatsapp import RemoteOutcomeUnknown, RemoteRejected, SendText, WhatsAppIntegrationError
+        current = await wapi_connect.status(user["id"])
+        if current.get("status") != "conectado" or str(current.get("numero") or "").strip() != prepared["sender"]:
+            return Outcome("rejected", {}, {"reason": "sender_changed"})
+        operation_id = job["operationId"]
+        digest = outbound.target_digest("whatsapp", prepared["conversationId"], prepared["text"])
+        receipt, armed = outbound.begin(repo, job["scope"], operation_id, "whatsapp", digest)
+        if receipt is None or receipt["target_digest"] != digest:
+            return Outcome("unknown", {}, {"reason": "receipt_conflict", "operationId": operation_id})
+        if receipt["status"] == outbound.SENT and receipt["provider_id"]:
+            return Outcome("succeeded", {"messageId": receipt["provider_id"]}, {
+                "operationId": operation_id, "messageId": receipt["provider_id"], "idempotentReplay": True,
+            })
+        if not armed:
+            # An earlier attempt reached the provider boundary; never send twice.
+            return Outcome("unknown", {}, {"reason": "previous_attempt_unresolved", "operationId": operation_id})
+        try:
+            result = await whatsapp_integration.send(
+                user["id"], SendText(conversation_id=prepared["conversationId"], text=prepared["text"]),
+            )
+        except RemoteOutcomeUnknown:
+            return Outcome("unknown", {}, {"reason": "provider_outcome_unknown", "operationId": operation_id})
+        except RemoteRejected:
+            outbound.finish(repo, job["scope"], operation_id, outbound.REJECTED)
+            return Outcome("rejected", {}, {"reason": "provider_rejected", "operationId": operation_id})
+        except WhatsAppIntegrationError:
+            return Outcome("unknown", {}, {"reason": "provider_state_unavailable", "operationId": operation_id})
+        if not result.message_id:
+            return Outcome("unknown", {}, {"reason": "provider_receipt_missing", "operationId": operation_id})
+        outbound.finish(repo, job["scope"], operation_id, outbound.SENT, result.message_id)
+        return Outcome("succeeded", {"messageId": result.message_id}, {
+            "messageId": result.message_id, "sender": prepared["sender"], "operationId": operation_id,
+            "recipient": prepared["recipient"], "conversationId": prepared["conversationId"],
+        })
+
+    async def reconcile(user, prepared, job):
+        """Only evidence tied to this exact operation proves the effect."""
+        operation_id = job["operationId"]
+        digest = outbound.target_digest("whatsapp", prepared["conversationId"], prepared["text"])
+        receipt = outbound.read(repo, job["scope"], operation_id)
+        if receipt is not None and (receipt["target_digest"] != digest or receipt["channel"] != "whatsapp"):
+            return Outcome("unknown", {}, {"reason": "receipt_conflict", "operationId": operation_id})
+        if receipt is not None and receipt["status"] == outbound.SENT and receipt["provider_id"]:
+            return Outcome("succeeded", {"messageId": receipt["provider_id"]}, {
+                "confirmedApplied": True, "operationId": operation_id, "messageId": receipt["provider_id"],
+                "method": "outbound_receipt",
+            })
+        started = outbound.intent_time(job, operation_id)
+        echo = None
+        if started is not None and receipt and receipt["provider_id"]:
+            try:
+                echo = await whatsapp_echo(user["id"], prepared["conversationId"], prepared["text"], started,
+                                           provider_id=receipt["provider_id"])
+            except Exception:
+                return Outcome("unknown", {}, {"reason": "conversation_store_unavailable", "operationId": operation_id})
+        if echo is not None:
+            return Outcome("succeeded", {"messageId": echo}, {
+                "confirmedApplied": True, "operationId": operation_id, "messageId": echo, "method": "from_me_echo",
+            })
+        if receipt is not None and receipt["target_digest"] == digest and receipt["status"] == outbound.REJECTED:
+            return Outcome("rejected", {}, {
+                "confirmedNotApplied": True, "operationId": operation_id, "reason": "provider_rejected_receipt",
+            })
+        if receipt is None and outbound.settled(job, operation_id, repo.clock()):
+            # The receipt is committed before the provider call; its absence after
+            # the settle window proves the provider was never called.
+            return Outcome("rejected", {}, {
+                "confirmedNotApplied": True, "operationId": operation_id, "reason": "pre_send_receipt_absent",
+            })
+        return Outcome("unknown", {}, {"reason": "no_delivery_evidence", "operationId": operation_id})
+
+    return Tool("whatsapp_send", "Preparar e enviar texto após revisão exata de conta, destinatário e conteúdo.",
+                ("chat", "integracao_whatsapp"), "R", WhatsAppText, prepare_whatsapp, send, reconcile=reconcile)
+
+
+async def whatsapp_echo(user_id, conversation_id, text, started, *, provider_id, window=900):
+    """Require the provider id already bound to this operation, plus fromMe."""
+    if not provider_id:
+        return None
+    from app.services.conversation_store import load_conversations
+    conversation = (await load_conversations(user_id)).get(conversation_id) or {}
+    for message in reversed(conversation.get("mensagens") or []):
+        try:
+            at = float(message.get("timestamp") or 0)
+        except (TypeError, ValueError):
+            continue
+        if (str(message.get("id") or "") == provider_id and message.get("fromMe") is True
+                and message.get("remetente") == "usuario" and message.get("texto") == text
+                and started - 60 <= at <= started + window):
+            return provider_id
+    return None
 
 
 class CalendarQuery(Strict):
@@ -441,12 +548,17 @@ def preference_tools(repo):
         return {**args.model_dump(), "effects": ["preference"]}
 
     async def save(user, prepared, job):
+        from app.modules.operations.service import save_nora_memory
+        from app.modules.operations.schemas import NoraMemoryCreate
+        memory = await save_nora_memory(user, NoraMemoryCreate(key=prepared["name"], value=prepared["value"],
+                                                               scope="personal", category="general"))
         scope = job["scope"]
         with repo.transaction() as connection:
             repo.sql(connection, """INSERT INTO nora_preferences VALUES (?,?,?,?,?,?,?)
                 ON CONFLICT(tenant,actor,workspace,name) DO UPDATE SET value=excluded.value,source=excluded.source,updated=excluded.updated""",
                 (scope["tenant"], scope["user"], scope["workspace"], prepared["name"], prepared["value"], job["operationId"], repo.clock()))
-        return Outcome("succeeded", {"name": prepared["name"]}, {"saved": prepared["name"], "source": job["operationId"]})
+        return Outcome("succeeded", {"name": prepared["name"], "memoryId": memory["id"]},
+                       {"saved": prepared["name"], "source": job["operationId"], "memoryId": memory["id"]})
 
     async def reconcile(user, prepared, job):
         scope = job["scope"]
@@ -477,6 +589,10 @@ def preference_delete_tool(repo):
         return {"name": args.name, "exists": row is not None, "version": version, "effects": ["delete"]}
 
     async def delete(user, prepared, job):
+        from app.modules.operations.service import list_nora_memory, remove_nora_memory
+        memories = await list_nora_memory(user)
+        matching = [item for item in memories if item.get("scope") == "personal"
+                    and item.get("key") == prepared["name"]]
         scope = job["scope"]
         with repo.transaction() as connection:
             query = """SELECT value,source,updated FROM nora_preferences
@@ -492,6 +608,10 @@ def preference_delete_tool(repo):
             receipt_id = "preference-delete:" + job["operationId"]
             repo.sql(connection, "INSERT INTO nora_tombstones VALUES (?,?,?) ON CONFLICT DO NOTHING",
                      (receipt_id, "preference_delete_receipt", repo.clock()))
+            repo.sql(connection, "INSERT INTO nora_tombstone_scopes VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
+                     (receipt_id, scope["tenant"], scope["user"], scope["workspace"]))
+        for item in matching:
+            await remove_nora_memory(user, item["id"])
         return Outcome("succeeded", {"name": prepared["name"], "deleted": cursor.rowcount == 1},
                        {"preference": prepared["name"], "deleted": cursor.rowcount == 1,
                         "operationId": job["operationId"]})
@@ -513,6 +633,7 @@ def preference_delete_tool(repo):
 def registry(repository):
     from .documents import document_tools
     from .workspace_tools import workspace_tools
+    from .business_tools import business_tools
     from .dispatcher import web_tool
     legacy_tools = [
         Tool("tasks_query", "Buscar tarefas privadas por título, data e estado. Retorna IDs e paginação.", "tarefas", "C", TaskQuery, prepare_query, query_tasks),
@@ -524,10 +645,11 @@ def registry(repository):
         Tool("scheduling_create_page", "Criar serviço, disponibilidade e página pública de agendamento após revisão do resumo exato.", "agenda", "R", SchedulingCreate, prepare_scheduling_create, create_scheduling_page),
         Tool("calendar_query", "Consultar eventos no intervalo absoluto informado, com cobertura explícita.", "agenda", "C", CalendarQuery, prepare_calendar_query, query_calendar),
         Tool("calendar_create", "Criar compromisso. Participantes transformam a operação em revisão de convite.", "agenda", "D", CalendarCreate, prepare_calendar_create, create_calendar_event, reconcile=reconcile_calendar_event),
-        Tool("email_send", "Preparar e enviar email após revisão exata de remetente, destinatários, conteúdo e anexos.", ("emails", "integracao_gmail"), "R", Email, prepare_email, send_email),
-        Tool("whatsapp_send", "Preparar e enviar texto após revisão exata de conta, destinatário e conteúdo.", ("chat", "integracao_whatsapp"), "R", WhatsAppText, prepare_whatsapp, send_whatsapp),
+        Tool("email_send", "Preparar e enviar email após revisão exata de remetente, destinatários, conteúdo e anexos.", ("emails", "integracao_gmail"), "R", Email, prepare_email, send_email, reconcile=reconcile_email),
+        whatsapp_tools(repository),
         *document_tools(),
         *workspace_tools(),
+        *business_tools(),
     ]
     return Registry([
         *[web_tool(tool) for tool in legacy_tools],

@@ -257,6 +257,8 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   const [teamMembers, setTeamMembers] = useState<NoriumUser[]>([session.user]);
   const [projectTemplates, setProjectTemplates] = useState<ProjectTemplate[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<TaskWorkspace | null>(null);
+  const activePresenceProject = activeWorkspace?.id;
+  useEffect(() => { window.dispatchEvent(new CustomEvent("norium:presence-context", { detail: activePresenceProject ? { type: "project", id: activePresenceProject } : null })); return () => { window.dispatchEvent(new CustomEvent("norium:presence-context", { detail: null })); }; }, [activePresenceProject]);
   const [workspaceForm, setWorkspaceForm] = useState<WorkspaceForm>({
     ...emptyWorkspaceForm,
     owner: userName,

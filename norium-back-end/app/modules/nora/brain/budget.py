@@ -17,8 +17,18 @@ class Budget:
             if tokens <= 0 or budget["tokens"] + budget["reserved"] + tokens > limit.tokens or budget["calls"] >= limit.calls or budget["seconds"] >= limit.seconds:
                 raise BrainError("budget_exhausted")
             period = datetime.fromtimestamp(self.repo.clock(), timezone.utc).strftime("%Y-%m")
-            accounts = [("tenant:" + job["scope"]["tenant"], self.monthly_tokens),
-                        ("user:" + job["scope"]["tenant"] + ":" + job["scope"]["user"], self.user_tokens)]
+            monthly_cap, user_cap = self.monthly_tokens, self.user_tokens
+            from app.services.ai_costs import account_plan, database, get_limit, cycle_for
+            plan = account_plan(job["scope"]["user"])
+            if plan:
+                with database() as db:
+                    personal = get_limit(db, job["scope"]["user"])
+                    cycle = cycle_for(personal)
+                monthly_cap = plan["noraTokens"]
+                user_cap = personal["monthlyTokenLimit"]
+                period = cycle["scheduledStartAt"]
+            accounts = [("tenant:" + job["scope"]["tenant"], monthly_cap),
+                        ("user:" + job["scope"]["tenant"] + ":" + job["scope"]["user"], user_cap)]
             for account, cap in accounts:
                 key = account + ":" + period
                 self.repo.sql(connection, "INSERT INTO nora_budget(account,period,used,reserved) VALUES (?,?,0,0) ON CONFLICT DO NOTHING", (key, period))

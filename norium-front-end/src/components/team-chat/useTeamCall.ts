@@ -20,6 +20,7 @@ import {
   type MediaTransportSnapshot,
 } from "./media/MediaTransport";
 import { MeshMediaTransportFactory } from "./media/MeshMediaTransport";
+import { mergeMeetingTranscript, type MeetingTranscriptSegment, type MeetingUnderstanding } from "./meetingNoraTypes";
 
 const TEAM_CHAT_API = `${apiBaseUrl()}/api/team-chat`;
 const RECORDING_MAX_RETRIES = 3;
@@ -71,6 +72,13 @@ export type TeamCallThread = {
 };
 
 export type TeamCallSocketEvent = {
+  sequence?: number;
+  revision?: number;
+  segments?: MeetingTranscriptSegment[];
+  understanding?: MeetingUnderstanding;
+  nora?: NoraCallSnapshot | null;
+  receiveVideo?: boolean;
+  quality?: "low" | "high";
   type: string;
   code?: string;
   status?: number;
@@ -103,6 +111,25 @@ export type TeamCallSocketEvent = {
   joinedCount?: number;
   maxParticipants?: number;
   mediaTransport?: "mesh" | "sfu";
+  stagePin?: { userId: string; type: "member" | "screen" } | null;
+  presentationLocks?: Record<string, boolean>;
+  presenterUserId?: string | null;
+  stageRevision?: number;
+  markId?: string;
+  x?: number;
+  y?: number;
+  muted?: boolean;
+  participantMedia?: Record<string, { cameraEnabled?: boolean; muted?: boolean }>;
+};
+
+export type NoraCallSnapshot = {
+  callId: string;
+  revision: number;
+  available: boolean;
+  requested: boolean;
+  state: "paused" | "awaiting_consent" | "awaiting_agent" | "listening" | "thinking" | "speaking";
+  notice: string;
+  pendingUserIds: string[];
 };
 
 export type MeetingMessage = { id: string; senderId: string; senderName: string; text: string; createdAt: string;
@@ -386,6 +413,7 @@ export function useTeamCallRuntime({
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [remoteScreenSharingIds, setRemoteScreenSharingIds] = useState<string[]>([]);
   const [remoteCameraEnabled, setRemoteCameraEnabled] = useState<Record<string, boolean>>({});
+  const [remoteMuted, setRemoteMuted] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState("");
   const [audioReady, setAudioReady] = useState(false);
   const [ringtoneAudible, setRingtoneAudible] = useState(false);
@@ -395,9 +423,19 @@ export function useTeamCallRuntime({
   const [recordingUploadState, setRecordingUploadState] = useState<RecordingUploadState>("idle");
   const [recordingUploadedBytes, setRecordingUploadedBytes] = useState(0);
   const [recordingPendingBytes, setRecordingPendingBytes] = useState(0);
-  const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; userName: string }>>([]);
+  const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; userName: string; userId?: string }>>([]);
   const [raisedHands, setRaisedHands] = useState<Record<string, string>>({});
+  const [nora, setNora] = useState<NoraCallSnapshot | null>(null);
+  const [noraTranscript, setNoraTranscript] = useState<MeetingTranscriptSegment[]>([]);
+  const [noraUnderstanding, setNoraUnderstanding] = useState<MeetingUnderstanding | null>(null);
+  const noraSequenceRef = useRef(0);
+  const noraRevisionRef = useRef(-1);
   const handRevisionRef = useRef(-1);
+  const stageRevisionRef = useRef(-1);
+  const [stagePin, setStagePin] = useState<TeamCallSocketEvent["stagePin"]>(null);
+  const [presentationLocks, setPresentationLocks] = useState<Record<string, boolean>>({});
+  const [presenterUserId, setPresenterUserId] = useState<string | null>(null);
+  const [presentationMarks, setPresentationMarks] = useState<Array<{ id: string; targetUserId: string; fromUserName: string; x: number; y: number; expiresAt: number }>>([]);
   const [meetingMessages, setMeetingMessages] = useState<MeetingMessage[]>([]);
   const announcedScreensRef = useRef(new Set<string>());
   const announcedParticipantSessionsRef = useRef(new Set<string>());
@@ -427,6 +465,7 @@ export function useTeamCallRuntime({
   const backgroundBlurRef = useRef(false);
   const backgroundBlurPipelinesRef = useRef(new Map<MediaStream, BackgroundBlurPipeline>());
   const mediaTransportRef = useRef<MediaTransport | null>(null);
+  const videoInterestRef = useRef<import("./media/videoSubscriptionPolicy").VideoSubscriptionInterest | null>(null);
   const mediaTransportCallIdRef = useRef("");
   const mediaTransportOpenRef = useRef<Promise<MediaTransport> | null>(null);
   const unsubscribeMediaTransportRef = useRef<(() => void) | null>(null);
@@ -467,6 +506,7 @@ export function useTeamCallRuntime({
   const recordingStopPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const resolveRecordingStopRef = useRef<(() => void) | null>(null);
   const reactionTimersRef = useRef<number[]>([]);
+  const markTimersRef = useRef(new Map<string, number>());
   const finishCallRef = useRef<(notify: boolean, sound?: CallSound | null, preserveReload?: boolean) => void>(() => undefined);
 
   const stopMicrophoneProcessing = useCallback(() => {
@@ -611,9 +651,9 @@ export function useTeamCallRuntime({
     remoteStreamsRef.current = mediaTransportSnapshot.remoteStreams;
   }, [mediaTransportSnapshot.remoteStreams]);
 
-  const showReaction = useCallback((emoji: string, userName: string) => {
+  const showReaction = useCallback((emoji: string, userName: string, userId?: string) => {
     const id = crypto.randomUUID();
-    setReactions((current) => [...current.slice(-7), { id, emoji, userName }]);
+    setReactions((current) => [...current.slice(-7), { id, emoji, userName, userId }]);
     reactionTimersRef.current.push(window.setTimeout(() => {
       setReactions((current) => current.filter((reaction) => reaction.id !== id));
     }, 4200));
@@ -700,9 +740,24 @@ export function useTeamCallRuntime({
   }, [abandonAdmission, callPayload, clearPendingAdmission, sendSocketEvent]);
 
   const receiveHands = useCallback((event: TeamCallSocketEvent) => {
+    if (event.nora && event.nora.callId === event.callId && event.nora.revision >= noraRevisionRef.current) {
+      noraRevisionRef.current = event.nora.revision;
+      setNora(event.nora);
+    } else if (event.nora === null) {
+      setNora(null);
+    }
     if (event.raisedHands && (event.handRevision ?? 0) >= handRevisionRef.current) {
       handRevisionRef.current = event.handRevision ?? 0;
       setRaisedHands(event.raisedHands);
+    }
+    if (typeof event.stageRevision === "number" && event.stageRevision >= stageRevisionRef.current) {
+      stageRevisionRef.current = event.stageRevision;
+      setStagePin(event.stagePin || null);
+      setPresentationLocks(event.presentationLocks || {});
+      setPresenterUserId(event.presenterUserId || null);
+    }
+    if (event.participantMedia) {
+      setRemoteMuted(Object.fromEntries(Object.entries(event.participantMedia).filter(([, state]) => typeof state.muted === "boolean").map(([id, state]) => [id, state.muted!])));
     }
   }, []);
 
@@ -751,10 +806,11 @@ export function useTeamCallRuntime({
     sendSocketEvent({ type: "CALL_MEDIA_STATE", ...callPayload(call),
       cameraEnabled: !!localStreamRef.current?.getVideoTracks().some((track) => track.enabled && track.readyState !== "ended"),
       screenSharing: !!screenStreamRef.current,
+      muted: !localStreamRef.current?.getAudioTracks().some((track) => track.enabled && track.readyState !== "ended"),
     });
   }, [callPayload, sendSocketEvent]);
 
-  useEffect(() => { if (active) publishMediaState(); }, [active, cameraOff, sharingScreen, publishMediaState]);
+  useEffect(() => { if (active) publishMediaState(); }, [active, cameraOff, muted, sharingScreen, publishMediaState]);
 
   const transportMedia = useCallback((
     outgoingVideoTrack?: MediaStreamTrack | null,
@@ -806,6 +862,10 @@ export function useTeamCallRuntime({
     }, entryStartedRef.current);
     telemetryRef.current = telemetry;
     const transport = factory.create({
+      emitVideoInterest: (callId, targetUserId, receiveVideo, quality) => {
+        const current = activeRef.current;
+        if (current?.callId === callId) sendSocketEvent({ type: "CALL_VIDEO_INTEREST", ...callPayload(current), targetUserId, receiveVideo, quality });
+      },
       emitSignal: (callId, targetUserId, signal) => {
         const current = activeRef.current;
         if (!current || current.callId !== callId) return false;
@@ -842,6 +902,7 @@ export function useTeamCallRuntime({
         selfUserId: session.user.id,
         clientId: clientIdRef.current,
       }, transportMedia());
+      if (videoInterestRef.current) await transport.updateVideoInterest?.(videoInterestRef.current);
       if (mediaTransportRef.current !== transport
         || mediaTransportCallIdRef.current !== call.callId
         || activeRef.current?.callId !== call.callId) {
@@ -886,6 +947,7 @@ export function useTeamCallRuntime({
     }
     const call = activeRef.current;
     telemetryRef.current = null;
+    videoInterestRef.current = null;
     clearPendingAdmission();
     mediaEpochRef.current += 1;
     busyRef.current = false;
@@ -901,6 +963,11 @@ export function useTeamCallRuntime({
     closeMediaTransport();
     setRemoteScreenSharingIds([]);
     setRemoteCameraEnabled({});
+    setRemoteMuted({});
+    stageRevisionRef.current = -1;
+    setStagePin(null); setPresentationLocks({}); setPresenterUserId(null); setPresentationMarks([]);
+    setNora(null); noraRevisionRef.current = -1;
+    setNoraTranscript([]); setNoraUnderstanding(null); noraSequenceRef.current = 0;
     stopMedia();
     setIncoming(null);
     incomingRef.current = null;
@@ -926,6 +993,8 @@ export function useTeamCallRuntime({
     recordingCleanupRef.current = null;
     reactionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     reactionTimersRef.current = [];
+    markTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    markTimersRef.current.clear();
     setReactions([]);
     if (sound) playCallSound(sound);
     setStatus("");
@@ -1804,9 +1873,39 @@ export function useTeamCallRuntime({
       setAvailableCalls(availableCallsRef.current);
     }
     if (event.callId === activeRef.current?.callId) {
+      if (event.type === "CALL_NORA_TRANSCRIPT" || event.type === "CALL_NORA_UNDERSTANDING") {
+        if (typeof event.revision !== "number" || event.revision < noraRevisionRef.current
+          || typeof event.sequence !== "number" || event.sequence <= noraSequenceRef.current) return;
+        noraSequenceRef.current = event.sequence;
+        receiveHands(event);
+        if (event.type === "CALL_NORA_TRANSCRIPT" && Array.isArray(event.segments)) {
+          setNoraTranscript((current) => mergeMeetingTranscript(current, event.segments!, event.callId!));
+        }
+        if (event.type === "CALL_NORA_UNDERSTANDING" && event.understanding) setNoraUnderstanding(event.understanding);
+        return;
+      }
       receiveHands(event);
+      if (event.type === "CALL_PRESENTATION_MARK" && event.markId && event.targetUserId && typeof event.x === "number" && typeof event.y === "number") {
+        const expiresAt = Math.min(Date.now() + 10_000, Date.parse(event.expiresAt || ""));
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+        const mark = { id: event.markId, targetUserId: event.targetUserId, fromUserName: event.fromUserName || "Participante", x: event.x, y: event.y, expiresAt };
+        setPresentationMarks((marks) => [...marks.filter((item) => item.id !== mark.id && item.expiresAt > Date.now()).slice(-19), mark]);
+        if (markTimersRef.current.size >= 20) {
+          const oldest = markTimersRef.current.entries().next().value;
+          if (oldest) { window.clearTimeout(oldest[1]); markTimersRef.current.delete(oldest[0]); }
+        }
+        const existingTimer = markTimersRef.current.get(mark.id);
+        if (existingTimer !== undefined) window.clearTimeout(existingTimer);
+        markTimersRef.current.set(mark.id, window.setTimeout(() => {
+          markTimersRef.current.delete(mark.id);
+          setPresentationMarks((marks) => marks.filter((item) => item.id !== mark.id));
+        }, expiresAt - Date.now()));
+        return;
+      }
+      if (["CALL_STAGE_PIN", "CALL_PRESENTATION_LOCK", "CALL_PRESENTER_ASSIGN"].includes(event.type)) return;
       if (event.type === "CALL_CHAT_MESSAGE" && event.message) { receiveMessages([event.message]); return; }
       if (event.type === "CALL_HAND_STATE") return;
+      if (event.type === "CALL_NORA_CONTROL" || event.type === "CALL_NORA_CONSENT") return;
     }
     if (!event.callId || !event.fromUserId || (event.fromUserId === session.user.id && event.type !== "CALL_END")) {
       if (event.type === "CALL_ERROR" && event.detail) setStatus(event.detail);
@@ -1843,6 +1942,7 @@ export function useTeamCallRuntime({
       && [
         "CALL_ACCEPT",
         "CALL_SIGNAL",
+        "CALL_VIDEO_INTEREST",
         "CALL_MEDIA_STATE",
         "CALL_SCREEN_STARTED",
         "CALL_SCREEN_STOPPED",
@@ -1853,7 +1953,7 @@ export function useTeamCallRuntime({
       return;
     }
     if (event.type === "CALL_REACTION" && event.emoji) {
-      showReaction(event.emoji, event.fromUserName || "Participante");
+      showReaction(event.emoji, event.fromUserName || "Participante", event.fromUserId);
       return;
     }
     if (event.type === "CALL_MEDIA_STATE") {
@@ -1903,6 +2003,10 @@ export function useTeamCallRuntime({
       await (await ensureMediaTransport(call)).receive({
         type: "signal", callId: call.callId, userId: event.fromUserId, clientId: event.clientId, signal: event.signal,
       });
+      return;
+    }
+    if (event.type === "CALL_VIDEO_INTEREST" && typeof event.receiveVideo === "boolean" && (event.quality === "low" || event.quality === "high")) {
+      await (await ensureMediaTransport(call)).receive({ type: "video-interest", callId: call.callId, userId: event.fromUserId, clientId: event.clientId, receiveVideo: event.receiveVideo, quality: event.quality });
       return;
     }
     if (event.type === "CALL_REJECT") {
@@ -2176,11 +2280,47 @@ export function useTeamCallRuntime({
   const sendReaction = useCallback((emoji: string) => {
     const call = activeRef.current;
     if (!call || !["👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"].includes(emoji)) return;
-    showReaction(emoji, session.user.nome || "Voce");
+    showReaction(emoji, session.user.nome || "Você", session.user.id);
     sendSocketEvent({ type: "CALL_REACTION", ...callPayload(call), emoji });
-  }, [callPayload, sendSocketEvent, session.user.nome, showReaction]);
+  }, [callPayload, sendSocketEvent, session.user.id, session.user.nome, showReaction]);
+
+  const removeParticipant = useCallback((userId: string) => {
+    const call = activeRef.current;
+    if (!call || call.hostUserId !== session.user.id || userId === session.user.id) return;
+    if (!sendSocketEvent({ type: "CALL_KICK", ...callPayload(call), targetUserId: userId })) {
+      setStatus("Não foi possível remover o participante. Confira a conexão.");
+    }
+  }, [callPayload, sendSocketEvent, session.user.id]);
+
+  const updateStage = useCallback((action: { type: "pin"; userId: string | null; tileType: "member" | "screen" } | { type: "presenter"; userId: string | null } | { type: "lock"; locked: boolean } | { type: "mark"; userId: string; x: number; y: number }) => {
+    const call = activeRef.current;
+    if (!call) return;
+    const host = call.hostUserId === session.user.id;
+    if ((action.type === "pin" || action.type === "presenter") && !host) return;
+    const payload = action.type === "pin" ? { type: "CALL_STAGE_PIN", targetUserId: action.userId, tileType: action.tileType }
+      : action.type === "presenter" ? { type: "CALL_PRESENTER_ASSIGN", targetUserId: action.userId }
+        : action.type === "lock" ? { type: "CALL_PRESENTATION_LOCK", locked: action.locked }
+          : { type: "CALL_PRESENTATION_MARK", targetUserId: action.userId, x: action.x, y: action.y };
+    if (!sendSocketEvent({ ...payload, ...callPayload(call) })) setStatus("Não foi possível atualizar o palco. Confira a conexão.");
+  }, [callPayload, sendSocketEvent, session.user.id]);
+
+  const updateVideoInterest = useCallback(async (interest: import("./media/videoSubscriptionPolicy").VideoSubscriptionInterest) => {
+    if (!activeRef.current) return;
+    videoInterestRef.current = interest;
+    await mediaTransportRef.current?.updateVideoInterest?.(interest);
+  }, []);
+
+  const updateNora = useCallback((action: { type: "control"; enabled: boolean } | { type: "consent"; accepted: boolean; revision: number }) => {
+    const call = activeRef.current;
+    if (!call || action.type === "control" && call.hostUserId !== session.user.id) return;
+    const payload = action.type === "control" ? { type: "CALL_NORA_CONTROL", enabled: action.enabled }
+      : { type: "CALL_NORA_CONSENT", accepted: action.accepted, revision: action.revision };
+    if (!sendSocketEvent({ ...payload, ...callPayload(call) })) setStatus("Não foi possível atualizar a Nora. Confira a conexão.");
+  }, [callPayload, sendSocketEvent, session.user.id]);
 
   return {
+    nora, updateNora, noraTranscript, noraUnderstanding,
+    updateVideoInterest,
     clientId: clientIdRef.current,
     incoming,
     active,
@@ -2189,6 +2329,7 @@ export function useTeamCallRuntime({
     syncActiveCalls,
     localStream,
     remoteStreams: mediaTransportSnapshot.remoteStreams,
+    participantConnectionQuality: mediaTransportSnapshot.participantConnectionQuality || {},
     muted,
     listenOnly,
     microphonePermission,
@@ -2199,6 +2340,7 @@ export function useTeamCallRuntime({
     previewStream,
     remoteScreenSharingIds,
     remoteCameraEnabled,
+    remoteMuted,
     callElapsedSeconds,
     recording,
     recordingElapsedSeconds,
@@ -2227,6 +2369,8 @@ export function useTeamCallRuntime({
     startRecording,
     stopRecording,
     sendReaction,
+    removeParticipant,
+    stagePin, presentationLocks, presentationMarks, presenterUserId, updateStage,
     raisedHands,
     toggleHand,
     meetingMessages,

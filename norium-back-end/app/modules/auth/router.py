@@ -1591,6 +1591,21 @@ async def admin_backup(user: dict[str, Any] = Depends(current_user)) -> dict[str
     }
 
 
+@router.get("/nora-usage")
+async def personal_nora_usage(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    """Current account usage; the server selects the visible people."""
+    from app.services.ai_costs import nora_usage
+    store = await read_user_store()
+    team = team_id_for_user(user)
+    # System administrators also see only the selected account's team here.
+    people = [item for item in store.get("users", []) if isinstance(item, dict)
+              and (item.get("id") == team or item.get("teamOwnerId") == team)]
+    if not any(item.get("id") == user["id"] for item in people):
+        people.append(user)
+    can_view_people = can_manage_system(user) or (user.get("role") == "owner" and team == user["id"])
+    return await asyncio.to_thread(nora_usage, user, people, can_view_people)
+
+
 @router.get("/admin/users")
 async def list_admin_users(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     if not can_manage_system(user):

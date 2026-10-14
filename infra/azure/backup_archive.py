@@ -30,6 +30,9 @@ def _safe_files(root: Path):
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             raise ValueError("backup source must not contain symbolic links")
+        # The current deletion ledger must never be rolled back by data restore.
+        if path.name in {"privacy_deletions.jsonl", "privacy-deletions.jsonl"} or path.name.endswith(".privacy-deletions.jsonl"):
+            continue
         # The SQLite backup API folds committed WAL pages into the snapshot.
         # Restoring an old WAL/journal next to it can overwrite that snapshot.
         if any(path.name.endswith(suffix) and path.with_name(path.name[:-len(suffix)]).suffix.lower() in SQLITE_SUFFIXES
@@ -99,6 +102,8 @@ def restore_backup(backup: Path, destination: Path, key: bytes) -> dict:
             relative = Path(member.filename)
             if relative.is_absolute() or ".." in relative.parts or member.is_dir():
                 raise ValueError("unsafe backup member")
+            if relative.name in {"privacy_deletions.jsonl", "privacy-deletions.jsonl"} or relative.name.endswith(".privacy-deletions.jsonl"):
+                raise ValueError("deletion ledger cannot be restored from an old snapshot")
             content = archive.read(member)
             item = expected[member.filename]
             if len(content) != item["size"] or hashlib.sha256(content).hexdigest() != item["sha256"]:

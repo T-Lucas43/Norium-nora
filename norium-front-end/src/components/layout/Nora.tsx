@@ -121,6 +121,7 @@ let finishBrowserSpeech: (() => void) | null = null;
 let serverVoiceUnavailable = false;
 
 export type Msg = {
+  operationId?: string;
   role: "user" | "ai";
   text: string;
   feedback?: "positive" | "negative";
@@ -769,13 +770,14 @@ function NoraStructuredContent({ agent, text, emailMessages, agendaEvents, respo
   return markdownFallback(text);
 }
 
-function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onRegenerate, onApprovalDecision, onChoose, actionsDisabled = false }: {
+function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onRegenerate, onApprovalDecision, onAttachEmailFiles, onChoose, actionsDisabled = false }: {
   msg: Msg;
   onOpenEmail?: (messageId: string) => void;
   onAgendaPrompt?: (prompt: string) => void;
   onFeedback?: (feedback: "positive" | "negative") => void;
   onRegenerate?: () => void;
   onApprovalDecision?: (next: NoraApprovalSnapshot) => void;
+  onAttachEmailFiles?: (sessionId: string, files: File[]) => Promise<void>;
   onChoose?: (value: string) => Promise<void>;
   actionsDisabled?: boolean;
 }) {
@@ -874,7 +876,7 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onReg
             onAgendaPrompt={onAgendaPrompt}
           />
           {msg.files?.length ? <NoraFileCards files={msg.files} /> : null}
-          {msg.approval && onApprovalDecision ? <NoraApprovalCard approval={msg.approval} onDecision={onApprovalDecision} /> : null}
+          {msg.approval && onApprovalDecision ? <NoraApprovalCard approval={msg.approval} onDecision={onApprovalDecision} onAttachFiles={onAttachEmailFiles} disabled={actionsDisabled} /> : null}
           {!msg.approval && !msg.mailWorkId && !msg.mailWorkMode && onChoose ? <NoraMessageChoices text={msg.text} status={msg.status} selected={msg.choice} disabled={actionsDisabled} onChoose={onChoose} /> : null}
           {msg.mailWorkId ? <NoraMailJobCard jobId={msg.mailWorkId} /> : msg.mailWorkMode ? <NoraMailWork initialKind={msg.mailWorkMode} /> : null}
         </div>
@@ -1095,6 +1097,7 @@ async function askNaturalNora(
   modelId: string | null,
   attachmentIds: string[],
   conversationId: string | null,
+  requestId?: string,
 ) {
   const payloadMessages = messages.slice(-6).map((message) => ({
     role: message.role === "user" ? "user" : "assistant",
@@ -1118,6 +1121,7 @@ async function askNaturalNora(
       commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
       model_id: modelId || undefined,
+      request_id: requestId,
       routing_mode: modelId && modelId !== "auto" ? "manual" : "automatic",
       attachment_ids: attachmentIds,
       conversation_id: conversationId || undefined,
@@ -1126,7 +1130,7 @@ async function askNaturalNora(
   const data = await res.json();
   if (!res.ok) throw new Error(data?.detail || "Erro no entendimento natural da Nora.");
   return data as {
-    intent: "whatsapp" | "financeiro" | "tarefas" | "email" | "agenda" | "comercial" | "automacoes" | "operacoes" | "equipe" | "chat";
+    intent: "brain" | "whatsapp" | "financeiro" | "tarefas" | "email" | "agenda" | "comercial" | "automacoes" | "operacoes" | "equipe" | "chat";
     session_kind: "email" | "agenda" | "commercial" | null;
     session_id: string | null;
     status: string;
@@ -1329,6 +1333,27 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
       setUploadingFiles(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  async function attachFilesToEmailPreview(sessionId: string, files: File[]) {
+    if (loading) throw new Error("A Nora está concluindo outra solicitação. Tente novamente em instantes.");
+    if (!sessionId || !files.length) return;
+    const uploaded: NoraChatFile[] = [];
+    for (const file of files) {
+      if (file.size > 24 * 1024 * 1024) throw new Error(`${file.name} ultrapassa o limite de 24 MB.`);
+      const result = await apiRequest<{ file: NoraChatFile }>("/api/nora/files", {
+        method: "POST",
+        timeoutMs: 90_000,
+        body: JSON.stringify({ fileName: file.name, mimeType: inferFileMime(file), dataBase64: await fileToBase64(file) }),
+      });
+      uploaded.push(result.file);
+    }
+    const message = "Anexar estes arquivos à prévia do e-mail.";
+    await sendMessage(message, false, {
+      baseMessages: messages,
+      userMessage: { role: "user", text: message, files: uploaded },
+      emailSessionId: sessionId,
+    });
   }
 
   function cancelActiveResponse(markCancelled = true) {
@@ -1543,7 +1568,7 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
     return "geral";
   }
 
-  async function sendMessage(text?: string, speakReply = false, options?: { baseMessages: Msg[]; userMessage: Msg }) {
+  async function sendMessage(text?: string, speakReply = false, options?: { baseMessages: Msg[]; userMessage: Msg; emailSessionId?: string | null }) {
     const queuedFiles = options ? options.userMessage.files || [] : pendingFiles;
     const sourceMessages = options?.baseMessages ?? messages;
     const typedText = (text || input).trim();
@@ -1571,7 +1596,8 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
     setShowSuggestions(false);
     setAgentDraft(null);
 
-    const currentMessages: Msg[] = [...sourceMessages, { role: "user", text: finalText, files: queuedFiles.length ? queuedFiles : undefined }];
+    const userMessage: Msg = { ...options?.userMessage, operationId: options?.userMessage.operationId || crypto.randomUUID(), role: "user", text: finalText, files: queuedFiles.length ? queuedFiles : undefined };
+    const currentMessages: Msg[] = [...sourceMessages, userMessage];
     setMessages(currentMessages);
 
     try {
@@ -1597,7 +1623,7 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
       const continueEmailSession = emailAgentActive && !explicitEmailSwitch && queuedFiles.length === 0;
       const continueAgendaSession = agendaAgentActive && !explicitAgendaSwitch && queuedFiles.length === 0;
       const continueCommercialSession = commercialAgentActive && !explicitCommercialSwitch;
-      const effectiveEmailSessionId = sessionInterrupted ? null : emailSessionId;
+      const effectiveEmailSessionId = options?.emailSessionId ?? (sessionInterrupted ? null : emailSessionId);
       const effectiveAgendaSessionId = sessionInterrupted ? null : agendaSessionId;
       const effectiveCommercialSessionId = sessionInterrupted ? null : commercialSessionId;
       if (sessionInterrupted) {
@@ -1770,6 +1796,7 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
             effectiveModelId,
             queuedFiles.map((file) => file.id),
             conversationId ?? null,
+            `nora-${userMessage.operationId}`,
           );
           if (activeCycleRef.current !== cycleId) return;
           applyNaturalAgentEffects(result);
@@ -1800,7 +1827,13 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
       streamingCompleteRef.current = true;
       if (!handledInline) {
         setMessages((prev) => [
-          ...prev,
+          ...prev.map((message) => (
+            responseApproval?.source === "email"
+              && responseApproval.emailSessionId
+              && message.approval?.emailSessionId === responseApproval.emailSessionId
+              ? { ...message, approval: null }
+              : message
+          )),
           {
             role: "ai",
             text: response,
@@ -2179,7 +2212,10 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || "Falha ao enviar rascunho.");
       if (activeCycleRef.current !== cycleId) return;
-      setMessages((prev) => [...prev, { role: "ai", text: "Rascunho enviado pelo Agente de Mensagens e registrado no histórico.", agent: "mensagens", status: "enviado" }]);
+      setMessages((prev) => [...prev, {
+        role: "ai", text: data.response || "Rascunho preparado. Revise na Central de aprovações.",
+        agent: "mensagens", status: data.status || "aguardando_aprovacao", approval: data.approval,
+      }]);
       setAgentDraft(null);
       setCycleState(cycleId, "completed");
     } catch (err) {
@@ -2428,6 +2464,7 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
                   onFeedback={msg.role === "ai" ? (feedback) => evaluateMessage(index, feedback) : undefined}
                   onRegenerate={msg.role === "ai" && messages.slice(0, index).some((item) => item.role === "user") ? () => regenerateMessage(index) : undefined}
                   onApprovalDecision={msg.role === "ai" && msg.approval ? (next) => updateMessageApproval(index, next) : undefined}
+                  onAttachEmailFiles={msg.role === "ai" && msg.approval ? attachFilesToEmailPreview : undefined}
                   onChoose={msg.role === "ai" && index === messages.length - 1 ? async (value) => {
                     setMessages((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, choice: value } : item));
                     await sendMessage(value);
@@ -2445,13 +2482,13 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
 
               {agentDraft && (
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-xs font-semibold text-[var(--text)] shadow-sm">
-                  <p className="mb-2 text-[var(--text-secondary)] uppercase tracking-wide text-xs">Rascunho aprovado pelo operador?</p>
+                  <p className="mb-2 text-[var(--text-secondary)] uppercase tracking-wide text-xs">Revise o rascunho e prepare a aprovação</p>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => void navigator.clipboard.writeText(agentDraft)} className="flex-1">
                       <Copy size={14} /> Copiar
                     </Button>
                     <Button variant="ghost" size="sm" onClick={sendAgentDraft} className="flex-1 bg-gradient-to-r from-blue-700 to-cyan-500">
-                      <SendHorizontal size={14} /> Enviar
+                      <SendHorizontal size={14} /> Preparar aprovação
                     </Button>
                   </div>
                 </div>

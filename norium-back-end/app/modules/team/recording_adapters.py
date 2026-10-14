@@ -24,13 +24,15 @@ class JsonRecordingStore:
         read_document: Callable[[str], dict[str, Any]],
         write_document: Callable[[str, dict[str, Any]], None],
         lock: asyncio.Lock,
+        lock_for_team: Callable[[str], asyncio.Lock] | None = None,
     ) -> None:
         self._read_document = read_document
         self._write_document = write_document
         self._lock = lock
+        self._lock_for_team = lock_for_team
 
     async def load(self, team_id: str) -> dict[str, Any]:
-        async with self._lock:
+        async with (self._lock_for_team(team_id) if self._lock_for_team else self._lock):
             return copy.deepcopy(await asyncio.to_thread(self._read_document, team_id))
 
     async def transact(
@@ -38,7 +40,7 @@ class JsonRecordingStore:
         team_id: str,
         operation: Callable[[dict[str, Any]], Awaitable[Any]],
     ) -> Any:
-        async with self._lock:
+        async with (self._lock_for_team(team_id) if self._lock_for_team else self._lock):
             document = await asyncio.to_thread(self._read_document, team_id)
             result = await operation(document)
             # The history cap applies only after file deletion is confirmed.

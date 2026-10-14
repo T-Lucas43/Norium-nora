@@ -1,8 +1,28 @@
 # Operação, rollout e rollback de chamadas de equipe
 
+## Nora em reuniões — núcleos C/D/E ainda sem aceite integral
+
+O [handoff C](../handoffs/2026-10-13-codex-nova-chamada-fase-C.md) registra código, testes e lacunas. `NORA_CALL_ENABLED=0` é padrão e não foi alterado em produção; entitlement operacional fica fechado. Não há agente operacional ou token de serviço, persistência durável nova de texto ou voz pública montada. Há transcrição volátil por audiência, distribuição interna e UI/legendas/perguntas privadas. Os testes de provedores usam fontes sintéticas/MockTransport; o SDK nativo foi instalado somente no ambiente isolado de QA, sem conexão SFU.
+
+Antes de ligar uma ponte real: concluir [revisão especializada](../security/reviews/2026-10-13-nora-em-reunioes.md), gates SFU existentes, supervisor/processos/limite global, privacidade/retencão/exportação, tarifas e homologação com SDK/provedores reais. `measure_nora_native_audio.py` mede duas fontes locais do SDK e a fila Python, sem sala SFU. Após uma reprovação pelo critério antigo de faixa RSS, a medição passou a distinguir crescimento positivo da memória privada comprometida e oscilações do RSS. Consultar resultados completos no handoff; verificação curta não substitui 30 min.
+
+Consentimento deve ser explícito por participante e revisão. Quem entra/troca de sessão ou retira autorização pausa a captura. "Aguardando conexão" significa que todos autorizaram e o agente ainda não está conectado. Áudio humano não deve parar quando Nora pausa. Não registrar áudio, texto bruto, tokens ou exceções do provedor em logs/artefatos. `speech_usage` conserva tentativas incertas; não apagar reservas para liberar um reenvio sem reconciliação.
+
 Este runbook se aplica à branch `codex/team-call-remediation-baseline`, à imagem unificada Azure e ao transporte mesh. Configuração detalhada: [matriz](team-call-configuration.md). Resultado desta auditoria: [lançamento](team-call-release-audit.md). Os limites de carga acordados permanecem em [quality gates](../testing/team-call-quality-gates.md).
 
 ## Condições para lançar
+
+### Interface da chamada (13/10/2026)
+
+O palco oferece Automático/Galeria/Destaque/Apresentação. A escolha fica salva por usuário; limpar `norium.team-call.layout.<id>` no armazenamento local retorna ao automático. Apresentação tem prioridade no automático; o Destaque espera 1,5 s de fala. Esta ordenação é visual e não comprova redução de banda.
+
+Gravação, dispositivos, qualidade e saída de áudio ficam em **Mais**. No celular, Mais também reúne apresentação, reações, mão, chat, pessoas e Estúdio. Ctrl+D alterna microfone, Ctrl+E câmera e Ctrl+Alt+H mão; campos de texto preservam seus atalhos. Minimizar mantém o áudio e permite mover a janela por arraste ou pelas setas no botão de movimento.
+
+O organizador continua vendo **Encerrar**, pois sua saída também encerra a chamada no domínio atual. O guard de salvar o Estúdio é preservado. Remover alguém exige confirmação e usa `CALL_KICK`; silêncio e fixação pessoais não alteram o dispositivo dos demais. Dar a vez envia uma mensagem no chat temporário somente após o clique do organizador.
+
+O organizador pode fixar alguém para todos e convidar para apresentar. O convite não captura a tela nem muda permissões: quem recebeu escolhe a tela no próprio navegador. Anotar marca uma posição por dez segundos; o apresentador pode bloquear os demais. O backend valida associação à sala, quem pode bloquear/fixar e coordenadas normalizadas. Não há persistência de marcas nem envio para IA. **Destacar controles** usa Document Picture-in-Picture quando disponível; ao fechar ou abrir um painel, a barra volta à aba.
+
+O selo de sala autenticada informa acesso controlado, não E2EE. Nora, transcrição e comando de voz não estão ativos nesta entrega. O teste de microfone na pré-entrada é voluntário, não envia áudio e libera tracks/contexto ao parar, fechar ou passar para somente escuta. Limites e requisitos pendentes estão no [handoff](../handoffs/2026-10-13-codex-nova-chamada-fase-A.md).
 
 As condições abaixo são do perfil `public` (padrão). Em 2026-09-08, o responsável autorizou o perfil `internal-test` enquanto o sistema estiver restrito a testes. Nesse perfil, somente TURN/TLS externo, coleta/entrega externa de alertas e contas dedicadas de smoke são adiados. As pendências e condições da exceção estão na [lista de abertura ao público](team-call-public-launch-checklist.md). O runtime continua em ambiente de produção com todos os controles de segurança; testes, scans, imagem imutável, saúde e SHA servido continuam obrigatórios.
 
@@ -95,6 +115,16 @@ az containerapp update --resource-group $resourceGroup --name $appName `
 ```
 
 Conferir a imagem ativa, `/health`, frontend, uma réplica/worker, tickets/socket, encerramento/expiração de chamadas e continuidade da limpeza. Se a imagem antiga não reconhece as flags novas ou contém a falha que motivou o rollout, não é rollback seguro: manter coorte fechada na imagem corrigida e tratar o incidente. A imagem anterior e a permissão Azure não estão materializadas localmente nesta etapa; nenhum rollback foi executado.
+
+## Recepção seletiva de vídeo (Fase B)
+
+O cliente informa quais blocos de vídeo estão visíveis, reage à mudança de tamanho, layout e visibilidade da aba e pausa vídeo recebido ao minimizar. Áudio de microfone e da apresentação continua independente dessa preferência. Restaurar a chamada ou a aba solicita novamente o vídeo. Um participante sem faixa assinada continua com bloco de presença para permitir a retomada.
+
+No Mesh, `CALL_VIDEO_INTEREST` é direcionado apenas ao participante da mesma chamada que envia a mídia. Não altera a captura local, o vídeo recebido por outras pessoas ou o estado de câmera informado à sala. Na apresentação, a tela usa o perfil escolhido pelo apresentador; câmeras laterais usam até 250 kbit/s, 15 FPS e escala 2 quando o navegador aceita os parâmetros. Essa qualidade não é simulcast no Mesh.
+
+O adaptador LiveKit usa `autoSubscribe: false`, assina áudio continuamente e aplica a preferência às publicações de vídeo, inclusive publicações tardias e reconexões. Os elementos de vídeo são ligados ao SDK para `adaptiveStream`, mantendo `dynacast`. A ativação de SFU permanece sujeita aos gates descritos neste runbook e no ADR 0002; testes locais do adaptador não comprovam operação no provedor.
+
+Verificar a retomada com `video_interest` no harness de navegador. `scripts/measure_team_call_video.py` mede três participantes sintéticos por dez minutos; preserva contadores agregados, sem mídia, SDP ou credenciais. Comparação de sinalização/carga do backend não substitui essa medição de mídia.
 
 ## Smoke de produção
 

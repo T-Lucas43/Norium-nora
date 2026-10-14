@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Check, Fingerprint, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
+import { useRef, useState } from "react";
+import { Check, Fingerprint, Paperclip, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
 
 export type NoraApprovalSnapshot = {
@@ -14,6 +14,8 @@ export type NoraApprovalSnapshot = {
   version?: string | null;
   summary: string;
   recipients: string[];
+  emailSessionId?: string | null;
+  attachments?: Array<{ fileName: string; mimeType?: string; size?: number }>;
   decidedAt?: string | null;
   outcome?: string | null;
   uncertain?: boolean;
@@ -40,12 +42,18 @@ export function normalizeApprovalCard(raw: unknown): NoraApprovalSnapshot | null
   const metadata = (item.metadata ?? {}) as ApprovalItem;
   const execution = (item.execution ?? {}) as ApprovalItem;
   const recipients = [...asStringList(exact.to), ...asStringList(exact.cc), ...asStringList(exact.bcc)].slice(0, 25);
+  const attachments = Array.isArray(exact.attachments) ? exact.attachments.slice(0, 8).flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const file = value as ApprovalItem;
+    const fileName = asString(file.fileName).slice(0, 300);
+    if (!fileName) return [];
+    return [{ fileName, mimeType: asString(file.mimeType).slice(0, 180) || undefined, size: Number(file.size) || 0 }];
+  }) : [];
   const exactEmailSummary = item.action === "nora_email_send_exact" && typeof exact.body === "string" ? [
     `Para: ${asStringList(exact.to).join(", ")}`,
     ...(asStringList(exact.cc).length ? [`Cc: ${asStringList(exact.cc).join(", ")}`] : []),
     ...(asStringList(exact.bcc).length ? [`Cco: ${asStringList(exact.bcc).join(", ")}`] : []),
     `Assunto: ${asString(exact.subject).slice(0, 180)}`,
-    ...(Array.isArray(exact.attachments) && exact.attachments.length ? [`Anexos: ${exact.attachments.slice(0, 8).map(file => asString((file as ApprovalItem)?.fileName).slice(0, 300)).join(", ")}`] : []),
     "", exact.body.slice(0, 12000),
   ].join("\n") : "";
   return {
@@ -60,6 +68,8 @@ export function normalizeApprovalCard(raw: unknown): NoraApprovalSnapshot | null
     version: typeof metadata.version === "string" && metadata.version ? metadata.version.slice(0, 40) : null,
     summary: exactEmailSummary || asString(item.description).slice(0, 2000),
     recipients,
+    emailSessionId: typeof payload.sessionId === "string" && payload.sessionId ? payload.sessionId : null,
+    attachments,
     decidedAt: typeof item.decidedAt === "string" && item.decidedAt ? item.decidedAt.slice(0, 64) : null,
     outcome: (asString(execution.response) || asString(item.decisionNote) || asString(item.executionError)).slice(0, 2000) || null,
     uncertain: item.executionUncertain === true,
@@ -94,13 +104,20 @@ function formatExpiry(value: string | null | undefined): string | null {
 export default function NoraApprovalCard({
   approval,
   onDecision,
+  onAttachFiles,
+  disabled = false,
 }: {
   approval: NoraApprovalSnapshot;
   onDecision: (next: NoraApprovalSnapshot) => void;
+  onAttachFiles?: (sessionId: string, files: File[]) => Promise<void>;
+  disabled?: boolean;
 }) {
   const [pending, setPending] = useState<null | "approved" | "rejected" | "reconcile">(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const decided = approval.status !== "pending";
   const busy = pending !== null;
 
@@ -149,6 +166,38 @@ export default function NoraApprovalCard({
 
   const digestShort = approval.digest ? `${approval.digest.slice(0, 12)}…` : null;
   const expiry = formatExpiry(approval.expiresAt);
+  const canAttach = approval.action === "nora_email_send_exact"
+    && approval.source === "email"
+    && approval.status === "pending"
+    && Boolean(approval.emailSessionId)
+    && Boolean(onAttachFiles);
+
+  async function attachSelectedFiles(selected: FileList | null) {
+    const files = Array.from(selected || []);
+    if (!files.length || !approval.emailSessionId || !onAttachFiles) return;
+    if ((approval.attachments?.length || 0) + files.length > 8) {
+      setAttachError("Este e-mail aceita até 8 arquivos no total.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    const totalBytes = (approval.attachments || []).reduce((total, file) => total + (Number(file.size) || 0), 0)
+      + files.reduce((total, file) => total + file.size, 0);
+    if (totalBytes > 24 * 1024 * 1024) {
+      setAttachError("O tamanho total dos anexos não pode passar de 24 MB.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    setAttaching(true);
+    setAttachError(null);
+    try {
+      await onAttachFiles(approval.emailSessionId, files);
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : "Não consegui adicionar os arquivos à prévia.");
+    } finally {
+      setAttaching(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   return (
     <article
@@ -180,6 +229,14 @@ export default function NoraApprovalCard({
             <dd className="break-words">{approval.recipients.join(", ")}</dd>
           </>
         )}
+        {approval.attachments?.length ? (
+          <>
+            <dt className="font-medium text-[var(--nx-text)]">Anexos</dt>
+            <dd className="min-w-0 break-words">
+              {approval.attachments.map((file) => file.fileName).join(", ")}
+            </dd>
+          </>
+        ) : null}
         {approval.summary && (
           <>
             <dt className="col-span-2 font-medium text-[var(--nx-text)]">Detalhes</dt>
@@ -216,10 +273,33 @@ export default function NoraApprovalCard({
       </p>
 
       {!decided && (
-        <div className="mt-3 flex flex-wrap justify-end gap-2" aria-busy={busy}>
+        <div className="mt-3 flex flex-wrap justify-end gap-2" aria-busy={busy || attaching}>
+          {canAttach && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="sr-only"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.mp3,.wav,.ogg,.webm,.mp4,.mov"
+                aria-label="Arquivos para anexar ao e-mail"
+                onChange={(event) => void attachSelectedFiles(event.target.files)}
+              />
+              <button
+                type="button"
+                disabled={disabled || busy || attaching}
+                onClick={() => fileInputRef.current?.click()}
+                className="nx-btn is-sm"
+                aria-label="Anexar arquivos à prévia do e-mail"
+              >
+                <Paperclip size={14} aria-hidden="true" />
+                {attaching ? "Anexando…" : "Anexar arquivos"}
+              </button>
+            </>
+          )}
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || attaching}
             onClick={() => void decide("rejected")}
             className="nx-btn is-sm"
           >
@@ -227,7 +307,7 @@ export default function NoraApprovalCard({
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || attaching}
             onClick={() => void decide("approved")}
             className="nx-btn is-sm is-primary"
           >
@@ -235,6 +315,12 @@ export default function NoraApprovalCard({
             {pending === "approved" ? "Permitindo…" : "Permitir esta ação"}
           </button>
         </div>
+      )}
+
+      {attachError && (
+        <p role="alert" className="mt-2 text-[var(--nx-danger)]">
+          {attachError}
+        </p>
       )}
 
       {approval.uncertain && approval.status === "failed" && (

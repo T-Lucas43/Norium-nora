@@ -14,7 +14,7 @@ _PLANS: tuple[dict[str, Any], ...] = (
         "annualPriceCents": 0, "lifetimePriceCents": 0, "setupFeeCents": 0,
         "cancellationFeeCents": 0, "lateFeePercentage": 0, "trialDays": 0,
         "active": True, "popular": False, "features": ["Dashboard", "Central", "Tarefas", "Perfil"],
-        "limits": {"users": 1, "noraCalls": 20, "storageMb": 100}, "internalNotes": "",
+        "limits": {"users": 1, "noraCalls": 20, "noraTokens": 20000, "noraTokensPerPerson": 20000, "storageMb": 100}, "internalNotes": "",
     },
     {
         "id": "plan_individual", "code": "individual", "name": "Individual", "description": "Operacao completa para uma pessoa.",
@@ -22,7 +22,7 @@ _PLANS: tuple[dict[str, Any], ...] = (
         "annualPriceCents": 118800, "lifetimePriceCents": 0, "setupFeeCents": 0,
         "cancellationFeeCents": 0, "lateFeePercentage": 2, "trialDays": 7,
         "active": True, "popular": True, "features": ["Nora", "Gmail", "Agenda", "Chat", "Tarefas", "Relatorios"],
-        "limits": {"users": 1, "noraCalls": 1000, "storageMb": 5000}, "internalNotes": "",
+        "limits": {"users": 1, "noraCalls": 1000, "noraTokens": 1000000, "noraTokensPerPerson": 1000000, "storageMb": 5000}, "internalNotes": "",
     },
     {
         "id": "plan_equipe", "code": "equipe", "name": "Equipe", "description": "Colaboracao, permissoes e automacoes.",
@@ -30,7 +30,7 @@ _PLANS: tuple[dict[str, Any], ...] = (
         "annualPriceCents": 274800, "lifetimePriceCents": 0, "setupFeeCents": 0,
         "cancellationFeeCents": 0, "lateFeePercentage": 2, "trialDays": 14,
         "active": True, "popular": False, "features": ["Tudo do Individual", "Equipe", "Automacoes", "Brainstorm"],
-        "limits": {"users": 10, "noraCalls": 5000, "storageMb": 20000}, "internalNotes": "",
+        "limits": {"users": 10, "noraCalls": 5000, "noraTokens": 5000000, "noraTokensPerPerson": 1000000, "storageMb": 20000}, "internalNotes": "",
     },
     {
         "id": "plan_enterprise", "code": "enterprise", "name": "Enterprise", "description": "Governanca e operacao em escala.",
@@ -38,7 +38,7 @@ _PLANS: tuple[dict[str, Any], ...] = (
         "annualPriceCents": 826800, "lifetimePriceCents": 0, "setupFeeCents": 149900,
         "cancellationFeeCents": 0, "lateFeePercentage": 2, "trialDays": 14,
         "active": True, "popular": False, "features": ["Tudo do Equipe", "White-label", "Aprovacoes", "Suporte prioritario"],
-        "limits": {"users": 100, "noraCalls": 25000, "storageMb": 100000}, "internalNotes": "",
+        "limits": {"users": 100, "noraCalls": 25000, "noraTokens": 25000000, "noraTokensPerPerson": 2000000, "storageMb": 100000}, "internalNotes": "",
     },
 )
 

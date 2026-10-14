@@ -115,6 +115,8 @@ async def delete_workspace(user: dict[str, Any], workspace_id: str) -> bool:
         workspace = next((item for item in store["workspaces"] if str(item.get("id")) == workspace_id), None)
         if not workspace or not workspace.get("active", True):
             return False
+        from app.modules.privacy.deletion_ledger import record_deletion
+        record_deletion(owner_id, workspace_id)
         deleted_at = datetime.now(timezone.utc)
         workspace["active"] = False
         workspace["deletedAt"] = deleted_at.isoformat()

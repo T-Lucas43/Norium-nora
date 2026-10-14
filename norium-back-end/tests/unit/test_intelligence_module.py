@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -21,7 +22,11 @@ def user(user_id: str) -> dict:
 class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.environment = patch.dict(os.environ, {"NORIUM_DATA_DIR": self.temporary.name})
+        custom = {"providers": ["openai-compatible"], "endpoints": {
+            "openai-compatible": ["https://models.example.com/v1", "https://api.example.com/v1"]}}
+        policy = {actor: {"primary": custom} for actor in ("models-owner", "gateway-owner", "gateway-lgpd-owner")}
+        self.environment = patch.dict(os.environ, {"NORIUM_DATA_DIR": self.temporary.name,
+                                                   "NORIUM_AI_PROVIDER_POLICY": json.dumps(policy)})
         self.environment.start()
 
     async def asyncTearDown(self) -> None:

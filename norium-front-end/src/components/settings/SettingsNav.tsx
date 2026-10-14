@@ -1,12 +1,13 @@
-import { Bell, Palette, ShieldCheck, Sparkles, UserCircle2, UserCog, type LucideIcon } from "lucide-react";
+import { Bell, Gauge, Palette, ShieldCheck, Sparkles, UserCircle2, UserCog, type LucideIcon } from "lucide-react";
 
-export type SettingsSection = "perfil" | "nora" | "aparencia" | "notificacoes" | "privacidade" | "admin";
+export type SettingsSection = "perfil" | "nora" | "consumo" | "aparencia" | "notificacoes" | "privacidade" | "admin";
 
 export const SETTINGS_SECTION_KEY = "norium:configuracoes-secao";
 
 const items: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> = [
   { id: "perfil", label: "Meu perfil", icon: UserCircle2 },
   { id: "nora", label: "Nora e IA", icon: Sparkles },
+  { id: "consumo", label: "Consumo da Nora", icon: Gauge },
   { id: "aparencia", label: "Aparência e acessibilidade", icon: Palette },
   { id: "notificacoes", label: "Notificações", icon: Bell },
   { id: "privacidade", label: "Privacidade e dados", icon: ShieldCheck },
@@ -27,13 +28,14 @@ export function storeSettingsSection(section: SettingsSection) {
 }
 
 /** Menu lateral de Configurações (mockup cfgNav). */
-export default function SettingsNav({ active, onSelect, showPrivacy, showAdmin }: {
+export default function SettingsNav({ active, onSelect, showPrivacy, showAdmin, showUsage = false }: {
   active: SettingsSection;
   onSelect: (section: SettingsSection) => void;
   showPrivacy: boolean;
   showAdmin: boolean;
+  showUsage?: boolean;
 }) {
-  const visible = items.filter((item) => (item.id !== "privacidade" || showPrivacy) && (item.id !== "admin" || showAdmin));
+  const visible = items.filter((item) => (item.id !== "privacidade" || showPrivacy) && (item.id !== "admin" || showAdmin) && (item.id !== "consumo" || showUsage));
   return (
     <aside className="nxi-cfg-side">
       <h1 className="nxi-cfg-title">Configurações</h1>

@@ -368,3 +368,12 @@ def erase_personal_sessions(user_id: str) -> None:
         db.execute("UPDATE norium_auth_accounts SET epoch=epoch+1 WHERE user_id=%s", (user_id,))
         db.execute("DELETE FROM norium_auth_sessions WHERE user_id=%s", (user_id,))
         db.execute("DELETE FROM norium_auth_events WHERE user_id=%s", (user_id,))
+
+
+def export_personal_sessions(user_id: str) -> dict:
+    """Metadados do titular, sem hash CSRF, credencial de refresh ou ID de sessão."""
+    with transaction() as db:
+        sessions = db.execute("""SELECT created,authenticated,last_activity,expires,
+            persistent,revoked,browser,system,kind,label FROM norium_auth_sessions WHERE user_id=%s""", (user_id,)).fetchall()
+        events = db.execute("SELECT action,created FROM norium_auth_events WHERE user_id=%s ORDER BY created", (user_id,)).fetchall()
+        return {"sessions": [dict(row) for row in sessions], "events": [dict(row) for row in events]}

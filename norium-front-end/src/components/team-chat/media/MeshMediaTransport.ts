@@ -11,6 +11,7 @@ import type {
   MediaTransportLocalMedia,
   MediaTransportSnapshot,
 } from "./MediaTransport";
+import { meshVideoInterestForUser, type VideoSubscriptionInterest } from "./videoSubscriptionPolicy";
 
 const INITIAL_ICE_TELEMETRY: IceTelemetrySnapshot = {
   lastState: "unknown",
@@ -76,13 +77,15 @@ async function applyScreenShareSenderProfile(
   sender: RTCRtpSender,
   quality: MediaTransportLocalMedia["screenShareQuality"],
   fps: MediaTransportLocalMedia["screenShareFps"],
+  active = true,
 ) {
   if (typeof sender.getParameters !== "function" || typeof sender.setParameters !== "function") return;
   const parameters = sender.getParameters();
   if (!parameters.encodings?.length) return;
   parameters.encodings = parameters.encodings.map((encoding) => ({
     ...encoding,
-    active: true,
+    active,
+    scaleResolutionDownBy: 1,
     maxBitrate: Math.round(SCREEN_SHARE_BITRATES[quality] * Math.max(0.65, fps / 30)),
     maxFramerate: fps,
   }));
@@ -112,9 +115,14 @@ export class MeshMediaTransport implements MediaTransport {
   private readonly pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private readonly negotiations = new Map<string, PeerNegotiationState>();
   private readonly remoteClientIds = new Map<string, string>();
+  private readonly joinedClients = new Set<string>();
   private readonly remoteStreams = new Map<string, MediaStream>();
   private readonly screenRecoveryTimers = new Map<string, number>();
   private qualityTimer: number | null = null;
+  private videoInterest: VideoSubscriptionInterest | null = null;
+  private readonly viewerVideoPreferences = new Map<string, { receiveVideo: boolean; quality: "low" | "high" }>();
+  private readonly sentVideoPreferences = new Map<string, string>();
+  private readonly videoPreferenceOperations = new Map<string, Promise<void>>();
   private readonly dependencies: MediaTransportDependencies;
   private currentSnapshot: MediaTransportSnapshot = {
     state: "idle",
@@ -185,14 +193,12 @@ export class MeshMediaTransport implements MediaTransport {
           ? peer.getTransceivers().find((item) => item.sender === videoSender)
           : undefined;
         if (videoTrack && transceiver && transceiver.direction !== "sendrecv") transceiver.direction = "sendrecv";
-        await videoSender.replaceTrack(videoTrack);
-        if (videoTrack && media.screenStream?.getVideoTracks().includes(videoTrack)) {
-          await applyScreenShareSenderProfile(videoSender, media.screenShareQuality, media.screenShareFps).catch(() => undefined);
-        }
+        await this.applyViewerVideoPreference(userId);
         await this.negotiate(userId, peer);
       } else if (videoTrack && videoStream) {
         const sender = peer.addTrack(videoTrack, videoStream);
         this.videoSenders.set(userId, sender);
+        await this.applyViewerVideoPreference(userId);
         await this.negotiate(userId, peer);
       }
     }));
@@ -204,9 +210,7 @@ export class MeshMediaTransport implements MediaTransport {
   ) {
     this.media = { ...this.media, screenShareQuality: quality, screenShareFps: fps };
     if (!this.media.screenStream?.getVideoTracks().some((track) => track.readyState === "live")) return;
-    await Promise.all(Array.from(this.videoSenders.values()).map((sender) => (
-      applyScreenShareSenderProfile(sender, quality, fps).catch(() => undefined)
-    )));
+    await Promise.all(Array.from(this.videoSenders.keys()).map((userId) => this.applyViewerVideoPreference(userId)));
   }
 
   async receive(event: MediaTransportEvent) {
@@ -219,12 +223,21 @@ export class MeshMediaTransport implements MediaTransport {
       // RTCPeerConnection is not. Always discard the remote peer before the
       // resumed participant negotiates so media cannot remain attached to the
       // document that just closed.
-      if (this.peers.has(event.userId)) this.closePeer(event.userId);
+      // A peer's offer can arrive before its admission notification. That
+      // first notification must retain the negotiation and ICE candidates.
+      // A later admission still replaces the browser peer on reload.
+      if (this.peers.has(event.userId) && this.joinedClients.has(event.userId)) this.closePeer(event.userId);
+      this.joinedClients.add(event.userId);
       if (clientId) this.remoteClientIds.set(event.userId, clientId);
       await this.createPeer(event.userId, true);
       return;
     }
     if (!this.eventBelongsToCurrentClient(event.userId, event.clientId)) return;
+    if (event.type === "video-interest") {
+      this.viewerVideoPreferences.set(event.userId, { receiveVideo: event.receiveVideo, quality: event.quality });
+      await this.applyViewerVideoPreference(event.userId);
+      return;
+    }
     if (event.type === "participant-left") {
       this.closePeer(event.userId);
       return;
@@ -250,9 +263,11 @@ export class MeshMediaTransport implements MediaTransport {
     this.audioSenders.clear();
     this.screenAudioSenders.clear();
     this.videoSenders.clear();
+    this.videoInterest = null; this.viewerVideoPreferences.clear(); this.sentVideoPreferences.clear(); this.videoPreferenceOperations.clear();
     this.pendingCandidates.clear();
     this.negotiations.clear();
     this.remoteClientIds.clear();
+    this.joinedClients.clear();
     this.remoteStreams.forEach((stream) => stream.getTracks().forEach((track) => { track.onended = null; }));
     this.remoteStreams.clear();
     this.screenRecoveryTimers.forEach((timer) => window.clearTimeout(timer));
@@ -266,6 +281,7 @@ export class MeshMediaTransport implements MediaTransport {
       failure: null,
       remoteStreams: [],
       connectionQuality: online() ? "good" : "offline",
+      participantConnectionQuality: {},
       iceTelemetry: INITIAL_ICE_TELEMETRY,
     });
   }
@@ -278,6 +294,7 @@ export class MeshMediaTransport implements MediaTransport {
   private publishRemoteStreams() {
     this.setSnapshot({
       remoteStreams: Array.from(this.remoteStreams, ([userId, stream]) => ({ userId, stream })),
+      participantConnectionQuality: Object.fromEntries(Array.from(this.peers, ([userId, peer]) => [userId, peer.connectionState === "connected" ? "good" : ["failed", "disconnected", "closed"].includes(peer.connectionState) ? "poor" : "connecting"])),
     });
   }
 
@@ -339,6 +356,7 @@ export class MeshMediaTransport implements MediaTransport {
     const callId = this.call?.callId;
     if (!callId || userId === this.call?.selfUserId) return null;
     let peer = this.peers.get(userId);
+    const created = !peer;
     if (!peer) {
       peer = new RTCPeerConnection(this.configuration);
       this.peers.set(userId, peer);
@@ -382,8 +400,65 @@ export class MeshMediaTransport implements MediaTransport {
         });
       };
     }
+    // Incoming SDP/ICE for an existing peer must not wait behind replaceTrack
+    // or setParameters. Those browser operations can themselves wait for that
+    // SDP, so applying media before receiving the answer creates a deadlock.
+    if (created) await this.applyViewerVideoPreference(userId);
     if (createOffer) await this.negotiate(userId, peer);
+    this.sendVideoPreference(userId);
     return peer;
+  }
+
+  async updateVideoInterest(interest: VideoSubscriptionInterest) {
+    this.videoInterest = interest;
+    for (const userId of this.screenRecoveryTimers.keys()) if (!meshVideoInterestForUser(interest, userId).receiveVideo) this.clearScreenRecovery(userId);
+    this.peers.forEach((_, userId) => this.sendVideoPreference(userId));
+  }
+
+  private sendVideoPreference(userId: string) {
+    if (!this.call || !this.videoInterest) return;
+    const preference = meshVideoInterestForUser(this.videoInterest, userId);
+    const key = `${preference.receiveVideo}:${preference.quality}`;
+    if (this.sentVideoPreferences.get(userId) === key) return;
+    this.sentVideoPreferences.set(userId, key);
+    this.dependencies.emitVideoInterest?.(this.call.callId, userId, preference.receiveVideo, preference.quality);
+  }
+
+  private applyViewerVideoPreference(userId: string): Promise<void> {
+    const previous = this.videoPreferenceOperations.get(userId) || Promise.resolve();
+    const operation = previous.then(() => this.applyCurrentVideoPreference(userId), () => this.applyCurrentVideoPreference(userId));
+    this.videoPreferenceOperations.set(userId, operation.catch(() => undefined));
+    return operation;
+  }
+
+  private async applyCurrentVideoPreference(userId: string) {
+    const sender = this.videoSenders.get(userId);
+    const preference = this.viewerVideoPreferences.get(userId) || { receiveVideo: true, quality: "high" };
+    if (!sender || !this.call) return;
+    const video = this.media.outgoingVideoTrack !== undefined ? this.media.outgoingVideoTrack
+      : this.media.screenStream?.getVideoTracks().find((track) => track.readyState !== "ended")
+        || this.media.localStream?.getVideoTracks().find((track) => track.enabled && track.readyState !== "ended") || null;
+    const hasEncodingControl = typeof sender.getParameters === "function" && typeof sender.setParameters === "function";
+    // Keep the negotiated track while pausing encodings. Removing it during
+    // glare/reoffers can change the remote transceiver and break later shares.
+    const desired = hasEncodingControl || preference.receiveVideo ? video : null;
+    if (sender.track !== desired) await sender.replaceTrack(desired || null);
+    if (!desired || !hasEncodingControl) return;
+    if (this.media.screenStream?.getVideoTracks().includes(desired)) {
+      try { await applyScreenShareSenderProfile(sender, this.media.screenShareQuality, this.media.screenShareFps, preference.receiveVideo); }
+      catch { if (!preference.receiveVideo) await sender.replaceTrack(null); }
+      return;
+    }
+    const parameters = sender.getParameters();
+    parameters.encodings = (parameters.encodings?.length ? parameters.encodings : [{}]).map((encoding) => {
+      const next = { ...encoding };
+      next.active = preference.receiveVideo;
+      if (preference.quality === "low") { next.scaleResolutionDownBy = 2; next.maxBitrate = 250_000; next.maxFramerate = 15; }
+      else { delete next.scaleResolutionDownBy; delete next.maxBitrate; delete next.maxFramerate; }
+      return next;
+    });
+    try { await sender.setParameters(parameters); }
+    catch { if (!preference.receiveVideo) await sender.replaceTrack(null); }
   }
 
   private receiveTrack(userId: string, event: RTCTrackEvent) {
@@ -417,6 +492,7 @@ export class MeshMediaTransport implements MediaTransport {
 
   private connectionChanged(userId: string, peer: RTCPeerConnection) {
     if (this.peers.get(userId) !== peer) return;
+    this.setSnapshot({ participantConnectionQuality: { ...this.currentSnapshot.participantConnectionQuality, [userId]: peer.connectionState === "connected" ? "good" : ["failed", "disconnected", "closed"].includes(peer.connectionState) ? "poor" : "connecting" } });
     if (peer.connectionState === "connected") {
       const currentAudio = this.media.localStream?.getAudioTracks().find((track) => track.readyState !== "ended") || null;
       const sender = this.audioSenders.get(userId);
@@ -507,6 +583,7 @@ export class MeshMediaTransport implements MediaTransport {
     const timer = window.setTimeout(() => {
       this.screenRecoveryTimers.delete(userId);
       if (!callId || this.call?.callId !== callId) return;
+      if (this.videoInterest && !meshVideoInterestForUser(this.videoInterest, userId).receiveVideo) return;
       const remoteVideoReady = this.remoteStreams.get(userId)?.getVideoTracks()
         .some((track) => track.readyState === "live" && !track.muted);
       if (remoteVideoReady) return;
@@ -542,9 +619,11 @@ export class MeshMediaTransport implements MediaTransport {
     this.audioSenders.delete(userId);
     this.screenAudioSenders.delete(userId);
     this.videoSenders.delete(userId);
+    this.viewerVideoPreferences.delete(userId); this.sentVideoPreferences.delete(userId); this.videoPreferenceOperations.delete(userId);
     this.pendingCandidates.delete(userId);
     this.negotiations.delete(userId);
     this.remoteClientIds.delete(userId);
+    this.joinedClients.delete(userId);
     this.remoteStreams.get(userId)?.getTracks().forEach((track) => { track.onended = null; });
     this.remoteStreams.delete(userId);
     this.publishRemoteStreams();
@@ -600,21 +679,28 @@ export class MeshMediaTransport implements MediaTransport {
       let highestRoundTrip = 0;
       let lostPackets = 0;
       let receivedPackets = 0;
-      await Promise.all(peers.map(async (peer) => {
+      const participantQuality: NonNullable<MediaTransportSnapshot["participantConnectionQuality"]> = {};
+      await Promise.all(Array.from(this.peers, async ([userId, peer]) => {
         if (typeof peer.getStats !== "function") return;
         const report = await peer.getStats();
+        let roundTrip = 0; let lost = 0; let received = 0;
         report.forEach((entry) => {
           if (entry.type === "candidate-pair" && entry.state === "succeeded" && entry.currentRoundTripTime) {
             highestRoundTrip = Math.max(highestRoundTrip, Number(entry.currentRoundTripTime));
+            roundTrip = Math.max(roundTrip, Number(entry.currentRoundTripTime));
           }
           if (entry.type === "inbound-rtp") {
             lostPackets += Number(entry.packetsLost || 0);
             receivedPackets += Number(entry.packetsReceived || 0);
+            lost += Number(entry.packetsLost || 0); received += Number(entry.packetsReceived || 0);
           }
         });
+        const packetLoss = lost + received > 0 ? lost / (lost + received) * 100 : 0;
+        participantQuality[userId] = roundTrip > .65 || packetLoss > 8 ? "poor" : roundTrip > .3 || packetLoss > 3 ? "fair" : "good";
       })).catch(() => undefined);
       const loss = lostPackets + receivedPackets > 0 ? (lostPackets / (lostPackets + receivedPackets)) * 100 : 0;
       this.setSnapshot({
+        participantConnectionQuality: participantQuality,
         connectionQuality: highestRoundTrip > 0.65 || loss > 8
           ? "poor"
           : highestRoundTrip > 0.3 || loss > 3

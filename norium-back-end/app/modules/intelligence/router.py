@@ -332,7 +332,8 @@ async def post_knowledge_stale(source_id: str, user: dict[str, Any] = Depends(cu
 
 @knowledge_router.post("/search")
 async def post_knowledge_search(payload: KnowledgeSearchPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    return search_knowledge(user, payload.query, payload.baseIds, payload.limit)
+    from app.modules.intelligence.service import search_knowledge_semantic
+    return await search_knowledge_semantic(user, payload.query, payload.baseIds, payload.limit)
 
 
 @marketplace_router.get("")

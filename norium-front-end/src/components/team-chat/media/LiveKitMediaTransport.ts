@@ -6,9 +6,12 @@ import {
   Room,
   RoomEvent,
   Track,
+  VideoQuality,
   setLogLevel,
 } from "livekit-client";
 import { apiBaseUrl } from "../../../utils/api";
+import type { VideoSubscriptionInterest } from "./videoSubscriptionPolicy";
+import { registerRemoteVideoBinding, unregisterRemoteVideoBinding } from "./remoteVideoBindings";
 
 // SDK diagnostics may contain SDP, candidates and server addresses. Only the
 // normalized CallTelemetry events are eligible for operational collection.
@@ -123,7 +126,7 @@ export type LiveKitRoomObserver = {
   participantDisconnected(participant: LiveKitRemoteParticipant): void;
   trackSubscribed(participant: LiveKitRemoteParticipant, track: MediaStreamTrack): void;
   trackUnsubscribed(participant: LiveKitRemoteParticipant, track: MediaStreamTrack): void;
-  connectionQualityChanged(quality: LiveKitConnectionQuality, local: boolean): void;
+  connectionQualityChanged(quality: LiveKitConnectionQuality, local: boolean, remote?: LiveKitRemoteParticipant): void;
 };
 
 /** A narrow test seam around the vendor SDK. LiveKit SDK types never cross it. */
@@ -134,6 +137,7 @@ export interface LiveKitRoomClient {
   participants(): readonly LiveKitRemoteParticipant[];
   publish(track: MediaStreamTrack, source: LiveKitTrackSource): Promise<void>;
   unpublish(track: MediaStreamTrack): Promise<void>;
+  updateVideoInterest?(interest: VideoSubscriptionInterest): void;
 }
 
 type LiveKitMediaTransportOptions = {
@@ -152,6 +156,7 @@ const INITIAL_SNAPSHOT: MediaTransportSnapshot = {
   state: "idle",
   failure: null,
   remoteStreams: [],
+  participantConnectionQuality: {},
   connectionQuality: "offline",
   iceTelemetry: EMPTY_ICE_TELEMETRY,
 };
@@ -207,6 +212,31 @@ function subscribedTracks(participant: RemoteParticipant) {
 
 class LiveKitSdkRoomClient implements LiveKitRoomClient {
   private readonly room = new Room({ adaptiveStream: true, dynacast: true });
+  private interest: VideoSubscriptionInterest = { hidden: false, cameras: [], screens: [], cameraQuality: "adaptive" };
+  private readonly boundTracks = new Set<MediaStreamTrack>();
+
+  updateVideoInterest(interest: VideoSubscriptionInterest) {
+    this.interest = interest;
+    for (const remote of this.room.remoteParticipants.values()) this.applySubscriptions(remote);
+  }
+
+  private applySubscriptions(remote: RemoteParticipant) {
+    let userId = "";
+    try { const value = JSON.parse(remote.metadata || ""); if (typeof value?.userId === "string") userId = value.userId.trim(); } catch { /* Ignore malformed metadata. */ }
+    for (const publication of remote.trackPublications.values()) {
+      if (publication.kind === Track.Kind.Audio) { publication.setSubscribed(true); continue; }
+      if (publication.kind !== Track.Kind.Video) continue;
+      const screen = publication.source === Track.Source.ScreenShare;
+      const tile = (screen ? this.interest.screens : this.interest.cameras).find((item) => item.userId === userId);
+      const subscribed = !this.interest.hidden && !!tile;
+      publication.setSubscribed(subscribed);
+      if (!subscribed) continue;
+      publication.setEnabled(true);
+      if (screen) publication.setVideoQuality(VideoQuality.HIGH);
+      else if (this.interest.cameraQuality === "low") publication.setVideoQuality(VideoQuality.LOW);
+      else publication.setVideoDimensions({ width: tile!.width, height: tile!.height });
+    }
+  }
 
   observe(observer: LiveKitRoomObserver) {
     const participant = (remote: RemoteParticipant): LiveKitRemoteParticipant => ({
@@ -216,29 +246,39 @@ class LiveKitSdkRoomClient implements LiveKitRoomClient {
     });
     const listeners = [
       [RoomEvent.Reconnecting, () => observer.reconnecting()],
-      [RoomEvent.Reconnected, () => observer.reconnected()],
+      [RoomEvent.Reconnected, () => { this.updateVideoInterest(this.interest); observer.reconnected(); }],
       [RoomEvent.Disconnected, (reason?: DisconnectReason) => observer.disconnected(disconnectReason(reason))],
-      [RoomEvent.ParticipantConnected, (remote: RemoteParticipant) => observer.participantConnected(participant(remote))],
+      [RoomEvent.ParticipantConnected, (remote: RemoteParticipant) => { this.applySubscriptions(remote); observer.participantConnected(participant(remote)); }],
+      [RoomEvent.TrackPublished, (_publication: unknown, remote: RemoteParticipant) => this.applySubscriptions(remote)],
       [RoomEvent.ParticipantDisconnected, (remote: RemoteParticipant) => observer.participantDisconnected(participant(remote))],
-      [RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication: unknown, remote: RemoteParticipant) => (
-        observer.trackSubscribed(participant(remote), track.mediaStreamTrack)
-      )],
-      [RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _publication: unknown, remote: RemoteParticipant) => (
-        observer.trackUnsubscribed(participant(remote), track.mediaStreamTrack)
-      )],
+      [RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication: unknown, remote: RemoteParticipant) => {
+        if (track.kind === Track.Kind.Video) {
+          this.boundTracks.add(track.mediaStreamTrack);
+          registerRemoteVideoBinding(track.mediaStreamTrack, (element) => { track.attach(element); return () => { track.detach(element); }; });
+        }
+        this.applySubscriptions(remote);
+        observer.trackSubscribed(participant(remote), track.mediaStreamTrack);
+      }],
+      [RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _publication: unknown, remote: RemoteParticipant) => {
+        unregisterRemoteVideoBinding(track.mediaStreamTrack); this.boundTracks.delete(track.mediaStreamTrack);
+        observer.trackUnsubscribed(participant(remote), track.mediaStreamTrack);
+      }],
       [RoomEvent.ConnectionQualityChanged, (quality: ConnectionQuality, changedParticipant: { isLocal: boolean }) => (
-        observer.connectionQualityChanged(quality, changedParticipant.isLocal)
+        observer.connectionQualityChanged(quality, changedParticipant.isLocal, changedParticipant instanceof RemoteParticipant ? participant(changedParticipant) : undefined)
       )],
     ] as const;
     listeners.forEach(([event, listener]) => this.room.on(event, listener as never));
     return () => listeners.forEach(([event, listener]) => this.room.off(event, listener as never));
   }
 
-  connect(serverUrl: string, token: string) {
-    return this.room.connect(serverUrl, token);
+  async connect(serverUrl: string, token: string) {
+    await this.room.connect(serverUrl, token, { autoSubscribe: false });
+    this.updateVideoInterest(this.interest);
   }
 
   disconnect() {
+    for (const track of this.boundTracks) unregisterRemoteVideoBinding(track);
+    this.boundTracks.clear();
     return this.room.disconnect(false);
   }
 
@@ -351,6 +391,7 @@ export class LiveKitMediaTransport implements MediaTransport {
   }
 
   updateIce(_configuration: RTCConfiguration) {}
+  async updateVideoInterest(interest: VideoSubscriptionInterest) { this.room?.updateVideoInterest?.(interest); }
 
   async updateScreenProfile(
     quality: MediaTransportLocalMedia["screenShareQuality"],
@@ -414,8 +455,12 @@ export class LiveKitMediaTransport implements MediaTransport {
       participantDisconnected: (participant) => this.removeRemoteParticipant(participant),
       trackSubscribed: (participant, track) => this.addRemoteTrack(participant, track),
       trackUnsubscribed: (participant, track) => this.removeRemoteTrack(participant, track),
-      connectionQualityChanged: (quality, local) => {
+      connectionQualityChanged: (quality, local, remote) => {
         if (local) this.setSnapshot({ connectionQuality: connectionQuality(quality) });
+        else if (remote) {
+          const userId = this.remoteUserId(remote);
+          if (userId && this.remoteIdentityByUser.get(userId) === remote.identity) this.setSnapshot({ participantConnectionQuality: { ...this.currentSnapshot.participantConnectionQuality, [userId]: connectionQuality(quality) } });
+        }
       },
     };
   }
@@ -439,6 +484,7 @@ export class LiveKitMediaTransport implements MediaTransport {
       state: "failed",
       failure,
       remoteStreams: [],
+      participantConnectionQuality: {},
       connectionQuality: "offline",
       iceTelemetry: this.iceState("failed"),
     });
@@ -522,6 +568,8 @@ export class LiveKitMediaTransport implements MediaTransport {
     }
     this.remoteIdentityByUser.delete(userId);
     this.remoteStreams.delete(userId);
+    const qualities = { ...this.currentSnapshot.participantConnectionQuality }; delete qualities[userId];
+    this.setSnapshot({ participantConnectionQuality: qualities });
     this.setSnapshot({ remoteStreams: this.remoteStreamSnapshot() });
   }
 
@@ -531,6 +579,8 @@ export class LiveKitMediaTransport implements MediaTransport {
     if (currentIdentity && currentIdentity !== identity) {
       this.supersededRemoteIdentities.add(currentIdentity);
       this.remoteStreams.delete(userId);
+      const qualities = { ...this.currentSnapshot.participantConnectionQuality }; delete qualities[userId];
+      this.setSnapshot({ participantConnectionQuality: qualities });
     }
     this.remoteIdentityByUser.set(userId, identity);
     return true;
@@ -588,6 +638,7 @@ export class LiveKitMediaTransport implements MediaTransport {
       state: "failed",
       failure: { code, detail, retryable: true },
       remoteStreams: [],
+      participantConnectionQuality: {},
       connectionQuality: "offline",
       iceTelemetry: this.iceState("failed"),
     });

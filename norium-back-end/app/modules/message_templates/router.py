@@ -32,10 +32,11 @@ ALLOWED_VARIABLES = {"client_name", "company_name", "sender_name", "service_name
 
 class TemplatePayload(StrictModel):
     name: str = Field(min_length=2, max_length=120)
-    channel: Literal["email", "whatsapp"]
+    channel: Literal["email", "whatsapp", "team"]
     category: str = Field(default="geral", min_length=2, max_length=60)
     subject: str = Field(default="", max_length=200)
     body: str = Field(min_length=2, max_length=12000)
+    shortcut: str = Field(default="", max_length=30, pattern=r"^(?:[a-z][a-z0-9_-]{1,29})?$")
 
 
 class RenderPayload(StrictModel):
@@ -69,6 +70,7 @@ def sanitize(payload: TemplatePayload, *, template_id: str, created_at: str | No
         "category": payload.category.strip().lower(),
         "subject": payload.subject.strip() if payload.channel == "email" else "",
         "body": payload.body.strip(),
+        "shortcut": payload.shortcut,
         "builtIn": False,
         "createdAt": created_at or now_iso(),
         "updatedAt": now_iso(),
@@ -81,7 +83,7 @@ def all_templates(user: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 @router.get("")
-def list_templates(channel: Literal["email", "whatsapp"] | None = None, user: dict[str, Any] = Depends(current_user)):
+def list_templates(channel: Literal["email", "whatsapp", "team"] | None = None, user: dict[str, Any] = Depends(current_user)):
     templates = all_templates(user)
     if channel:
         templates = [item for item in templates if item.get("channel") == channel]
@@ -92,6 +94,8 @@ def list_templates(channel: Literal["email", "whatsapp"] | None = None, user: di
 def create_template(payload: TemplatePayload, user: dict[str, Any] = Depends(current_user)):
     with _lock:
         templates = load_custom(user)
+        if payload.shortcut and any(item.get("shortcut") == payload.shortcut for item in templates):
+            raise HTTPException(409, "Este atalho já está em uso em outro modelo.")
         item = sanitize(payload, template_id=f"template_{uuid.uuid4().hex[:16]}")
         templates.insert(0, item)
         save_custom(user, templates)
@@ -104,6 +108,8 @@ def update_template(template_id: str, payload: TemplatePayload, user: dict[str, 
         raise HTTPException(409, "Duplique o modelo padrao antes de edita-lo.")
     with _lock:
         templates = load_custom(user)
+        if payload.shortcut and any(item.get("shortcut") == payload.shortcut and item.get("id") != template_id for item in templates):
+            raise HTTPException(409, "Este atalho já está em uso em outro modelo.")
         for index, current in enumerate(templates):
             if str(current.get("id")) == template_id:
                 item = sanitize(payload, template_id=template_id, created_at=str(current.get("createdAt") or now_iso()))

@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/financeiro", tags=["Financeiro"])
 
 
 class LancamentoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     title: str = Field(min_length=1, max_length=160)
     description: str = ""
     type: Literal["entrada", "saida"] = "saida"
@@ -55,7 +55,7 @@ class LancamentoPayload(StrictModel):
 
 
 class AtualizarLancamentoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     title: str | None = None
     description: str | None = None
     type: Literal["entrada", "saida"] | None = None
@@ -68,7 +68,7 @@ class AtualizarLancamentoPayload(StrictModel):
 
 
 class ProgramadoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     title: str = Field(min_length=1, max_length=160)
     description: str = ""
     type: Literal["entrada", "saida"] = "saida"
@@ -81,7 +81,7 @@ class ProgramadoPayload(StrictModel):
 
 
 class AtualizarProgramadoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     title: str | None = None
     description: str | None = None
     type: Literal["entrada", "saida"] | None = None
@@ -94,7 +94,7 @@ class AtualizarProgramadoPayload(StrictModel):
 
 
 class AnexoPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     file_name: str = Field(min_length=1, max_length=180)
     mime_type: str = "application/octet-stream"
     data_url: str = Field(min_length=16)
@@ -106,13 +106,13 @@ AnexoPayload.model_rebuild(force=True)
 
 
 class ConsultaBoletosPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     cpf: str = Field(min_length=11, max_length=18)
     senha: str | None = Field(default=None, max_length=80)
 
 
 class FinanceAgentPayload(StrictModel):
-    user_id: str = "lucas123"
+    user_id: str | None = None
     message: str = Field(min_length=1, max_length=1200)
 
 
@@ -159,7 +159,7 @@ async def record_finance_event(user_id: str, title: str, description: str, actio
 
 
 @router.get("")
-async def obter_financeiro(user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def obter_financeiro(user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     return list_finance(tenant_id(user))
 
 
@@ -243,7 +243,7 @@ async def atualizar_lancamento(lancamento_id: str, payload: AtualizarLancamentoP
 
 
 @router.delete("/lancamentos/{lancamento_id}")
-async def apagar_lancamento(lancamento_id: str, user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def apagar_lancamento(lancamento_id: str, user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     previous = next((item for item in list_finance(resolved_user_id).get("lancamentos", []) if item.get("id") == lancamento_id), None)
     if delete_lancamento(resolved_user_id, lancamento_id):
@@ -311,7 +311,7 @@ async def baixar_anexo(file_name: str, user: dict[str, Any] = Depends(current_us
 
 
 @router.delete("/lancamentos/{lancamento_id}/anexos/{attachment_id}")
-async def remover_anexo_lancamento(lancamento_id: str, attachment_id: str, user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def remover_anexo_lancamento(lancamento_id: str, attachment_id: str, user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     removed = remove_attachment(tenant_id(user), lancamento_id, attachment_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
@@ -433,7 +433,7 @@ async def pagar_programado(programado_id: str, user: dict[str, Any] = Depends(cu
 
 
 @router.delete("/programados/{programado_id}")
-async def apagar_programado(programado_id: str, user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+async def apagar_programado(programado_id: str, user_id: str | None = None, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     previous = next((item for item in list_finance(resolved_user_id).get("programados", []) if item.get("id") == programado_id), None)
     if delete_programado(resolved_user_id, programado_id):
@@ -618,10 +618,12 @@ def _finance_snapshot(item: dict[str, Any], keys: tuple[str, ...]) -> dict[str, 
 def _target_not_confirmed(candidates: list[dict[str, Any]], label: str) -> dict[str, Any]:
     if not candidates:
         return {"status": "nao_encontrado", "response": f"Nao achei esse {label}. Me diga o nome exato."}
-    options = "\n".join(f"- {item.get('title')} ({finance_money(item.get('amount'))})" for item in candidates[:5])
+    options = "\n".join(
+        f"- {item.get('title')} ({finance_money(item.get('amount'))}, id {item.get('id')})" for item in candidates[:5]
+    )
     return {
         "status": "precisa_confirmar_alvo",
-        "response": f"Encontrei mais de um {label} parecido. Diga o nome exato de qual deseja:\n{options}",
+        "response": f"Encontrei mais de um {label} parecido. Nada foi alterado. Diga o nome exato ou o id de qual deseja:\n{options}",
         "candidates": [{"id": item.get("id"), "title": item.get("title")} for item in candidates[:5]],
     }
 
@@ -1057,22 +1059,44 @@ def _extract_finance_title(message: str, *, fallback: str) -> str:
     return title[:160] or fallback
 
 
+_TARGET_STOPWORDS = {
+    "lancamento", "lancamentos", "gasto", "gastos", "programado", "programados", "pago", "paga", "pagar",
+    "pendente", "valor", "vencimento", "categoria", "para", "como", "que", "dos", "das", "nora", "por", "favor",
+}
+
+
+def _words(normalized: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", normalized)
+
+
 def _find_exact_target(items: list[dict[str, Any]], message: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-    """Alvo de exclusao/alteracao: somente id ou titulo exato. Semelhancas viram opcoes, nunca escolha automatica."""
+    """Alvo de exclusao/alteracao: somente id ou titulo inteiro (palavra inteira, sem acento, minusculas).
+
+    Trechos de palavra nunca casam ("mercado" nao casa com "supermercado"); semelhancas
+    viram opcoes e empate vira lista, nunca escolha automatica.
+    """
     normalized = _normalize_text(message)
-    by_id = [item for item in items if str(item.get("id") or "").lower() and str(item.get("id")).lower() in normalized]
+    message_words = " ".join(_words(normalized))
+    padded = f" {message_words} "
+    by_id = [
+        item for item in items
+        if str(item.get("id") or "").strip() and re.search(rf"(?<![\w-]){re.escape(str(item.get('id')).lower())}(?![\w-])", normalized)
+    ]
     if len(by_id) == 1:
         return by_id[0], []
-    titled = [(item, _normalize_text(str(item.get("title") or ""))) for item in items]
-    by_title = [(item, title) for item, title in titled if title and title in normalized]
+    if len(by_id) > 1:
+        return None, by_id
+    titled = [(item, " ".join(_words(_normalize_text(str(item.get("title") or ""))))) for item in items]
+    by_title = [(item, title) for item, title in titled if title and f" {title} " in padded]
     if by_title:
-        longest = max(len(title) for _item, title in by_title)
-        best = [item for item, title in by_title if len(title) == longest]
+        best = [item for item, _title in by_title]
         return (best[0], []) if len(best) == 1 else (None, best)
-    tokens = [token for token in re.findall(r"[a-z0-9]{3,}", normalized) if token not in {"lancamento", "gasto", "programado", "pago", "pagar", "excluir", "exclua", "apagar", "apague", "remover", "remova", "alterar", "altere", "atualizar", "atualize"}]
-    candidates = [item for item, title in titled if title and any(token in title for token in tokens)]
+    tokens = {
+        token for token in _words(normalized)
+        if len(token) >= 3 and token not in _TARGET_STOPWORDS and not re.fullmatch(f"{_DELETE_VERBS}|{_UPDATE_VERBS}", token)
+    }
+    candidates = [item for item, title in titled if title and tokens.intersection(title.split())]
     return None, candidates
-
 
 
 def _is_boleto_intent(normalized: str) -> bool:
@@ -1100,14 +1124,24 @@ def _is_lancamento_create_intent(normalized: str) -> bool:
     )
 
 
+_DELETE_VERBS = r"(?:apaga|apague|apagar|exclua|exclui|excluir|exclue|remova|remove|remover|deleta|delete|deletar)"
+_UPDATE_VERBS = (
+    r"(?:marcar|marque|marca|altera|altere|alterar|muda|mude|mudar|edita|edite|editar|"
+    r"corrige|corrija|corrigir|atualiza|atualize|atualizar)"
+)
+_UPDATE_FIELDS = r"(?:pago|paga|pendente|cancelado|cancelada|valor|vencimento|categoria|lancamento|lancamentos)"
+
+
+def _has_word(pattern: str, normalized: str) -> bool:
+    return bool(re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", normalized))
+
+
 def _is_update_lancamento_intent(normalized: str) -> bool:
-    return any(word in normalized for word in ["marcar", "alterar", "editar", "atualizar", "corrigir", "mudar"]) and any(
-        word in normalized for word in ["pago", "pendente", "cancelado", "valor", "vencimento", "categoria"]
-    )
+    return _has_word(_UPDATE_VERBS, normalized) and _has_word(_UPDATE_FIELDS, normalized)
 
 
 def _is_delete_lancamento_intent(normalized: str) -> bool:
-    return any(word in normalized for word in ["excluir", "apagar", "deletar", "remover"]) and "programado" not in normalized
+    return _has_word(_DELETE_VERBS, normalized) and "programado" not in normalized
 
 
 def _is_programado_create_intent(normalized: str) -> bool:
@@ -1115,4 +1149,4 @@ def _is_programado_create_intent(normalized: str) -> bool:
 
 
 def _is_delete_programado_intent(normalized: str) -> bool:
-    return any(word in normalized for word in ["excluir", "apagar", "deletar", "remover"]) and "programado" in normalized
+    return _has_word(_DELETE_VERBS, normalized) and "programado" in normalized

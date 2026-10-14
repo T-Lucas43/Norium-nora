@@ -4,12 +4,13 @@ import { navigateNoriumView } from "../../app/navigation/view";
 import BrandLogo from "../layout/BrandLogo";
 import { useAuthTheme } from "./useAuthTheme";
 import "../../styles/screens/acesso.css";
+import "./auth-refinements.css";
 
 /** Casca das telas de acesso: formulário à esquerda e painel da Nora à direita (ou largura total em "wide"). */
 export default function AuthLayout({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   const theme = useAuthTheme();
   return (
-    <main className={`ac${wide ? " is-wide" : ""}${theme === "escuro" ? " dark" : ""}`}>
+    <main className={`ac${wide ? " is-wide" : ""}${theme === "escuro" ? " dark" : ""}`} data-auth-theme={theme}>
       <div className="ac-main">
         <div className="ac-box">
           <BrandLogo className="ac-logo" />

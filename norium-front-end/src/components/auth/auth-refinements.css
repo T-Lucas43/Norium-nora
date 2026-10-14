@@ -1,0 +1,27 @@
+/* Ajustes locais do layout de acesso aprovado; não alteram o tema da sessão. */
+.ac:not(.dark) {
+  --nx-bg: #f5f6f8; --nx-surface: #fff; --nx-surface-2: #f9fafb;
+  --nx-hover: #eef0f3; --nx-border: #e3e5ea; --nx-border-strong: #d5d8df;
+  --nx-text: #1d2027; --nx-text-2: #5e6470; --nx-text-3: #6b7280;
+  --nx-primary: #2563eb; --nx-primary-soft: #eef3fe; --nx-primary-text: #1d4ed8;
+  --nx-success: #047857; --nx-success-soft: #ecfdf5;
+  --nx-danger: #be123c; --nx-danger-soft: #fff1f3;
+  --nx-violet: #7141b8; --nx-violet-soft: #f4effc;
+}
+.ac.dark { --nx-text-3: #969ca9; }
+.ac:not(.dark) .norium-brand-logo-light { display: block; }
+.ac:not(.dark) .norium-brand-logo-dark { display: none; }
+.ac.dark .norium-brand-logo-light { display: none; }
+.ac.dark .norium-brand-logo-dark { display: block; }
+.ac-input, .ac-btn { min-height: 44px; }
+.ac-eye { width: 36px; height: 36px; }
+.ac-eye[aria-pressed="true"] { color: var(--nx-primary-text); }
+.ac-title, .ac-sub, .ac-alert, .ac-ok, .ac-choice-d { overflow-wrap: anywhere; }
+.ac-foot a { padding-block: 4px; }
+@media (max-width: 640px) {
+  .ac-main { padding-inline: 20px; }
+  .ac-input input { font-size: 16px; }
+  .ac-foot { gap: 8px 12px; }
+  .ac-choice { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .ac-input, .ac-choice { transition: none; } }

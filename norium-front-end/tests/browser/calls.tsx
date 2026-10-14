@@ -195,6 +195,8 @@ function FixtureContent() {
     cameraOff: snapshot.cameraOff,
     cameraPermission: snapshot.cameraPermission,
     sharingScreen: snapshot.sharingScreen,
+    screenChangePending: snapshot.screenChangePending,
+    remoteScreenCount: snapshot.remoteScreenSharingIds.length,
     recording: snapshot.recording,
     recordingUploadState: snapshot.recordingUploadState,
     recordingUploadProgress: snapshot.recordingUploadProgress,

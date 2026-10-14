@@ -45,8 +45,17 @@ SCHEMA = (
         PRIMARY KEY(tenant,actor,workspace,name))""",
     """CREATE TABLE IF NOT EXISTS nora_tombstones (
         id TEXT PRIMARY KEY, kind TEXT NOT NULL, at DOUBLE PRECISION NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS nora_tombstone_scopes (
+        id TEXT PRIMARY KEY, tenant TEXT NOT NULL, actor TEXT NOT NULL, workspace TEXT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS nora_internal_nonces (
         nonce TEXT PRIMARY KEY, expires DOUBLE PRECISION NOT NULL)""",
+    # Additive: outbound send receipts keyed by operationId. Only digests, never
+    # recipient or message content.
+    """CREATE TABLE IF NOT EXISTS nora_outbound_receipts (
+        operation_id TEXT PRIMARY KEY, tenant TEXT NOT NULL, actor TEXT NOT NULL,
+        workspace TEXT NOT NULL, channel TEXT NOT NULL, status TEXT NOT NULL,
+        target_digest TEXT NOT NULL, provider_id TEXT NOT NULL DEFAULT '',
+        created DOUBLE PRECISION NOT NULL, updated DOUBLE PRECISION NOT NULL)""",
 )
 
 
@@ -180,6 +189,10 @@ class Repository:
                 WHERE account=? AND reserved>=?""", (tokens, tokens, account, tokens))
             if cursor.rowcount != 1:
                 raise BrainError("brain_budget_invalid", 503)
+        ledger = reservation.get("ledger")
+        if isinstance(ledger, dict):
+            from app.services.ai_costs import settle_lost_reservation
+            settle_lost_reservation(ledger, job["scope"])
         job["budget"]["reserved"] -= tokens
         job["budget"]["tokens"] += tokens
         self.event(connection, job, "model_reservation_charged", {"tokens": tokens, "reason": reason})
@@ -244,6 +257,23 @@ class Repository:
     def claim(self):
         now = self.clock()
         with self.transaction() as connection:
+            paused = self.sql(connection, "SELECT id FROM nora_jobs WHERE state='budget_paused' ORDER BY updated LIMIT 50").fetchall()
+            for row in paused:
+                candidate = self._read(connection, row["id"], lock=True)
+                resume = candidate.get("budgetResumeAt")
+                if not resume or candidate.get("cancelRequested") or any(s["status"] in {"unknown", "executing"} for s in candidate["steps"]):
+                    continue
+                from datetime import datetime
+                try:
+                    due = datetime.fromisoformat(resume.replace("Z", "+00:00")).timestamp()
+                except (ValueError, TypeError):
+                    continue
+                if due > now:
+                    continue
+                candidate["status"], candidate["result"] = "queued", "Novo ciclo disponível; limites serão conferidos novamente."
+                candidate.pop("budgetResumeAt", None)
+                self.event(connection, candidate, "cycle_resumed", {"cycleAt": due})
+                self._save(connection, candidate)
             # An expired review can never be approved. Return it to the queue so
             # the worker prepares a fresh, exact operation with a new digest.
             expired_query = "SELECT id FROM nora_jobs WHERE state='awaiting_approval' ORDER BY updated LIMIT 20"
@@ -313,25 +343,43 @@ class Repository:
 
     def cleanup(self):
         """Expiry is maintenance, never an instruction delegated to the model."""
+        if os.getenv("NORIUM_RETENTION_ENABLED", "1").lower() in {"0", "false", "no"}:
+            return
+        def days(name, default):
+            try:
+                return max(0, int(os.getenv(name, str(default))))
+            except ValueError:
+                return default
+        context_days = days("NORIUM_RETENTION_NORA_BRAIN_CONTEXT_DAYS", 7)
+        summary_days = days("NORIUM_RETENTION_NORA_BRAIN_SUMMARY_DAYS", 90)
+        event_days = days("NORIUM_RETENTION_NORA_BRAIN_EVENTS_DAYS", 365)
         now = self.clock()
         with self.transaction() as connection:
             rows = self.sql(connection, "SELECT id FROM nora_jobs WHERE state IN ('completed','cancelled','failed')").fetchall()
             for row in rows:
                 job = self._read(connection, row["id"], lock=True)
                 closed = job.get("closedAt", job["updatedAt"])
-                if closed + 7 * 86400 <= now and (job["message"] or job["notes"] or job["attachments"]):
+                if context_days and closed + context_days * 86400 <= now and (job["message"] or job["notes"] or job["attachments"]):
                     job["message"], job["notes"], job["attachments"] = "", [], []
                     for step in job["steps"]:
                         step.pop("arguments", None)
                         step.pop("prepared", None)
                         step.pop("result", None)
                     self.sql(connection, "INSERT INTO nora_tombstones VALUES (?,?,?) ON CONFLICT DO NOTHING", (job["id"], "context", now))
+                    self.sql(connection, "INSERT INTO nora_tombstone_scopes VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
+                             (job["id"], job["scope"]["tenant"], job["scope"]["user"], job["scope"]["workspace"]))
                     self._save(connection, job)
-                if closed + 90 * 86400 <= now and (job["steps"] or job["result"] != "Resultado expirado."):
+                if summary_days and closed + summary_days * 86400 <= now and (job["steps"] or job["result"] != "Resultado expirado."):
                     job["steps"], job["result"] = [], "Resultado expirado."
                     self.sql(connection, "INSERT INTO nora_tombstones VALUES (?,?,?) ON CONFLICT DO NOTHING", (job["id"] + ":summary", "summary", now))
+                    self.sql(connection, "INSERT INTO nora_tombstone_scopes VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
+                             (job["id"] + ":summary", job["scope"]["tenant"], job["scope"]["user"], job["scope"]["workspace"]))
                     self._save(connection, job)
-            self.sql(connection, "DELETE FROM nora_events WHERE expires<=?", (now,))
+            if event_days:
+                self.sql(connection, "DELETE FROM nora_events WHERE at<=?", (now - event_days * 86400,))
+            # Content-free operation tombstones never expire by time. Losing an
+            # uncertain receipt cannot establish that a send did not happen.
+            # Privacy account/workspace deletion owns removal after access revocation.
 
 
 def configured_repository() -> Repository:

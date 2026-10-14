@@ -35,3 +35,18 @@ Corrigir a abertura de e-mails e o link público informado pelo usuário; reesti
 Publicação em PR #55: https://github.com/T-Lucas43/Norium-nora/pull/55. A tentativa anterior de mover main foi recusada pela revisão automática porque os gates e a revisão humana ainda estavam pendentes; nenhuma alternativa foi usada para contornar essa recusa. O usuário depois conferiu a prévia e pediu personalização, respeito ao tempo do serviço, deploy após finalizar as correções e trabalho em paralelo nas fases 6/7.
 
 Pendente: revisão do diff final, novos gates GitHub do candidato completo, imagem imutável, backup/restauração, promoção na Shard, release/ready/rota/assets e conferência do usuário no Gmail. Não declarar abertura real de e-mail corrigida apenas com health check. Não promover produção.
+
+### Concluído na Shard
+
+- PR #55 integrado normalmente após os cinco gates do candidato `41fa4e6` (run 38182147207). Main e revisão publicada: `022ddfc3c1fd515ac1a9d445bf12a93991c8aa64`; árvore conferida `b15f1402a3efc5787afcae1e9cf4299f11fdd2d9`.
+- Os cinco gates da main passaram no run 38182905652; 1.408 testes backend, 851 frontend em 138 arquivos e 48 de operação. Transporte run 38196037167, imagem artifact 11718414202.
+- Mesmo ZIP de imagem, SHA-256 `eb4cc55cd3c7f33890edb745626d378a500117d41af4b1c5d80bec37ff3fbc2f`; 34 blobs, configuração completa e rootfs conferidos, sem reconstrução. ID CI `sha256:c1d953ae1a15f2746060487e9840904b3a4a08b92f4f53975b623468defc7a94`; Docker da VPS carregou `sha256:33f60c367c16510df48531cdb908e1ac83c77cf75fc5d8679cd8ddbdbe7b5ab1`. Diferença de serialização do config, não de camadas ou configuração semântica.
+- Backup fresco e restauração isolada conferiram 38 tabelas e um arquivo de volume. Configuração, secrets, sessões, segurança, rede e volume preservados. Contêiner anterior `norium-api-prev-f6b455f-20261011` parado e preservado. Novo contêiner healthy, zero reinícios, HTTPS/ready PostgreSQL passaram.
+- Uma primeira verificação do transporte recusou o Docker archive por não ter RepoTags. Operador corrigido para ler o ID emitido pelo Docker; aproveitou somente downloads com hash válido. Nenhuma alteração no contêiner ativo ocorreu nessa falha.
+- Navegador conferiu `https://homologacao.norium-ai.com/agendar/ahhaaha`: URL permaneceu pública, duração fixa de 30 min, seleção do profissional e horários carregaram. Sem criar reserva. Usuário confirmou abertura completa de e-mail após Ctrl+F5. Login/painel/chat não foram rechecados neste hotfix.
+- Recibo sanitizado `output/homologacao-20261011/shard-hotfix-deploy-receipt.json`, screenshot real `agendamento-homologacao-publicado.png`, no checkout principal.
+- Cérebro/retenção e mudanças das fases 6/7 não fazem parte desta imagem. Não houve promoção à produção.
+
+Publicação em PR #55: https://github.com/T-Lucas43/Norium-nora/pull/55. A tentativa anterior de mover main foi recusada pela revisão automática porque os gates e a revisão humana ainda estavam pendentes; nenhuma alternativa foi usada para contornar essa recusa. O usuário depois conferiu a prévia e pediu personalização, respeito ao tempo do serviço, deploy após finalizar as correções e trabalho em paralelo nas fases 6/7.
+
+O deploy deste hotfix e seu aceite de e-mail foram concluídos. Fases 6/7 seguem em implementação local no handoff próprio, com execução individual por determinação posterior do usuário.

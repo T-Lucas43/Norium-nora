@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import asyncio
 import time
 import os
@@ -16,6 +17,7 @@ from dotenv import load_dotenv
 from app.services.nora_system_prompt import NORA_SYSTEM_PROMPT, NORA_EMAIL_DRAFT_PROMPT
 from app.core.ai_guardrails import minimize_for_ai
 from app.services.ai_costs import Meter
+from app.core.request_context import current_ai_user_id, current_workspace_id
 
 
 load_dotenv()
@@ -54,8 +56,8 @@ class NoraIAService:
             "Content-Type": "application/json",
         }
         if self.provider == "openai":
-            self.model = os.getenv("NORA_OPENAI_MODEL", "gpt-6-astra").strip() or "gpt-6-astra"
-            fallback_setting = os.getenv("NORA_OPENAI_FALLBACK_MODELS", "gpt-6-sol")
+            self.model = os.getenv("NORA_OPENAI_MODEL", "gpt-5.6-luna").strip() or "gpt-5.6-luna"
+            fallback_setting = os.getenv("NORA_OPENAI_FALLBACK_MODELS", "gpt-5.6-luna")
         else:
             self.model = os.getenv("NORA_MODEL", "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
             fallback_setting = os.getenv(
@@ -70,6 +72,17 @@ class NoraIAService:
         self.fallback_models = list(dict.fromkeys([self.model, *configured_fallbacks]))
         self.system_prompt = NORA_SYSTEM_PROMPT
         self._client: httpx.AsyncClient | None = None
+
+    async def _authorize_provider(self, user_id):
+        from app.core.ai_provider_policy import approved_provider, ProviderPolicyError
+        from app.core.tenant import get_system_db_path, read_json_file
+        actor = str(user_id or "system")
+        store = await asyncio.to_thread(read_json_file, get_system_db_path("usuarios"), {})
+        identity = next((u for u in store.get("users", []) if u.get("id") == actor), {"id": actor}) if isinstance(store, dict) else {"id": actor}
+        try:
+            approved_provider(identity, {"provider": self.provider})
+        except ProviderPolicyError:
+            raise HTTPException(403, "Este provedor de IA não foi aprovado para sua conta.") from None
 
     def _http_client(self) -> httpx.AsyncClient:
         if self._client is None or getattr(self._client, "is_closed", False):
@@ -155,13 +168,21 @@ class NoraIAService:
             )
         return payload_messages
 
-    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False, user_id: str | None = None, purpose: str = "routine") -> str:
+    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False, user_id: str | None = None, purpose: str = "routine", usage_source: str | None = None) -> str:
         if not self.api_key:
             if research:
                 raise NoraResearchUnavailable("configuration")
             return "A Nora está temporariamente sem acesso ao provedor de IA. Configure OPENAI_API_KEY ou GROQ_API_KEY no backend."
 
+        user_id = user_id or current_ai_user_id()
+        await self._authorize_provider(user_id)
         built_messages = self._build_payload_messages(mensagens, screen_context, purpose=purpose)
+        cache_key = (str(user_id or "system"), current_workspace_id(), self.provider, purpose,
+                     hashlib.sha256(json.dumps({"messages": built_messages, "tokens": max_tokens,
+                        "complete": require_complete, "research": research, "model": self.model}, sort_keys=True).encode()).hexdigest())
+        cached = _response_cache.get(cache_key)
+        if not research and cached and cached[0] > time.monotonic():
+            return cached[1]
         output_budget = max(256, min(6000, max_tokens))
         payload = self._request_payload(built_messages, output_budget)
 
@@ -169,7 +190,8 @@ class NoraIAService:
             client = self._http_client()
             last_status = 503
             retry_until = time.monotonic() + 55
-            attempts = [(model, 0, 0.0) for model in self._models()]
+            chosen = ([os.getenv("NORA_OPENAI_DOCUMENT_MODEL", "gpt-5.6-sol")] if self.provider == "openai" and purpose == "document" else self._models())
+            attempts = [(model, 0, 0.0) for model in chosen]
             limited = False
             while attempts:
                 model, retry, not_before = attempts.pop(0)
@@ -185,7 +207,7 @@ class NoraIAService:
                 elif research and model.startswith("groq/compound"):
                     settings["compound_custom"] = {"tools": {"enabled_tools": []}}
                 try:
-                    async with Meter(self._billing_provider(model), built_messages, output_budget, user_id=user_id, source="nora-research" if research else "nora") as meter:
+                    async with Meter(self._billing_provider(model), built_messages, output_budget, user_id=user_id, source=usage_source or ("nora-research" if research else "nora")) as meter:
                         settings["max_output_tokens" if self._uses_responses_api else "max_tokens"] = meter.max_output
                         meter.sent()
                         response = await client.post(self.base_url, json=settings, headers=self.headers)
@@ -209,7 +231,14 @@ class NoraIAService:
                         raise NoraIncompleteResponse
                     answer = self._response_text(data)
                     if answer:
-                        self.model = model
+                        if purpose != "document":
+                            self.model = model
+                        if not research:
+                            for expired in [key for key, value in _response_cache.items() if value[0] <= time.monotonic()]:
+                                _response_cache.pop(expired, None)
+                            if len(_response_cache) >= 128:
+                                _response_cache.pop(next(iter(_response_cache)))
+                            _response_cache[cache_key] = (time.monotonic() + 30, answer)
                         return answer
                     continue
                 if research and last_status == 429:
@@ -239,6 +268,8 @@ class NoraIAService:
             yield "A Nora está temporariamente sem acesso ao provedor de IA. Configure OPENAI_API_KEY ou GROQ_API_KEY no backend."
             return
 
+        user_id = user_id or current_ai_user_id()
+        await self._authorize_provider(user_id)
         built_messages = self._build_payload_messages(mensagens, screen_context)
         payload = self._request_payload(built_messages, 1400, stream=True)
 
@@ -305,3 +336,11 @@ class NoraIAService:
             "baseUrl": "https://api.openai.com/v1" if self._uses_responses_api else "https://api.groq.com/openai/v1",
             "managed": True,
         }
+
+
+_response_cache: dict[tuple, tuple[float, str]] = {}
+
+
+def clear_response_cache(user_id: str) -> None:
+    for key in [key for key in _response_cache if key[0] == user_id]:
+        _response_cache.pop(key, None)

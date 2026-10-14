@@ -18,8 +18,8 @@ const variableLabels: Array<[string, string]> = [
 
 type ChannelFilter = MessageChannel | "todos";
 
-const channelLabel = (channel: MessageChannel) => (channel === "email" ? "E-mail" : "WhatsApp");
-const channelBadge = (channel: MessageChannel) => (channel === "email" ? "nx-badge is-red" : "nx-badge is-green");
+const channelLabel = (channel: MessageChannel) => (channel === "email" ? "E-mail" : channel === "team" ? "Equipe" : "WhatsApp");
+const channelBadge = (channel: MessageChannel) => (channel === "email" ? "nx-badge is-red" : channel === "team" ? "nx-badge is-blue" : "nx-badge is-green");
 const fieldClass = "h-9 w-full rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] px-3 text-sm text-[var(--nx-text)] outline-none focus:border-[var(--nx-primary)]";
 const labelClass = "grid gap-1.5 text-[12.5px] font-medium text-[var(--nx-text-2)]";
 
@@ -52,7 +52,7 @@ export default function MessageTemplatesDashboard() {
   useEffect(() => { void load(); }, []);
 
   function startNew(targetChannel: MessageChannel = channel === "todos" ? "email" : channel) { setEditingId(null); setForm({ ...emptyForm, channel: targetChannel }); setOpen(true); }
-  function startEdit(item: MessageTemplate) { setEditingId(item.id); setForm({ name: item.name, channel: item.channel, category: item.category, subject: item.subject, body: item.body }); setOpen(true); }
+  function startEdit(item: MessageTemplate) { setEditingId(item.id); setForm({ name: item.name, channel: item.channel, category: item.category, subject: item.subject, body: item.body, shortcut: item.shortcut || "" }); setOpen(true); }
   function duplicate(item: MessageTemplate) { setEditingId(null); setForm({ name: `${item.name} (cópia)`, channel: item.channel, category: item.category, subject: item.subject, body: item.body }); setOpen(true); }
   function insertVariable(key: string) { setForm((current) => ({ ...current, body: `${current.body}{{${key}}}` })); }
   async function save() {
@@ -69,7 +69,7 @@ export default function MessageTemplatesDashboard() {
     catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível excluir o modelo."); }
   }
 
-  const filters: Array<[ChannelFilter, string]> = [["todos", "Todos"], ["email", "E-mail"], ["whatsapp", "WhatsApp"]];
+  const filters: Array<[ChannelFilter, string]> = [["todos", "Todos"], ["email", "E-mail"], ["whatsapp", "WhatsApp"], ["team", "Equipe"]];
 
   return <div className="nx-page min-h-full">
     <header className="nx-ph">
@@ -118,9 +118,10 @@ export default function MessageTemplatesDashboard() {
         <div className="flex items-start justify-between gap-3"><div><h2 id="template-dialog-title" className="text-lg font-semibold">{editingId ? "Editar modelo" : "Novo modelo de mensagem"}</h2><p className="mt-1 text-[13px] text-[var(--nx-text-2)]">Use campos automáticos para personalizar</p></div><button type="button" onClick={() => setOpen(false)} aria-label="Fechar" className="grid h-8 w-8 place-items-center rounded-lg text-[var(--nx-text-2)] hover:bg-[var(--nx-hover)]"><X size={16}/></button></div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <label className={labelClass}>Nome<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className={fieldClass}/></label>
-          <label className={labelClass}>Canal<select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value as MessageChannel, subject: event.target.value === "email" ? form.subject : "" })} className={fieldClass}><option value="email">E-mail</option><option value="whatsapp">WhatsApp</option></select></label>
+          <label className={labelClass}>Canal<select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value as MessageChannel, subject: event.target.value === "email" ? form.subject : "" })} className={fieldClass}><option value="email">E-mail</option><option value="whatsapp">WhatsApp</option><option value="team">Chat da equipe</option></select></label>
           <label className={labelClass}>Categoria<input list="template-categories" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className={fieldClass}/><datalist id="template-categories">{categories.map((item) => <option key={item} value={item}/>)}</datalist></label>
         </div>
+        <label className={`${labelClass} mt-3`}>Atalho no chat, sem /<input aria-label="Atalho do modelo" value={form.shortcut || ""} onChange={(event) => setForm({ ...form, shortcut: event.target.value.toLowerCase().replace(/^\//, "") })} placeholder="Ex.: boas-vindas" maxLength={30} className={fieldClass}/></label>
         {form.channel === "email" && <label className={`${labelClass} mt-3`}>Assunto<input value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} className={fieldClass}/></label>}
         <label className={`${labelClass} mt-3`}>Mensagem<textarea rows={9} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} className="rounded-lg border border-[var(--nx-border-strong)] bg-[var(--nx-surface)] p-3 text-sm leading-6 text-[var(--nx-text)] outline-none focus:border-[var(--nx-primary)]"/></label>
         <div className="mt-3 flex flex-wrap items-center gap-1.5"><span className="text-[12.5px] text-[var(--nx-text-3)]">Inserir campo:</span>{variableLabels.map(([key, label]) => <button key={key} type="button" className="nx-badge hover:bg-[var(--nx-primary-soft)] hover:text-[var(--nx-primary-text)]" title={`{{${key}}}`} onClick={() => insertVariable(key)}>{label}</button>)}</div>

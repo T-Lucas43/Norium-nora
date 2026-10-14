@@ -20,6 +20,8 @@ def member(user_id: str, owner_id: str = "owner") -> dict:
 class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="norium_call_lifecycle_")
+        self.upload_dir = Path(self.temp.name) / "team_chat_uploads"
+        self.upload_dir.mkdir()
         self.owner, self.member, self.other = member("owner"), member("member"), member("other")
         self.manager = team.PresenceManager()
         self.manager.send_to_users = AsyncMock()
@@ -27,7 +29,7 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.socket.send_json = AsyncMock()
         self.patches = [
             patch("app.core.tenant.get_data_root", return_value=Path(self.temp.name)),
-            patch.object(team, "UPLOAD_DIR", Path(self.temp.name)),
+            patch.object(team, "UPLOAD_DIR", self.upload_dir),
             patch.object(team, "team_chat_path", return_value=str(Path(self.temp.name) / "team_chat.json")),
             patch.object(team, "read_user_store", AsyncMock(return_value={"users": [self.owner, self.member, self.other]})),
             patch.object(team, "read_profile_db", return_value={}),
@@ -52,13 +54,55 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def send(self, event: str, user=None, **extra):
         await team.handle_call_event(self.socket, user or self.owner, {**self.invite, "type": event, **extra})
 
+    async def test_stage_pin_and_presenter_require_host_and_joined_target(self):
+        await self.send("CALL_INVITE")
+        await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
+        with self.assertRaises(HTTPException):
+            await self.send("CALL_STAGE_PIN", self.member, clientId="member-tab", targetUserId="owner", tileType="member")
+        with self.assertRaises(HTTPException):
+            await self.send("CALL_STAGE_PIN", targetUserId="other", tileType="member")
+        with self.assertRaises(HTTPException):
+            await self.send("CALL_STAGE_PIN", targetUserId="member", tileType="screen")
+        await self.send("CALL_STAGE_PIN", targetUserId="member", tileType="member")
+        event = self.manager.send_to_users.call_args.args[2]
+        self.assertEqual({"userId": "member", "type": "member"}, event["stagePin"])
+        self.assertEqual({"owner", "member"}, self.manager.send_to_users.call_args.args[1])
+        await self.send("CALL_PRESENTER_ASSIGN", targetUserId="member")
+        self.assertEqual("member", self.manager.send_to_users.call_args.args[2]["presenterUserId"])
+
+    async def test_presentation_marks_are_scoped_normalized_and_expire(self):
+        await self.send("CALL_INVITE")
+        await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
+        await self.send("CALL_SCREEN_STARTED")
+        await self.send("CALL_PRESENTATION_MARK", self.member, clientId="member-tab", targetUserId="owner", x=.2, y=.7)
+        event = self.manager.send_to_users.call_args.args[2]
+        self.assertEqual((.2, .7), (event["x"], event["y"]))
+        self.assertAlmostEqual(10, (datetime.fromisoformat(event["expiresAt"]) - datetime.fromisoformat(event["createdAt"])).total_seconds(), places=1)
+        for x in (True, -1, 2, float("nan"), "0.5"):
+            with self.assertRaises(HTTPException):
+                await self.send("CALL_PRESENTATION_MARK", self.member, clientId="member-tab", targetUserId="owner", x=x, y=.2)
+        with self.assertRaises(HTTPException):
+            await self.send("CALL_PRESENTATION_LOCK", self.member, clientId="member-tab", locked=True)
+        await self.send("CALL_PRESENTATION_LOCK", locked=True)
+        with self.assertRaises(HTTPException):
+            await self.send("CALL_PRESENTATION_MARK", self.member, clientId="member-tab", targetUserId="owner", x=.2, y=.2)
+        await self.send("CALL_PRESENTATION_MARK", targetUserId="owner", x=.2, y=.2)
+        await self.send("CALL_STAGE_PIN", targetUserId="owner", tileType="screen")
+        await self.send("CALL_SCREEN_STOPPED")
+        state = self.manager.send_to_users.call_args.args[2]
+        self.assertIsNone(state["stagePin"])
+        self.assertNotIn("owner", state["presentationLocks"])
+        with self.assertRaises(HTTPException):
+            await self.send("CALL_PRESENTATION_MARK", targetUserId="owner", x=.2, y=.2)
+
     async def test_meeting_chat_is_private_ephemeral_and_cleans_attachments(self):
         await self.send("CALL_INVITE")
         payload = team.SendMeetingMessagePayload(clientId="owner-tab", text="Somente nesta reunião", attachments=[
             team.AttachmentPayload(fileName="pauta.txt", mimeType="text/plain", dataUrl="data:text/plain;base64,cGF1dGE=")])
         message = (await team.send_meeting_message(self.invite["callId"], payload, self.owner))["message"]
         file_name = message["attachments"][0]["storedName"]
-        self.assertTrue((Path(self.temp.name) / file_name).exists())
+        file_path = Path(self.temp.name) / message["attachments"][0]["storageKey"]
+        self.assertTrue(file_path.exists())
         self.assertFalse(any(item.get("text") == payload.text for item in team.read_chat_store("owner")["messages"]))
         for action in (
             team.list_meeting_messages(self.invite["callId"], "member-tab", self.member),
@@ -70,9 +114,9 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 await action
         await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
         self.assertEqual([message], (await team.list_meeting_messages(self.invite["callId"], "member-tab", self.member))["messages"])
-        self.assertEqual(Path(self.temp.name) / file_name, (await team.download_attachment(file_name, self.member)).path)
+        self.assertEqual(file_path, (await team.download_attachment(file_name, self.member)).path)
         await self.send("CALL_END")
-        self.assertFalse((Path(self.temp.name) / file_name).exists())
+        self.assertFalse(file_path.exists())
         with self.assertRaises(HTTPException):
             await team.download_attachment(file_name, self.owner)
         await self.send("CALL_INVITE", callId="call_aaaaaaaaaaaaaaaa")
@@ -86,7 +130,7 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         store["activeCalls"][0]["lastHeartbeatAt"] = (datetime.now(timezone.utc) - timedelta(seconds=91)).isoformat()
         team.write_chat_store("owner", store)
         await team.active_calls_snapshot("owner")
-        self.assertFalse((Path(self.temp.name) / message["attachments"][0]["storedName"]).exists())
+        self.assertFalse((Path(self.temp.name) / message["attachments"][0]["storageKey"]).exists())
 
     async def test_raised_hands_sync_in_order_and_clear_on_leave(self):
         await self.send("CALL_INVITE")
@@ -130,6 +174,35 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await self.send("CALL_MEDIA_STATE", cameraEnabled="false", screenSharing=False)
         self.manager.send_to_users.reset_mock()
         await self.send("CALL_MEDIA_STATE", self.other, clientId="other-tab", cameraEnabled=True, screenSharing=True)
+        self.manager.send_to_users.assert_not_awaited()
+
+    async def test_video_interest_is_targeted_ephemeral_and_session_bound(self):
+        await self.send("CALL_INVITE")
+        await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
+        before = team.read_chat_store("owner")
+        self.manager.send_to_users.reset_mock()
+        await self.send("CALL_VIDEO_INTEREST", self.member, clientId="member-tab", targetUserId="owner", receiveVideo=False, quality="low")
+        sent = self.manager.send_to_users.call_args.args
+        self.assertEqual({"owner"}, sent[1])
+        self.assertEqual("member", sent[2]["fromUserId"])
+        self.assertIs(False, sent[2]["receiveVideo"])
+        self.assertEqual(before, team.read_chat_store("owner"))
+        for values in (
+            {"targetUserId": "other", "receiveVideo": True, "quality": "high"},
+            {"targetUserId": "owner", "receiveVideo": "false", "quality": "low"},
+            {"targetUserId": "owner", "receiveVideo": True, "quality": "ultra"},
+            {"targetUserId": "member", "receiveVideo": True, "quality": "high"},
+        ):
+            self.manager.send_to_users.reset_mock()
+            with self.assertRaises(HTTPException):
+                await self.send("CALL_VIDEO_INTEREST", self.member, clientId="member-tab", **values)
+            self.manager.send_to_users.assert_not_awaited()
+        self.manager.send_to_users.reset_mock()
+        await self.send("CALL_VIDEO_INTEREST", self.member, clientId="old-tab", targetUserId="owner", receiveVideo=True, quality="high")
+        self.manager.send_to_users.assert_not_awaited()
+        await self.send("CALL_END")
+        self.manager.send_to_users.reset_mock()
+        await self.send("CALL_VIDEO_INTEREST", self.member, clientId="member-tab", targetUserId="owner", receiveVideo=True, quality="high")
         self.manager.send_to_users.assert_not_awaited()
 
     async def test_end_is_idempotent_deletes_state_and_cancels_all_invites(self):

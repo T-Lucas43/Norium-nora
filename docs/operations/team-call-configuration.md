@@ -2,6 +2,22 @@
 
 Fonte de verdade: `app/modules/team/{call_configuration,call_release,turn_credentials,sfu_tokens,recording_coordinator}.py` e `.github/workflows/azure-container-apps.yml`. Nenhuma variável desta matriz usa prefixo `VITE_`, build arg ou armazenamento do navegador.
 
+A primeira entrega da nova interface (13/10/2026, Fase A) não acrescenta variáveis nem ativa gravação/SFU/Nora. `norium.team-call.layout.<id>` contém somente a preferência visual local. A continuidade C/D/E acrescenta núcleos locais e flags fechadas; consultar o [handoff C](../handoffs/2026-10-13-codex-nova-chamada-fase-C.md) antes de configurar qualquer provedor.
+
+## Nora em reuniões — implementação parcial
+
+| Variável | Padrão | Efeito atual |
+| --- | --- | --- |
+| `NORA_CALL_ENABLED` | `0` | Estado/controle; não inicia agente nem concede permissão |
+| `NORA_CALL_MAX_CONCURRENT` | `2` | Capacidade preparada, teto 2; supervisor global pendente |
+| `NORA_CALL_CHUNK_SECONDS` | `10` | Limitado a 5–10 s; Groq fatura no mínimo 10 s/envio |
+
+`GROQ_API_KEY` continua exclusivamente no backend. Adapter operacional de `nora_reunioes` fechado até revisão. Nenhuma variável concede entitlement. Há transcrição volátil por audiência, entrega interna por WebSocket, legendas locais e perguntas privadas com fontes. Ainda não há supervisor operacional, token do agente, persistência/expurgo/exportação de transcrição ou voz pública montada. `requirements-nora-call.lock.txt` contém dependências opcionais pinadas/com hashes; SDK validado em ambiente isolado de QA, sem alterar requirements principais ou conectar sala real.
+
+Custos de voz em `speech_usage`, no banco central `ai_costs`: unidades próprias, reservas/tetos e consumo incerto, sem inventar tokens. A visão administrativa agrega essa tabela em painel separado; exportações PDF/CSV atuais continuam restritas aos tokens. Tarifas/tetos comerciais não foram alterados. Consultar [revisão preparada](../security/reviews/2026-10-13-nora-em-reunioes.md) antes da ponte operacional.
+
+Chat/chamada/gravação compartilham um lock por caminho canônico do documento da equipe, no mesmo processo. Isso reduz contenção entre equipes e mantém a serialização de um documento; não autoriza mais workers/réplicas nem substitui os requisitos de persistência/pub-sub compartilhados. Os locks sem detentores ou espera são liberados por weak references.
+
 ## Flags e capacidade
 
 Configuração do runner de testes: `PLAYWRIGHT_BROWSERS_PATH` pode apontar para uma

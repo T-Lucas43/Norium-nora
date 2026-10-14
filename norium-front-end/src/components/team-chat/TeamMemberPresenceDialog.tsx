@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { BriefcaseBusiness, CheckSquare2, Clock3, Eye, FileText, Mail, MessageCircle, Phone, UserRound, UsersRound, X } from "lucide-react";
+import { BriefcaseBusiness, CalendarPlus, CheckSquare2, Clock3, Eye, FileText, Mail, MessageCircle, Phone, UserRound, UsersRound, X } from "lucide-react";
 import type { NoriumUser } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import Button from "../shared/Button";
 import { formatMemberLastAccess } from "./teamMemberPresence";
+import type { PresenceState } from "./TeamStatusDialog";
 
 type ProfileItem = { id?: string; title?: string; name?: string; company?: string; status?: string; dueDate?: string; accessRole?: string };
 type FullProfile = {
@@ -30,7 +31,7 @@ function Collection({ title, icon: Icon, items, empty }: { title: string; icon: 
   </section>;
 }
 
-export default function TeamMemberPresenceDialog({ member, online, isCurrentUser, token, onClose, onMessage, onCall }: {
+export default function TeamMemberPresenceDialog({ member, online, isCurrentUser, token, onClose, onMessage, onCall, presence, onSchedule }: {
   member: NoriumUser;
   online: boolean;
   isCurrentUser: boolean;
@@ -38,6 +39,8 @@ export default function TeamMemberPresenceDialog({ member, online, isCurrentUser
   onClose: () => void;
   onMessage: () => void;
   onCall: () => void;
+  presence?: PresenceState;
+  onSchedule?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [profile, setProfile] = useState<FullProfile | null>(null);
@@ -54,7 +57,7 @@ export default function TeamMemberPresenceDialog({ member, online, isCurrentUser
   }, [expanded, loading, member.id, profile, token]);
 
   return <div className="fixed inset-0 z-[170] grid place-items-center bg-black/80 p-4" onClick={onClose}>
-    <section role="dialog" aria-modal="true" aria-label={`Detalhes de ${member.nome}`} className={`max-h-[92dvh] w-full overflow-y-auto rounded-3xl border border-cyan-400/30 bg-[#070b12] text-white shadow-2xl shadow-black/70 transition-all ${expanded ? "max-w-5xl" : "max-w-md"}`} onClick={(event) => event.stopPropagation()}>
+    <section role="dialog" aria-modal="true" aria-label={`Detalhes de ${member.nome}`} className={`team-v3-member-dialog max-h-[92dvh] w-full overflow-y-auto rounded-3xl border border-cyan-400/30 bg-[#070b12] text-white shadow-2xl shadow-black/70 transition-all ${expanded ? "max-w-5xl" : "max-w-md"}`} onClick={(event) => event.stopPropagation()}>
       <div className="relative overflow-hidden rounded-t-3xl bg-gradient-to-br from-blue-600/35 via-cyan-500/15 to-transparent p-6">
         <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar detalhes do membro" className="absolute right-4 top-4"><X size={18} /></Button>
         <div className="flex items-center gap-4 pr-12">
@@ -63,9 +66,11 @@ export default function TeamMemberPresenceDialog({ member, online, isCurrentUser
         </div>
       </div>
       <div className="p-5">
+        {presence && <section className="team-v3-member-now"><h3>Agora</h3><p>{presence.emoji} {presence.text || presence.label}{presence.context ? ` · ${presence.context}` : ""}</p>{Boolean(presence.timeline?.length) && <><h3>Hoje</h3><ul>{presence.timeline?.map((item, index) => <li key={index}><time>{new Date(item.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time><span>{item.label}{item.context ? ` · ${item.context}` : ""}</span></li>)}</ul></>}</section>}
         <div className={`grid gap-2 ${isCurrentUser ? "grid-cols-1" : "grid-cols-3"}`}>
           {!isCurrentUser && <><Button variant="secondary" onClick={onMessage} icon={<MessageCircle size={16} />}>Conversar</Button><Button onClick={onCall} icon={<Phone size={16} />}>Ligar</Button></>}
           <Button variant="secondary" onClick={() => setExpanded((value) => !value)} icon={<Eye size={16} />}>{expanded ? "Fechar detalhes" : "Perfil completo"}</Button>
+          {onSchedule && <Button variant="secondary" onClick={onSchedule} icon={<CalendarPlus size={16} />}>Agendar</Button>}
         </div>
         {isCurrentUser && !expanded && <p className="mt-4 flex items-center justify-center gap-2 text-xs font-semibold text-slate-400"><UserRound size={14} /> Este é o seu perfil</p>}
         {expanded && <div className="mt-5">

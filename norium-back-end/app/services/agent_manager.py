@@ -121,7 +121,9 @@ class AgentManager:
             result = await self.wapi_messaging.send_text(user_id, conversa_id, texto)
         except (MessagingUnavailable, WapiError):
             result = {"sent": False}
-        success = bool(result and result.get("sent") is True)
+        message_id = str(result.get("messageId") or "").strip() if isinstance(result, dict) else ""
+        reported_sent = bool(result and result.get("sent") is True)
+        success = reported_sent and bool(message_id)
 
         if success:
             async with whatsapp_conversation_mutation_lock(user_id):
@@ -131,12 +133,14 @@ class AgentManager:
                     channel=canal,
                     sender_label=sender_label,
                     status="enviado",
-                    message_id=str(result.get("messageId") or "") or None,
+                    message_id=message_id,
                     user_id=user_id,
                 )
 
         return {
             "agent_id": "mensagens",
-            "status": "enviado" if success else "falha_gateway",
+            "status": "enviado" if success else "resultado_incerto" if reported_sent else "falha_gateway",
             "sent": success,
+            "uncertain": reported_sent and not success,
+            "messageId": message_id,
         }

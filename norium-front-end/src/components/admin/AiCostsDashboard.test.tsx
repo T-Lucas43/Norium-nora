@@ -22,7 +22,7 @@ describe("AiCostsDashboard", () => {
     expect(within(panel).getByText("5 s")).toBeInTheDocument();
     expect(within(panel).getByText("10 s faturáveis")).toBeInTheDocument();
     expect(within(screen.getByText("Tokens consumidos").closest("article")!).getByText("1.500")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Consumo e auditoria" }));
+    fireEvent.click(screen.getByRole("button", { name: "Últimas chamadas" }));
     const history = screen.getByRole("table", { name: "Histórico de transcrição e voz" });
     expect(within(history).getByText("Incerto")).toBeInTheDocument();
     expect(within(history).getByText(/whisper-large-v3-turbo/)).toBeInTheDocument();

@@ -96,13 +96,11 @@ class CallStateAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([], self.order)
         self.assertFalse(self.lock.locked())
 
-    async def test_message_retention_stays_bounded(self):
-        self.document["messages"] = [{"id": index} for index in range(2000)]
+    async def test_call_updates_preserve_paginated_chat_history(self):
+        self.document["messages"] = [{"id": index} for index in range(5000)]
         await self.adapter().save("team-a", CallState(self.document["activeCalls"], {}),
-                                  append_messages=({"id": 2000}, {"id": 2001}))
-        self.assertEqual(2000, len(self.document["messages"]))
-        self.assertEqual(2, self.document["messages"][0]["id"])
-        self.assertEqual(2001, self.document["messages"][-1]["id"])
+                                  append_messages=({"id": 5000}, {"id": 5001}))
+        self.assertEqual(list(range(5002)), [message["id"] for message in self.document["messages"]])
 
     async def test_repeated_cancellation_keeps_lock_until_worker_finishes(self):
         entered, release = threading.Event(), threading.Event()

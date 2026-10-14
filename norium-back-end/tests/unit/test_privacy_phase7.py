@@ -50,6 +50,28 @@ class Phase7Tests(unittest.TestCase):
         self.assertEqual({}, catalog.sqlite_personal_data("alice"))
         self.assertEqual(4, len(catalog.sqlite_personal_data("bob")))
 
+    def test_speech_ledger_export_and_purge_preserve_other_users_and_workspaces(self):
+        with closing(sqlite3.connect(self.root / "ai_costs.sqlite3")) as db:
+            db.execute("CREATE TABLE speech_usage(id TEXT, user_id TEXT, workspace TEXT, units INTEGER)")
+            db.execute("CREATE TABLE speech_budget_locks(user_id TEXT PRIMARY KEY)")
+            db.executemany("INSERT INTO speech_budget_locks VALUES (?)", [("alice",), ("bob",)])
+            db.executemany("INSERT INTO speech_usage VALUES (?,?,?,?)", [
+                ("own-primary", "alice", "primary", 10),
+                ("own-secondary", "alice", "secondary", 20),
+                ("other-primary", "bob", "primary", 30),
+            ])
+            db.commit()
+        rows = catalog.sqlite_personal_data("alice", workspace_id="primary")
+        self.assertEqual(["own-primary"], [row["id"] for row in rows["ai_costs.sqlite3/speech_usage"]])
+        catalog.sqlite_personal_data("alice", purge=True, workspace_id="primary")
+        self.assertEqual({}, catalog.sqlite_personal_data("alice", workspace_id="primary"))
+        self.assertEqual("own-secondary", catalog.sqlite_personal_data("alice")["ai_costs.sqlite3/speech_usage"][0]["id"])
+        self.assertEqual("other-primary", catalog.sqlite_personal_data("bob")["ai_costs.sqlite3/speech_usage"][0]["id"])
+        self.assertEqual("alice", catalog.sqlite_personal_data("alice")["ai_costs.sqlite3/speech_budget_locks"][0]["user_id"])
+        catalog.sqlite_personal_data("alice", purge=True)
+        self.assertEqual({}, catalog.sqlite_personal_data("alice"))
+        self.assertEqual("bob", catalog.sqlite_personal_data("bob")["ai_costs.sqlite3/speech_budget_locks"][0]["user_id"])
+
     def test_unknown_personal_table_fails_coverage_instead_of_silent_export(self):
         with closing(sqlite3.connect(self.root / "ai_costs.sqlite3")) as db:
             db.execute("CREATE TABLE unexpected(user_id TEXT)")

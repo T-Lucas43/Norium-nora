@@ -65,6 +65,27 @@ das cinco ondas. Nora na chamada C–E não deve ser anunciada como concluída.
 
 ## Promoção
 
+### Primeira repetição e reparos
+
+- Candidato inicial `15fcd1a`, PR #63. Backend local/CI: 1.685 testes, três
+  falhas preservadas. PostgreSQL e scan da imagem aprovados no primeiro CI.
+- Restabelecido o acesso ao repositório antes de qualquer stat local, mantendo
+  diagnóstico de corrupção e recusa de limpeza quando a leitura falha.
+- Custos de voz e locks por conta incluídos no catálogo de privacidade. Novo
+  teste comprova exportação e eliminação somente da conta/workspace solicitado;
+  registros de outro usuário e de outro workspace permanecem.
+- A expectativa antiga de truncar mensagens em 2.000 foi substituída pelo
+  contrato do Chat paginado: a chamada conserva exatamente 5.000 mensagens
+  anteriores e as duas novas, sem alterar o gate de paginação/quotas.
+- Frontend: 957 testes, 954 aprovados e três falhas preservadas. Conciliação do
+  rótulo da aba administrativa, remoção de receptor de áudio duplicado e
+  repetição com as fontes atualizadas repararam as três falhas. O áudio fica
+  montado uma única vez fora do palco, conservando volume da transmissão e
+  Assistir/Parar de assistir inclusive com chamada minimizada.
+- Após os reparos: 62/62 testes backend e 29/29 frontend focados aprovados.
+  CI integral da nova revisão continua obrigatório. Não reclassificar o
+  primeiro gate como verde nem afirmar deploy concluído.
+
 A autorização do deploy no ShardCloud existe. `docs/AI_GOVERNANCE.md`, processo
 obrigatório item 5, exige aceite técnico humano da versão concreta por alterar
 autorizações de ações externas e privacidade. O usuário se identificou como

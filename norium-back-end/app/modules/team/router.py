@@ -445,18 +445,8 @@ def empty_store() -> dict[str, Any]:
 
 def read_chat_store(team_id: str) -> dict[str, Any]:
     path = Path(team_chat_path(team_id))
-    postgres_enabled = postgres_store.configured() or postgres_store.required()
-    if not postgres_enabled:
-        try:
-            path.stat()
-        except FileNotFoundError:
-            return empty_store()
-        except PermissionError as exc:
-            raise OSError("Armazenamento de chamadas inacessivel; limpeza suspensa.") from exc
-        except OSError as exc:
-            raise OSError("Armazenamento de chamadas indisponivel; limpeza suspensa.") from exc
-    # The general repository falls back on read errors. Destructive retention
-    # must distinguish a missing new store from an unreadable existing store.
+    # The repository selects PostgreSQL or files and raises PersistenceError on
+    # unreadable data. A local stat must never bypass the authoritative store.
     payload = read_json_file(path, None)
     if payload is None:
         return empty_store()

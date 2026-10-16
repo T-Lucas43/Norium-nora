@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.requests import ClientDisconnect
 
 from app.core.request_context import reset_request_context, set_request_context
 from app.core.rate_limit import SlidingWindowRateLimiter
@@ -358,7 +359,11 @@ def create_app() -> FastAPI:
             if response is None and mutation and idempotency_key and raw_token and not request.url.path.startswith("/api/auth/"):
                 idempotency_user_id = await idempotency_identity(request, raw_token)
             if response is None and mutation and idempotency_key and idempotency_user_id:
-                body = await request.body()
+                try:
+                    body = await request.body()
+                except ClientDisconnect:
+                    # No lease or handler exists yet; the outer finally still resets context.
+                    return Response(status_code=499)
                 state = await begin_request(
                     idempotency_user_id,
                     idempotency_key,

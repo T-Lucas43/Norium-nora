@@ -72,6 +72,7 @@ from app.modules.nora.operational_readiness import router as nora_operations_rou
 from app.modules.business.router import router as business_router
 from app.modules.business.imports import router as business_import_router
 from app.modules.business.public_links import router as business_public_router
+from app.modules.business.client_assignment import router as business_assignment_router
 from app.modules.operations.router import router as operations_router
 from app.modules.operations.exact import router as exact_operations_router
 from app.modules.platform.router import router as platform_router
@@ -522,6 +523,7 @@ def create_app() -> FastAPI:
     app.include_router(business_router)
     app.include_router(business_import_router)
     app.include_router(business_public_router)
+    app.include_router(business_assignment_router)
     app.include_router(public_site_router)
     app.include_router(auth_router)
     app.include_router(privacy_router)

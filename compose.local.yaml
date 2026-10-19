@@ -1,0 +1,69 @@
+name: norium-expansao-local
+services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: norium_local
+      POSTGRES_USER: norium_local
+      POSTGRES_PASSWORD: ${LOCAL_DATABASE_PASSWORD:?Run prepare-local.ps1 first}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U norium_local -d norium_local']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  app:
+    image: norium-expansao:local
+    build:
+      context: .
+      dockerfile: Dockerfile.shard
+      args:
+        NORIUM_RELEASE_SHA: ${LOCAL_RELEASE_SHA:?Missing revision}
+        NORIUM_RELEASE_VERSION: '2026.10.19'
+        NORIUM_DEPLOYMENT_STAGE: local
+    init: true
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8765:8000'
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: development
+      APP_ENV: development
+      PORT: '8000'
+      FRONTEND_URL: http://localhost:8765
+      BACKEND_PUBLIC_URL: http://localhost:8765
+      NORIUM_DATA_DIR: /app/data
+      NORIUM_DATABASE_URL: postgresql://norium_local:${LOCAL_DATABASE_PASSWORD}@database:5432/norium_local
+      NORIUM_DATABASE_SSLMODE: disable
+      NORIUM_POSTGRES_REQUIRED: '0'
+      NORIUM_AUTH_SECRET: ${LOCAL_AUTH_SECRET:?Missing local secret}
+      NORIUM_OAUTH_CREDENTIAL_ENCRYPTION_KEY: ${LOCAL_OAUTH_KEY:?Missing local encryption key}
+      WAPI_CREDENTIAL_ENCRYPTION_KEY: ${LOCAL_WAPI_KEY:?Missing local W-API encryption key}
+      NORIUM_PERSISTENT_SESSIONS_ENABLED: 'true'
+      NORIUM_BOOTSTRAP_ADMIN_EMAIL: ${LOCAL_ADMIN_EMAIL:-admin@norium.local}
+      NORIUM_BOOTSTRAP_ADMIN_USER_ID: local-admin-expansao
+      NORIUM_BOOTSTRAP_ADMIN_NAME: Tarcisio - Local
+      NORIUM_BOOTSTRAP_ADMIN_PASSWORD: ${LOCAL_ADMIN_PASSWORD:-}
+      NORA_LEGACY_WRITER_SINGLETON: '1'
+      NORA_BRAIN_ENABLED: '0'
+      NORA_BRAIN_ALLOW_MODEL_CALLS: '0'
+      NORA_BRAIN_EXECUTOR_ENABLED: '0'
+      NORA_KNOWLEDGE_EMBEDDINGS_ENABLED: '0'
+      NORA_INTENT_LLM: '0'
+      NORIUM_BRAVE_ENABLED: '0'
+      NORIUM_GMAIL_INCREMENTAL_ENABLED: '0'
+      NORIUM_TEAM_CHAT_QUEUE_ENABLED: '0'
+      NORIUM_BUSINESS_WORKER_ENABLED: '1'
+      TEAM_CALL_ENABLED: 'false'
+      TEAM_CALL_RECORDING_ENABLED: 'false'
+      NORA_MEETING_ENABLED: '0'
+    volumes:
+      - app-data:/app/data
+volumes:
+  database:
+  app-data:
+

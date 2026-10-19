@@ -121,7 +121,7 @@ em 375 px. Não promover este estado como onda concluída.
    acessos; vínculos com financeiro/e-mail/WhatsApp/agendamentos;
    notificador com preferências/descadastro e base PDF aplicada a cada entrega.
    Presença já existe no Chat, mas requer conferência das integrações de tela.
-3. **Onda 1:** lote com mudança de responsável, arquivamento e preparação de
+3. **Onda 1:** aceite funcional da mudança de responsável em lote; arquivamento e preparação de
    envios com manifesto/aprovação e opt-out; seleção equivalente na agenda de
    contatos, além da lista de conversas; comprovar importação/retomada, ACL,
    privacidade, navegação por teclado e layout nos dois temas. Os filtros de
@@ -148,3 +148,32 @@ Commits locais de implementação:
 
 São checkpoints de implementação parcial. Não representam aceite funcional,
 conclusão das ondas ou autorização de promoção.
+
+## Execução local com Docker e continuação da Onda 1
+
+- `compose.local.yaml` reutiliza `Dockerfile.shard`, com estágio `local`, porta
+  `127.0.0.1:8765`, PostgreSQL 17 e volumes exclusivos `norium-expansao-local`.
+- `scripts/start_local_docker.ps1` cria segredos locais em pasta ignorada,
+  preserva-os nos próximos usos, aguarda readiness e confirma o primeiro login
+  antes de remover a senha de bootstrap do ambiente do container.
+- Conta de desenvolvimento e instruções em `docs/operations/local-docker.md`.
+  Dados/chaves de homologação não foram copiados. Os provedores e workers
+  externos continuam desativados; a fila de importação interna está disponível.
+- O primeiro build Docker terminou e o serviço ficou pronto com PostgreSQL;
+  primeiro login administrativo local confirmado pelo script. Uma configuração
+  obrigatória W-API foi suprida com chave de criptografia nova e exclusiva desta
+  base vazia; isso não configura uma instância/provedor externo.
+- `business/client_assignment.py`: responsáveis elegíveis são membros ativos da
+  equipe com permissão de Clientes. Cada ficha exige edição do solicitante e
+  leitura do novo responsável. A operação mantém `createdBy` e `access`.
+- Até 100 IDs distintos, com `expectedUpdatedAt` por ficha; usa o mesmo lock
+  de escrita de Clientes/importação. Grava uma vez por proprietário e retorna
+  resultados individuais, inclusive conflito, falta de acesso e necessidade
+  de recarregar após falha incerta. Não promete transação entre proprietários.
+- `ClientAssignDialog.tsx` mostra a seleção antes da confirmação, permite
+  atribuir/remover responsável e exibe resultados por cadastro; descarte de
+  resultados na troca de sessão/workspace. A barra de lote existente abre a tela.
+- AST Python, TypeScript forçado, sintaxe PowerShell e lint dos componentes
+  alterados passaram. Nenhum teste de suíte foi executado nesta continuação;
+  aceite funcional do lote, conflitos e concorrência ainda pendente.
+- Sem push, novo CI ou deploy remoto. A execução Docker é desenvolvimento local.

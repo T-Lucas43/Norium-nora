@@ -17,6 +17,8 @@
 - feat(clientes): vínculos de propostas/contratos na ficha e retorno à ficha pelo documento, preservando ACL e o fluxo anterior de contratos.
 - feat(catalogo): histórico de preços paginado na edição do item; visões salvas permitem editar nome e filtros com controle de versão.
 - fix(modelos): seleção por teclado inclui comandos da Nora; alterações invalidam os atalhos sem polling, com contexto de sessão/workspace e preenchimento dos nomes conhecidos no Gmail.
+- feat(clientes): seleção de responsável em até 100 cadastros, com confirmação, conferência de acesso, conflito por atualização e resultado individual; propriedade e compartilhamento são preservados.
+- chore(local): Docker Compose com PostgreSQL e frontend/API na mesma origem, conta local aleatória e remoção do bootstrap após o primeiro acesso confirmado.
 - Estado: compilação e análise estática conferidas; funcionalidades ainda sem aceite funcional, sem push e sem deploy.
 
 ## Candidato de homologação — 14/10/2026

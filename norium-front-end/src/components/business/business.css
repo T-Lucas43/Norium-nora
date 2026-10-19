@@ -49,3 +49,5 @@
 .business-relation-choice small { display:block; color:var(--nx-text-3); margin-top:4px; }
 .business-bulk-bar { position:sticky; bottom:8px; z-index:5; display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px; margin:12px 0; border:1px solid var(--nx-border); border-radius:10px; background:var(--nx-surface); box-shadow:0 4px 20px rgb(0 0 0 / .12); }
 @media(max-width:600px) { .business-panel { padding:14px; } .business-form-grid { grid-template-columns:1fr; } .business-table th,.business-table td { padding:10px; } .business-filters > * { max-width:100%; } }
+.business-selection-list { max-height: 280px; overflow: auto; padding: 0; margin: 0; list-style: none; display: grid; gap: 8px; }
+.business-selection-list li { display: grid; gap: 3px; padding: 8px; border-bottom: 1px solid var(--nx-border); overflow-wrap: anywhere; }

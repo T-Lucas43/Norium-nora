@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Bookmark, Pencil, Plus, Tag, X } from "lucide-react";
+import { Bookmark, Pencil, Plus, Tag, UserRoundCheck, X } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
 import { requestScope } from "../../core/api/sessionScope";
 import type { Client } from "../clients/clientModel";
 import Button from "../shared/Button";
 import BusinessDialog from "./BusinessDialog";
 import SelectionTagDialog from "./SelectionTagDialog";
+import ClientAssignDialog from "./ClientAssignDialog";
 
 export type ClientFilters = { query: string; status: "all" | "lead" | "active" | "inactive";
   stage: "all" | "new" | "contacted" | "proposal" | "won" | "lost"; ownerId: string; tagIds: string[] };
@@ -65,9 +66,11 @@ export default function ClientViewsPanel({ value, onChange, clients }: { value: 
   </section>;
 }
 
-export function ClientBulkTags({ ids, onExport, onClear, canEdit }: { ids: string[]; onExport: () => void; onClear: () => void; canEdit: boolean }) {
+export function ClientBulkTags({ ids, clients, onExport, onClear, onUpdated, canEdit }: { ids: string[]; clients: Client[]; onExport: () => void; onClear: () => void; onUpdated: () => void; canEdit: boolean }) {
   const scope = requestScope(); const [open, setOpen] = useState(false);
-  useEffect(() => setOpen(false), [scope]);
-  return <><div className="business-bulk-bar" role="region" aria-label="Ações para clientes selecionados"><strong>{ids.length} selecionados</strong><Button size="sm" disabled={!canEdit} onClick={() => setOpen(true)} icon={<Tag size={14} />}>Etiqueta</Button><Button size="sm" onClick={onExport}>Exportar selecionados</Button><Button size="sm" onClick={onClear}>Limpar seleção</Button>{!canEdit && <span className="business-note">Há clientes com acesso somente de leitura.</span>}</div>
-    {open && canEdit && ids.length > 0 && <SelectionTagDialog ids={ids} target="clients" onClose={() => setOpen(false)} />}</>;
+  const [assignOpen, setAssignOpen] = useState(false);
+  useEffect(() => { setOpen(false); setAssignOpen(false); }, [scope]);
+  return <><div className="business-bulk-bar" role="region" aria-label="Ações para clientes selecionados"><strong>{ids.length} selecionados</strong><Button size="sm" disabled={!canEdit} onClick={() => setOpen(true)} icon={<Tag size={14} />}>Etiqueta</Button><Button size="sm" disabled={!canEdit} onClick={() => setAssignOpen(true)} icon={<UserRoundCheck size={14} />}>Responsável</Button><Button size="sm" onClick={onExport}>Exportar selecionados</Button><Button size="sm" onClick={onClear}>Limpar seleção</Button>{!canEdit && <span className="business-note">Há clientes com acesso somente de leitura.</span>}</div>
+    {open && canEdit && ids.length > 0 && <SelectionTagDialog ids={ids} target="clients" onClose={() => setOpen(false)} />}
+    {assignOpen && canEdit && ids.length > 0 && <ClientAssignDialog clients={clients.filter(client => ids.includes(client.id))} onComplete={onUpdated} onClose={() => setAssignOpen(false)} />}</>;
 }

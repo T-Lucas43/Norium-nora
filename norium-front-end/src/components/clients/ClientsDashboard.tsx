@@ -550,7 +550,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
               )}
             </div>
           )}
-          {checkedIds.some(id => clients.some(client => client.id === id)) && <ClientBulkTags ids={checkedIds.filter(id => clients.some(client => client.id === id))} onExport={() => exportClients(clients.filter(client => checkedIds.includes(client.id)))} onClear={() => setCheckedIds([])} canEdit={clients.filter(client => checkedIds.includes(client.id)).every(client => client.accessRole !== "view")} />}
+          {checkedIds.some(id => clients.some(client => client.id === id)) && <ClientBulkTags ids={checkedIds.filter(id => clients.some(client => client.id === id))} clients={clients} onUpdated={() => void load()} onExport={() => exportClients(clients.filter(client => checkedIds.includes(client.id)))} onClear={() => setCheckedIds([])} canEdit={clients.filter(client => checkedIds.includes(client.id)).every(client => client.accessRole !== "view")} />}
         </section>
       ) : (
         <section className="client-detail" aria-label="Ficha do cliente">

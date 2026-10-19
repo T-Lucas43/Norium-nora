@@ -7,7 +7,7 @@
 | Catálogo | Produtos/serviços em Documentos, preço em centavos, SKU, duração, desconto permitido, histórico de preço, versão e consulta autorizada da Nora |
 | Clientes | Etiquetas, filtros, visões pessoais/de equipe, exportação da seleção, responsável em lote, arquivamento/restauração individual e em até 100 selecionados |
 | WhatsApp | Etiquetas na conversa e na agenda, seleção de até 100 contatos/conversas, filtro por etiquetas, exportação da seleção e correspondência por IDs locais explícitos |
-| Provedor WhatsApp | Adaptador Evolution API com vínculos/histórico separados, identificação na interface e Docker privado. Pareamento bloqueado: a imagem oficial falhou na auditoria de vulnerabilidades; detalhes em `evolution-api.md` |
+| Provedor WhatsApp | Adaptador Evolution API com vínculos/histórico separados, identificação na interface e Docker privado. Runtime corrigido e auditado sem HIGH/CRITICAL; conexão local habilitada, pareamento pelo titular e promoção remota pendentes. Detalhes em `evolution-api.md` |
 | Respostas rápidas | Modelos por canal, atalhos e teclado em Gmail/WhatsApp/Chat, variáveis conhecidas preenchidas e bloqueio de variáveis ainda vazias |
 | Importação | CSV/XLSX/vCard, prévia e mapeamento, validação, fila, progresso, duplicados, conflitos, retomada e expiração dos arquivos temporários |
 | Vínculos | Propostas e contratos ligados explicitamente à ficha do cliente, abertura da ficha pelo documento, ACL dos dois lados |
@@ -42,5 +42,5 @@ descritas no handoff. Nenhuma onda está declarada concluída.
 URL local: `http://localhost:8765`. Instruções em `local-docker.md`.
 As integrações externas exigem configuração própria neste ambiente. A base local
 foi criada separada de homologação; o script preserva os volumes nos próximos usos.
-Esta sequência ainda não foi publicada no GitHub nem promovida ao ShardCloud.
+Código publicado no PR #68 (GitHub); CI e revisão técnica em andamento. Ainda não promovido ao ShardCloud.
 O estado detalhado está em `docs/handoffs/2026-10-19-codex-expansao-norium.md`.

@@ -62,6 +62,17 @@ jobs:
           python ../scripts/run_backend_audit_tests.py --label ci-backend
           python -m pip check
 
+      - name: Preserve isolated backend validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backend-validation-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            output/pos-correcao/ci-backend.log
+            output/pos-correcao/ci-backend.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Validate release workflow and deterministic Shard packaging
         run: python -m unittest scripts.test_release_workflow scripts.test_shard_release_package scripts.test_deploy_shard_vps scripts.test_split_shard_image_artifact scripts.test_verify_ubuntu_curl_fix -v
 

@@ -7,6 +7,7 @@
 | Catálogo | Produtos/serviços em Documentos, preço em centavos, SKU, duração, desconto permitido, histórico de preço, versão e consulta autorizada da Nora |
 | Clientes | Etiquetas, filtros, visões pessoais/de equipe, exportação da seleção, responsável em lote, arquivamento/restauração individual e em até 100 selecionados |
 | WhatsApp | Etiquetas na conversa e na agenda, seleção de até 100 contatos/conversas, filtro por etiquetas, exportação da seleção e correspondência por IDs locais explícitos |
+| Provedor WhatsApp | Adaptador Evolution API com vínculos/histórico separados, identificação na interface e Docker privado. Pareamento bloqueado: a imagem oficial falhou na auditoria de vulnerabilidades; detalhes em `evolution-api.md` |
 | Respostas rápidas | Modelos por canal, atalhos e teclado em Gmail/WhatsApp/Chat, variáveis conhecidas preenchidas e bloqueio de variáveis ainda vazias |
 | Importação | CSV/XLSX/vCard, prévia e mapeamento, validação, fila, progresso, duplicados, conflitos, retomada e expiração dos arquivos temporários |
 | Vínculos | Propostas e contratos ligados explicitamente à ficha do cliente, abertura da ficha pelo documento, ACL dos dois lados |

@@ -162,6 +162,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
   const [erroLogin, setErroLogin] = useState<string | null>(null);
   const [mensagemLogin, setMensagemLogin] = useState<string | null>(null);
   const [consentInfo, setConsentInfo] = useState<ConsentInfo | null>(null);
+  const evolutionProvider = canaisStatus.whatsapp?.provider === "evolution" || consentInfo?.provider === "evolution";
   const [consentChecked, setConsentChecked] = useState<boolean>(false);
   const [aceitandoConsent, setAceitandoConsent] = useState<boolean>(false);
   const [selectedPlan, setSelectedPlan] = useState<"lite" | "pro">("pro");
@@ -1410,6 +1411,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     setRequestedPlan(plan ?? null);
     try {
       const data = await whatsappApi.start(undefined, plan ?? undefined);
+      setCanaisStatus((current) => ({ ...current, whatsapp: { ...current.whatsapp, ...data, conectado: data.status === "conectado" } }));
       if (data.plano === "lite" || data.plano === "pro") setInstancePlan(data.plano);
       if (data.qrcode) setQrCodeString(data.qrcode);
       if (canal === "whatsapp") {
@@ -1444,6 +1446,11 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       setConsentInfo(info);
       // Sem aceite válido, o QR não é solicitado: exibe primeiro a etapa obrigatória.
       if (!info.accepted) return;
+      if (info.provider === "evolution") {
+        setInstancePlan(null);
+        await iniciarQrCode(canal);
+        return;
+      }
     } catch {
       setConsentInfo({ termVersion: "", accepted: false });
       return;
@@ -1467,7 +1474,11 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       const info = await whatsappApi.acceptConsent(consentInfo?.termVersion || undefined);
       setConsentInfo(info);
       const bound = canaisStatus.whatsapp?.plano;
-      if (bound === "lite" || bound === "pro") {
+      if (info.provider === "evolution") {
+        setInstancePlan(null);
+        setPlanStep(false);
+        await iniciarQrCode("whatsapp");
+      } else if (bound === "lite" || bound === "pro") {
         setInstancePlan(bound);
         await iniciarQrCode("whatsapp");
       } else {
@@ -1601,7 +1612,8 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
               {canaisStatus.whatsapp.detail}
             </p>
           )}
-          <button type="button" onClick={() => handleIniciarLogin("whatsapp")} className="nx-btn is-primary mt-6 w-full">Conectar WhatsApp</button>
+          {evolutionProvider && <p className="mt-3 text-xs text-[var(--nx-text-3)]">Integração por <a href="https://docs.evolutionfoundation.com.br/evolution-api" target="_blank" rel="noreferrer" className="underline">Evolution API</a></p>}
+          <button type="button" disabled={canaisStatus.whatsapp?.status === "indisponivel"} onClick={() => handleIniciarLogin("whatsapp")} className="nx-btn is-primary mt-6 w-full">Conectar WhatsApp</button>
         </div>
       </div>
     );
@@ -1612,7 +1624,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       <div className={connectScreenClass}>
         <div className="nx-card w-full max-w-[640px] space-y-4 p-6 text-sm sm:p-8">
           <div>
-            <div className="text-[12.5px] text-[var(--nx-text-3)]">Passo 1 de 3</div>
+            <div className="text-[12.5px] text-[var(--nx-text-3)]">{evolutionProvider ? "Passo 1 de 2 · Evolution API" : "Passo 1 de 3"}</div>
             <h2 className="mt-1.5 text-[22px] font-semibold">Uso responsável e risco de banimento</h2>
             <p className="mt-2 leading-6 text-[var(--nx-text-2)]">
               Antes de conectar, leia e confirme as orientações de uso responsável. Nenhuma integração consegue garantir ausência de bloqueio ou banimento da conta.
@@ -1629,8 +1641,8 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
           </ul>
           <p className="leading-6 text-[var(--nx-text-2)]">
             Saiba mais:{" "}
-            <a href="https://docs.w-api.app/banimentos/intro" target="_blank" rel="noreferrer" className="font-medium text-[var(--nx-primary-text)] underline">
-              orientações da W-API
+            <a href={evolutionProvider ? "https://docs.evolutionfoundation.com.br/evolution-api" : "https://docs.w-api.app/banimentos/intro"} target="_blank" rel="noreferrer" className="font-medium text-[var(--nx-primary-text)] underline">
+              orientações de conexão
             </a>{" "}
             e{" "}
             <a href="https://www.whatsapp.com/legal" target="_blank" rel="noreferrer" className="font-medium text-[var(--nx-primary-text)] underline">
@@ -1664,7 +1676,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     );
   }
 
-  if (canalSelecionadoLogin === "whatsapp" && planStep && !instancePlan) {
+  if (canalSelecionadoLogin === "whatsapp" && planStep && !instancePlan && !evolutionProvider) {
     return (
       <div className={connectScreenClass}>
         <div className="nx-card w-full max-w-[640px] space-y-4 p-6 text-sm sm:p-8">
@@ -1712,7 +1724,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         <div className="nx-card nx-conv-connect">
           <div className="space-y-5 p-6 text-sm sm:p-8">
             <div>
-              <div className="text-[12.5px] text-[var(--nx-text-3)]">Passo 3 de 3</div>
+              <div className="text-[12.5px] text-[var(--nx-text-3)]">{evolutionProvider ? "Passo 2 de 2" : "Passo 3 de 3"}</div>
               <h2 className="mt-1.5 text-[22px] font-semibold">Conectar o WhatsApp da empresa</h2>
               <p className="mt-2 leading-6 text-[var(--nx-text-2)]">O QR Code é gerado com segurança e atualizado automaticamente nesta tela.</p>
             </div>
@@ -1721,7 +1733,12 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
               <li>Toque em <b className="font-semibold text-[var(--nx-text)]">Mais opções → Aparelhos conectados</b></li>
               <li>Toque em <b className="font-semibold text-[var(--nx-text)]">Conectar um aparelho</b> e aponte para o código</li>
             </ol>
-            {instancePlan && (
+            {evolutionProvider && (
+              <p className="rounded-lg bg-[var(--nx-surface-2)] px-3 py-2 text-[12.5px] leading-5 text-[var(--nx-text-2)]">
+                Conexão por <a href="https://docs.evolutionfoundation.com.br/evolution-api" target="_blank" rel="noreferrer" className="underline">Evolution API</a>, hospedada pelo administrador do Norium. Escaneie o código somente para conectar sua própria conta.
+              </p>
+            )}
+            {instancePlan && !evolutionProvider && (
               <p className="rounded-lg bg-[var(--nx-surface-2)] px-3 py-2 text-[12.5px] leading-5 text-[var(--nx-text-2)]">
                 Instância atual: {instancePlan === "pro" ? "PRO" : "LITE"}. A troca de plano exige desconectar e conectar novamente.
                 {requestedPlan && requestedPlan !== instancePlan && (
@@ -1735,7 +1752,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
             </div>
             {(instancePlan || consentInfo?.accepted) && (
               <div className="flex flex-wrap gap-2">
-                {instancePlan && <span className="nx-badge">Plano {instancePlan === "pro" ? "PRO" : "LITE"} · W-API</span>}
+                {instancePlan && !evolutionProvider && <span className="nx-badge">Plano {instancePlan === "pro" ? "PRO" : "LITE"} · W-API</span>}
                 {consentInfo?.accepted && <span className="nx-badge is-green">Termo aceito</span>}
               </div>
             )}
@@ -1887,7 +1904,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
           sync={progressoSincronizacao}
           onSelect={(item) => void selecionarStatusWhatsApp(item)}
           onRefresh={() => void carregarStatusDoBackend()}
-          onCreateUnavailable={() => mostrarAviso("info", "A W-API ainda nao oferece publicacao de Status. Publique no celular; o feed recebido aparece aqui automaticamente.")}
+          onCreateUnavailable={() => mostrarAviso("info", "A publicação de Status ainda não está disponível nesta integração. Publique no celular.")}
           onReplyText={responderStatusTexto}
           onReplyAudio={responderStatusAudio}
         />
@@ -1909,7 +1926,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
           onDisconnect={() => setConfirmarDesconexaoAberta(true)}
           onUnavailableSetting={(label) => {
             if (label === "Conta") setModalConfigAberto(true);
-            else mostrarAviso("info", `${label}: altere esta configuracao no WhatsApp do celular; o Norium sincroniza os dados permitidos pela W-API.`);
+            else mostrarAviso("info", `${label}: altere esta configuração no WhatsApp do celular; o Norium sincroniza os dados permitidos pelo provedor.`);
           }}
         />
       )}
@@ -2119,6 +2136,9 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
 
               <div className="bg-[var(--background)] border border-[var(--border)] p-3 rounded-xl space-y-1.5">
                 <p className="text-xs font-bold uppercase tracking-wide text-[var(--primary)]">Status do Gateway</p>
+                <p className="text-xs text-[var(--text)]">
+                  Provedor: {evolutionProvider ? <a className="underline" href="https://docs.evolutionfoundation.com.br/evolution-api" target="_blank" rel="noreferrer">Evolution API</a> : "W-API"}
+                </p>
                 <div className="flex justify-between font-medium text-xs opacity-80">
                   <span>WhatsApp:</span>
                   <span className="font-bold text-[var(--primary)]">

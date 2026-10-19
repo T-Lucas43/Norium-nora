@@ -130,10 +130,11 @@ def binding_plan(binding: InstanceBinding) -> str | None:
 
 class WapiConnectService:
     def __init__(self, client: WapiClient | None = None) -> None:
-        self._client = client or WapiClient()
+        from app.services.whatsapp_provider import create_whatsapp_client, is_evolution
+        self._client = client or create_whatsapp_client()
         # Valida e congela a configuração: nenhum tenant pode ativá-la
         # tardiamente por uma alteração de ambiente durante o processo.
-        self._homologation = _load_homologation_config()
+        self._homologation = None if is_evolution() else _load_homologation_config()
         # instance_id -> (qrcode, fetched_at). Estabiliza o QR entre polls para
         # não regenerar a sessão de pareamento a cada consulta de status.
         self._qr_cache: dict[str, tuple[str, float]] = {}
@@ -146,9 +147,11 @@ class WapiConnectService:
     # ---- aceite ----------------------------------------------------------
 
     def consent_terms(self, user_id: str) -> dict[str, Any]:
+        from app.services.whatsapp_provider import PROVIDER
         binding = wb.get_binding(user_id)
         record = binding.consent_record()
         return {
+            "provider": PROVIDER,
             "termVersion": CONSENT_TERM_VERSION,
             "accepted": binding.has_valid_consent(),
             "acceptedVersion": record.term_version if record else None,
@@ -167,6 +170,10 @@ class WapiConnectService:
     # ---- instância -------------------------------------------------------
 
     def _webhook_urls(self) -> dict[str, str]:
+        from app.services.whatsapp_provider import is_evolution
+        if is_evolution():
+            from app.services.evolution_client import webhook_url
+            return {"received": webhook_url()}
         url = public_api_url(_WEBHOOK_PATH)
         # A W-API precisa alcançar o callback pela Internet. Nunca registra o
         # fallback local de desenvolvimento como se fosse uma URL pública.
@@ -208,6 +215,10 @@ class WapiConnectService:
         """
         urls = self._webhook_urls()
         if not binding.exists or not urls:
+            return
+        from app.services.whatsapp_provider import is_evolution
+        if is_evolution():
+            await self._client.set_webhook(binding.instance_id, binding.token, "received", urls["received"])
             return
         async def _set_one(event: str, url: str) -> None:
             endpoint_event = _WEBHOOK_UPDATE_EVENTS[event]
@@ -650,7 +661,12 @@ class WapiConnectService:
         O plano só vale para a criação; um vínculo existente nunca é
         substituído silenciosamente por causa do plano solicitado.
         """
-        requested_plan = _normalize_instance_plan(plan)
+        from app.services.whatsapp_provider import is_evolution
+        # "pro" é apenas o perfil legado interno de catálogo. Nunca é exibido
+        # como plano comercial Evolution nem troca um vínculo W-API existente.
+        requested_plan = "pro" if is_evolution() else _normalize_instance_plan(plan)
+        if is_evolution() and not self.configured:
+            raise WapiError(getattr(self._client, "availability_detail", "Evolution indisponível."), code="not_configured")
         binding = self._get_owned_binding(user_id)
         homologation = self._homologation
         if (
@@ -721,6 +737,8 @@ class WapiConnectService:
 
         # Produção: o claim SQLite é o ponto de serialização entre processos.
         legacy_instance_name = f"norium-{user_id}"[:60]
+        if is_evolution():
+            legacy_instance_name = "norium-evo-" + hashlib.sha256(str(user_id).encode("utf-8")).hexdigest()[:24]
         if requested_plan is None:
             requested_plan = "lite" if os.getenv("WAPI_INSTANCE_LITE", "false").strip().lower() in {"1", "true", "yes"} else "pro"
         lite = requested_plan == "lite"
@@ -728,7 +746,7 @@ class WapiConnectService:
         # volte a capturar uma instância LITE antiga com o nome legado.
         instance_name = (
             legacy_instance_name
-            if lite
+            if lite or is_evolution()
             else f"norium-{user_id}-pro"[:60]
         )
         lease_seconds = self._duration_from_env(
@@ -844,7 +862,7 @@ class WapiConnectService:
 
     async def status(self, user_id: str) -> dict[str, Any]:
         if not self.configured:
-            return {"status": "indisponivel", "qrcode": None, "detail": "W-API não configurada."}
+            return {"status": "indisponivel", "qrcode": None, "detail": getattr(self._client, "availability_detail", "W-API não configurada.")}
         binding = self._get_owned_binding(user_id)
         if not binding.exists:
             accepted = binding.has_valid_consent()
@@ -971,7 +989,7 @@ class WapiConnectService:
     def cached_status(self, user_id: str) -> dict[str, Any]:
         """Retorna o estado persistido sem fazer requisicoes para a W-API."""
         if not self.configured:
-            return {"status": "indisponivel", "qrcode": None, "state": "unavailable", "detail": "W-API não configurada."}
+            return {"status": "indisponivel", "qrcode": None, "state": "unavailable", "detail": getattr(self._client, "availability_detail", "W-API não configurada.")}
         binding = self._get_owned_binding(user_id)
         if not binding.exists:
             accepted = binding.has_valid_consent()
@@ -1004,6 +1022,8 @@ class WapiConnectService:
 
     async def start(self, user_id: str, plan: str | None = None) -> dict[str, Any]:
         """Inicia a conexão. Exige aceite; retorna o estado já com QR quando houver."""
+        if not self.configured:
+            raise WapiError(getattr(self._client, "availability_detail", "Provedor WhatsApp não configurado."), code="not_configured")
         self._require_consent(user_id)
         await self.ensure_instance(user_id, plan=plan)
         return await self.qr(user_id)

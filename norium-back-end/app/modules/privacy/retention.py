@@ -76,7 +76,7 @@ def maintain_retention(now: datetime | None = None) -> dict[str, int]:
                 counts["retainedConversationsRemoved"] += 1
             if removed:
                 write_json_file(path, payload)
-        elif path.name == "conversas_db.json" and wa_cutoff:
+        elif path.name in {"conversas_db.json", "evolution_conversas_db.json"} and wa_cutoff:
             payload = read_json_file(path, {})
             changed = False
             if not isinstance(payload, dict):

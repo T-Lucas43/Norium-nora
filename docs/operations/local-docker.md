@@ -33,3 +33,12 @@ docker compose --env-file output/docker-local/.env -f compose.local.yaml stop
 
 Não use `down -v` para uma parada normal: ele remove os dados locais.
 Alterações críticas continuam sujeitas à revisão antes de publicação remota.
+
+## Preparação do WhatsApp Evolution
+
+Use `-WithEvolution` para preparar e iniciar os serviços privados Evolution,
+PostgreSQL e Redis. As chaves são próprias e não substituem as da W-API. Esse
+perfil é preservado nas próximas execuções. A API não publica porta no Windows.
+O pareamento permanece desligado porque a imagem oficial auditada tem achados
+críticos/altos. Veja `evolution-api.md` antes de tentar ativar ou instalar no Shard.
+`-PrepareOnly` prepara o ambiente sem recriar serviços. Não apagar `.env`/volumes.

@@ -2,6 +2,9 @@ import { apiRequest } from "../../core/api/client";
 import type { ChatConversa, MsgConteudo } from "./types";
 
 export type WhatsAppConnection = {
+  provider?: "wapi" | "evolution";
+  providerLabel?: string;
+  requiresPlanSelection?: boolean;
   conectado: boolean;
   qrcode?: string | null;
   status?: "conectado" | "desconectado" | "iniciando" | "aguardando_qrcode" | "erro" | "indisponivel";
@@ -199,6 +202,7 @@ export type HistoryPage = {
 };
 
 export type ConsentInfo = {
+  provider?: "wapi" | "evolution";
   termVersion: string;
   accepted: boolean;
   acceptedVersion?: string | null;
@@ -413,7 +417,7 @@ export const whatsappApi = {
   },
 
   async start(signal?: AbortSignal, plan?: "lite" | "pro" | null) {
-    return apiRequest<{ status: string; qrcode?: string | null; plano?: "lite" | "pro" | null }>("/api/chat/inicializar-login", {
+    return apiRequest<Pick<WhatsAppConnection, "status" | "qrcode" | "plano" | "provider" | "providerLabel" | "requiresPlanSelection">>("/api/chat/inicializar-login", {
       method: "POST",
       body: JSON.stringify({ canal: "whatsapp", plano: plan ?? null }),
       timeoutMs: 20_000,

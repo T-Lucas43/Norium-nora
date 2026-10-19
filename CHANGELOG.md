@@ -23,6 +23,7 @@
 - feat(whatsapp): seleção de até 100 contatos na agenda, etiquetas em lote sem criar conversas, filtro por etiquetas e exportação dos contatos selecionados.
 - fix(etiquetas): correspondência por identificadores locais explícitos entre contato/conversa, com escopo de usuário, workspace e instância; criação de etiquetas no gerenciador existente.
 - chore(local): Docker Compose com PostgreSQL e frontend/API na mesma origem, conta local aleatória e remoção do bootstrap após o primeiro acesso confirmado.
+- feat(whatsapp): adaptador Evolution API, dados e chave por provedor, identificação na interface, eventos e Docker privado; pareamento bloqueado após a auditoria encontrar vulnerabilidades na imagem oficial. Preparação do Shard documentada, sem instalação remota.
 - Estado: compilação e análise estática conferidas; funcionalidades ainda sem aceite funcional, sem push e sem deploy.
 
 ## Candidato de homologação — 14/10/2026

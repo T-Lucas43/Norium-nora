@@ -104,16 +104,16 @@ from app.services.wapi_messaging import (
 from app.services.wapi_client import WapiError, WapiClient
 from app.services import wapi_binding as wb
 from app.services import wapi_webhook
+from app.services.whatsapp_provider import PROVIDER, create_whatsapp_client, is_evolution, store_name
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 webhook_debug_logger = logging.getLogger(f"{__name__}.wapi_webhook_debug")
 
-# Backend de WhatsApp totalmente via W-API (conexão, mensagens, webhooks,
-# conversas/contatos/grupos). O serviço legado foi removido.
+# Provedor escolhido somente no backend; nomes legados preservam a interface.
 wapi_connect = WapiConnectService()
 wapi_messaging = WapiMessagingService()
-wapi_client = WapiClient()
+wapi_client = create_whatsapp_client()
 
 
 def _messaging_http_error(exc: Exception, default_detail: str) -> HTTPException:
@@ -493,12 +493,12 @@ def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
 
 
 async def load_whatsapp_catalog_cache(user_id: str) -> Dict[str, Any]:
-    payload = await asyncio.to_thread(read_user_db, user_id, "whatsapp_catalog_cache", {})
+    payload = await asyncio.to_thread(read_user_db, user_id, store_name("whatsapp_catalog_cache"), {})
     return payload if isinstance(payload, dict) else {}
 
 
 async def save_whatsapp_catalog_cache(user_id: str, payload: Dict[str, Any]) -> None:
-    await asyncio.to_thread(write_user_db, user_id, "whatsapp_catalog_cache", payload)
+    await asyncio.to_thread(write_user_db, user_id, store_name("whatsapp_catalog_cache"), payload)
 
 
 async def mark_whatsapp_conversation_updated(user_id: str, conversation_id: str) -> int:
@@ -515,12 +515,12 @@ async def mark_whatsapp_conversation_updated(user_id: str, conversation_id: str)
 
 
 async def load_whatsapp_status_feed(user_id: str) -> Dict[str, Any]:
-    payload = await asyncio.to_thread(read_user_db, user_id, "whatsapp_status_feed", {"items": []})
+    payload = await asyncio.to_thread(read_user_db, user_id, store_name("whatsapp_status_feed"), {"items": []})
     return payload if isinstance(payload, dict) else {"items": []}
 
 
 async def save_whatsapp_status_feed(user_id: str, payload: Dict[str, Any]) -> None:
-    await asyncio.to_thread(write_user_db, user_id, "whatsapp_status_feed", payload)
+    await asyncio.to_thread(write_user_db, user_id, store_name("whatsapp_status_feed"), payload)
 
 
 def contact_sync_state(user_id: str) -> Dict[str, Any]:
@@ -1872,7 +1872,10 @@ def _whatsapp_connection_shape(
         "numero": result.get("numero"),
         "conectadoEm": result.get("conectadoEm"),
         "consentRequired": bool(result.get("consentRequired")),
-        "plano": plan if plan in {"lite", "pro"} else None,
+        "plano": plan if not is_evolution() and plan in {"lite", "pro"} else None,
+        "provider": PROVIDER,
+        "providerLabel": "Evolution API" if is_evolution() else "W-API",
+        "requiresPlanSelection": not is_evolution(),
     }
 
 
@@ -2178,7 +2181,10 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
         return {
             "status": status,
             "qrcode": None if status == "conectado" else resultado.qr_code,
-            "plano": resultado.plan,
+            "plano": None if is_evolution() else resultado.plan,
+            "provider": PROVIDER,
+            "providerLabel": "Evolution API" if is_evolution() else "W-API",
+            "requiresPlanSelection": not is_evolution(),
             "sincronizacao": dict(contact_sync_state(resolved_user_id)),
         }
     raise HTTPException(status_code=503, detail="API do WhatsApp ainda nao esta disponivel.")
@@ -2246,6 +2252,13 @@ async def webhook_whatsapp(
         if not supplied_secret and os.getenv("WAPI_WEBHOOK_QUERY_SECRET_COMPAT", "0").strip() == "1":
             supplied_secret = str(request.query_params.get("secret") or "")
     try:
+        if is_evolution():
+            if not wapi_client.configured:
+                raise HTTPException(status_code=503, detail="Integração Evolution desativada pelo administrador.")
+            # A autenticação permanece no pipeline; o envelope minimizado não
+            # conserva apikey, destino, URL do servidor nem campos de terceiros.
+            from app.services.evolution_client import normalize_webhook
+            data = normalize_webhook(data)
         result = await whatsapp_integration.handle_webhook(
             {"x-wapi-webhook-secret": supplied_secret},
             data,

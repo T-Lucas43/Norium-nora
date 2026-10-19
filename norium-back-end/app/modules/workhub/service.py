@@ -1270,11 +1270,15 @@ async def restore_backup_snapshot(user: dict[str, Any], backup_id: str) -> dict[
         return None
     # Um snapshot criado por versão antiga pode conter o formato legado. Migre
     # a origem primeiro para que nem mesmo a janela de restauração grave texto puro.
-    migrate_binding_file(backup_dir / "wapi_instance_db.json")
+    from app.services.whatsapp_provider import is_evolution
+    active_binding_name = "evolution_instance_db.json" if is_evolution() else "wapi_instance_db.json"
+    migrate_binding_file(backup_dir / active_binding_name)
     restored: list[str] = []
     for source in backup_dir.glob("*.json"):
         target = user_dir / source.name
-        if source.name == "wapi_instance_db.json":
+        if source.name in {"wapi_instance_db.json", "evolution_instance_db.json"}:
+            if source.name != active_binding_name:
+                continue
             restore_binding_snapshot(user_id, source)
         else:
             target.write_bytes(source.read_bytes())

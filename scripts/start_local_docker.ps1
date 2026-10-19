@@ -1,4 +1,4 @@
-﻿param([switch]$NoBuild)
+param([switch]$NoBuild, [switch]$WithEvolution, [switch]$PrepareOnly)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $runtimeRoot = Join-Path $projectRoot 'output/docker-local'
@@ -54,8 +54,23 @@ try {
             ConvertTo-Json | Set-Content -LiteralPath $accessPath -Encoding utf8
     }
     $values['LOCAL_RELEASE_SHA'] = $revision
+    if ($WithEvolution) {
+        foreach ($name in @('LOCAL_EVOLUTION_DATABASE_PASSWORD', 'LOCAL_EVOLUTION_API_KEY', 'LOCAL_EVOLUTION_WEBHOOK_SECRET')) {
+            if (-not $values[$name]) { $values[$name] = New-LocalRandom 32 }
+        }
+        if (-not $values['LOCAL_EVOLUTION_CREDENTIAL_KEY']) { $values['LOCAL_EVOLUTION_CREDENTIAL_KEY'] = (New-LocalRandom 32) + '=' }
+        $values['LOCAL_WHATSAPP_PROVIDER'] = 'evolution'
+        $values['LOCAL_EVOLUTION_ENABLED'] = '1'
+        $values['LOCAL_EVOLUTION_BASE_URL'] = 'http://evolution-api:8080'
+        $values['LOCAL_EVOLUTION_WEBHOOK_URL'] = 'http://app:8000/api/whatsapp/webhook'
+    }
     Save-LocalEnvironment $values
+    if ($PrepareOnly) {
+        Write-Output 'Configuração local preparada; nenhum serviço foi alterado.'
+        return
+    }
     $composeArgs = @('compose', '--env-file', $envPath, '-f', $composePath)
+    if ($values['LOCAL_EVOLUTION_ENABLED'] -eq '1') { $composeArgs += @('--profile', 'evolution') }
     if ($NoBuild) { & docker @composeArgs up -d } else { & docker @composeArgs up -d --build }
     if ($LASTEXITCODE -ne 0) { throw 'O Docker não iniciou o projeto local. As credenciais e volumes foram preservados.' }
     Wait-LocalApplication

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Literal, Optional
 from app.core.tenant import get_user_db_path, read_json_file, write_json_file
 from app.core.identity import require_user_id
 from app.infrastructure.persistence import postgres_store
+from app.services.whatsapp_provider import store_name, is_evolution
 
 ChatChannel = Literal["whatsapp"]
 
@@ -33,7 +34,7 @@ def _now_payload() -> tuple[str, int]:
 
 
 def _json_file_for_user(user_id: str) -> Path:
-    return Path(get_user_db_path(require_user_id({"id": user_id}), "conversas"))
+    return Path(get_user_db_path(require_user_id({"id": user_id}), store_name("conversas")))
 
 
 def _read_json_sync(user_id: str | None = None) -> Dict[str, Any]:
@@ -41,7 +42,7 @@ def _read_json_sync(user_id: str | None = None) -> Dict[str, Any]:
     if postgres_store.configured() or postgres_store.required():
         payload = read_json_file(json_file, {})
         return payload if isinstance(payload, dict) else {}
-    if not json_file.exists() and user_id == "lucas123" and JSON_FILE.exists():
+    if not is_evolution() and not json_file.exists() and user_id == "lucas123" and JSON_FILE.exists():
         json_file.parent.mkdir(parents=True, exist_ok=True)
         try:
             json_file.write_text(JSON_FILE.read_text(encoding="utf-8"), encoding="utf-8")

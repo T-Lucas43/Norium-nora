@@ -43,15 +43,16 @@ from app.core.tenant import (
 )
 from app.services.wapi_credentials import wapi_credential_store
 from app.infrastructure.persistence import postgres_store
+from app.services.whatsapp_provider import is_evolution
 
 
 # Versão dos termos de "uso responsável e risco de banimento". Se o texto mudar,
 # incremente para forçar novo aceite (ver connect flow).
-CONSENT_TERM_VERSION = "2026-08-22"
+CONSENT_TERM_VERSION = "2026-10-19-evolution" if is_evolution() else "2026-08-22"
 
-_BINDING_DB = "wapi_instance"
-_INDEX_DB = "wapi_instance_index"
-_REGISTRY_DB = "wapi_binding_registry"
+_BINDING_DB = "evolution_instance" if is_evolution() else "wapi_instance"
+_INDEX_DB = "evolution_instance_index" if is_evolution() else "wapi_instance_index"
+_REGISTRY_DB = "evolution_binding_registry" if is_evolution() else "wapi_binding_registry"
 _CREDENTIAL_FIELD = "credential"
 _TENANT_FIELD = "tenant_id"
 _PROVISIONING_STATES = frozenset(
@@ -416,6 +417,10 @@ class _PostgresRegistryConnection:
 
     @staticmethod
     def _translate(query: str) -> str:
+        if is_evolution():
+            # SQL interno fixo; parâmetros permanecem separados. Índices e tabelas
+            # pertencem ao namespace do provedor, sem reescrever dados antigos.
+            query = query.replace("wapi_", "evolution_")
         return ("BEGIN" if query.strip().upper() == "BEGIN IMMEDIATE" else query).replace("?", "%s")
 
     def execute(self, query: str, params=()):
@@ -1095,6 +1100,8 @@ def get_binding(user_id: str) -> InstanceBinding:
 def migrate_binding_file(path: str | Path) -> bool:
     """Migra/rotaciona um binding ativo ou snapshot sem expor seu conteúdo."""
     binding_path = Path(path)
+    if binding_path.name in {"wapi_instance_db.json", "evolution_instance_db.json"} and binding_path.name != f"{_BINDING_DB}_db.json":
+        return False
     if not binding_path.is_file():
         return False
     rewritten = False
@@ -1123,6 +1130,8 @@ def restore_binding_snapshot(
 ) -> InstanceBinding:
     """Restaura um snapshot mantendo binding e ownership no mesmo commit."""
     binding_path = Path(path)
+    if binding_path.name in {"wapi_instance_db.json", "evolution_instance_db.json"} and binding_path.name != f"{_BINDING_DB}_db.json":
+        raise CredentialRecoveryError("O backup de WhatsApp pertence a outro provedor.")
     with _locked_store():
         try:
             raw = json.loads(binding_path.read_text(encoding="utf-8"))

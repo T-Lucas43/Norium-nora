@@ -315,12 +315,14 @@ async def list_clients(
     q: str | None = Query(default=None, max_length=120),
     status: str | None = Query(default=None),
     stage: str | None = Query(default=None),
+    archived: Literal["exclude", "only", "all"] = "exclude",
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     accessible = await list_accessible_clients(user)
     items = [
         client_summary(item, user, store_id)
         for store_id, item in accessible
+        if archived == "all" or bool(item.get("archivedAt")) == (archived == "only")
     ]
     if q:
         needle = q.casefold().strip()

@@ -121,7 +121,7 @@ em 375 px. Não promover este estado como onda concluída.
    acessos; vínculos com financeiro/e-mail/WhatsApp/agendamentos;
    notificador com preferências/descadastro e base PDF aplicada a cada entrega.
    Presença já existe no Chat, mas requer conferência das integrações de tela.
-3. **Onda 1:** aceite funcional da mudança de responsável em lote; arquivamento e preparação de
+3. **Onda 1:** aceite funcional de responsável e arquivamento/restauração em lote; preparação de
    envios com manifesto/aprovação e opt-out; seleção equivalente na agenda de
    contatos, além da lista de conversas; comprovar importação/retomada, ACL,
    privacidade, navegação por teclado e layout nos dois temas. Os filtros de
@@ -177,3 +177,31 @@ conclusão das ondas ou autorização de promoção.
   alterados passaram. Nenhum teste de suíte foi executado nesta continuação;
   aceite funcional do lote, conflitos e concorrência ainda pendente.
 - Sem push, novo CI ou deploy remoto. A execução Docker é desenvolvimento local.
+
+### Continuação: arquivar e restaurar clientes
+
+- Endpoint autenticado `POST /api/business/clients/archive`, com IDs distintos,
+  até 100 registros, flag booleana estrita, conferência de edição e
+  `expectedUpdatedAt` por registro, usando o lock existente de Clientes.
+- Guarda apenas `archivedAt` e a atualização do cadastro. Restauração remove a
+  marca; status, responsável, permissões, arquivos e relações são preservados.
+  Resultado individual: concluído, já no estado solicitado, conflito, sem
+  acesso ou resultado de gravação incerto que exige recarregar.
+- GET de Clientes omite arquivados por padrão, com opções explícitas `only` e
+  `all`. A tela carrega apenas cadastros autorizados e oferece Em uso,
+  Arquivados e Todos; essa escolha entra nas visões salvas. Contadores principais
+  consideram os cadastros em uso. Vínculos diretos ainda permitem abrir o
+  histórico autorizado, com identificação de cadastro arquivado.
+- Confirmação da seleção tanto na ficha como na barra do lote; resultado por
+  cadastro. A seleção é limpa ao trocar filtros, e os diálogos descartam ações
+  de uma sessão/workspace anterior.
+- Importação sinaliza identidade de cadastro arquivado para revisão manual e
+  não o restaura. Seleção inicial da Nora para novas propostas e novos lembretes
+  de acompanhamento ignoram arquivados. Isso não cancela notificações já
+  enfileiradas nem ações aprovadas antes do arquivamento.
+- TypeScript forçado, lint sem avisos dos componentes alterados e AST de seis
+  arquivos Python passaram; `git diff --check` passou. Nenhuma suíte funcional
+  ou mutação de cadastro real foi executada para validar esta etapa.
+- Critérios pendentes de aceite: três clientes selecionados, concorrência com
+  edição, falta de permissão, restauração conservando arquivos/vínculos,
+  seleção por teclado, dois temas e 375 px. Exigem validação antes da promoção.

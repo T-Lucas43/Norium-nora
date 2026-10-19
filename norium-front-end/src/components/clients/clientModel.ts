@@ -28,6 +28,7 @@ export type Client = {
   tags: string[];
   notes: string;
   updatedAt: string;
+  archivedAt?: string | null;
   avatarId?: string;
   attachmentCount?: number;
   createdBy?: string;

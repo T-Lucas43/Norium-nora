@@ -18,6 +18,7 @@ const descriptions: Record<Outcome["status"], string> = {
 export default function ClientAssignDialog({ clients, onClose, onComplete }: {
   clients: Client[]; onClose: () => void; onComplete: () => void;
 }) {
+  const [dialogScope] = useState(requestScope);
   const [selection] = useState(() => clients.map(client => ({ id: client.id, name: client.name, expectedUpdatedAt: client.updatedAt })));
   const [members, setMembers] = useState<{ id: string; name: string }[]>([]);
   const [userId, setUserId] = useState("");
@@ -32,7 +33,7 @@ export default function ClientAssignDialog({ clients, onClose, onComplete }: {
     return () => controller.abort();
   }, []);
   async function confirm() {
-    if (busy || loading || result) return;
+    if (requestScope() !== dialogScope || busy || loading || result) return;
     setBusy(true); setError(""); const scope = requestScope();
     try {
       const data = await apiRequest<Result>("/api/business/clients/assign", { method: "POST",

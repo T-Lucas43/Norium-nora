@@ -69,6 +69,11 @@ def apply_clients(user, job, current):
         if matching:
             index = next(iter(matching))
             item = items[index]
+            if item.get("archivedAt"):
+                result["attention"] += 1
+                if len(result["attentionExamples"]) < 100:
+                    result["attentionExamples"].append({"line": row["line"], "reason": "O cadastro já existe e está arquivado. Restaure-o em Clientes antes de complementar suas informações."})
+                continue
             filled = False
             # Import fills missing fields; it never replaces a price/contact or
             # sharing rule that was already reviewed in the system.

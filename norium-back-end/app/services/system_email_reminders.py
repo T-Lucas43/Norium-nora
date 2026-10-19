@@ -79,7 +79,7 @@ def queue_due(user: dict, workspace: str, now: datetime) -> int:
                     2 * 86400,
                 )
         for client in clients:
-            if not isinstance(client, dict) or not client.get("id"):
+            if not isinstance(client, dict) or not client.get("id") or client.get("archivedAt"):
                 continue
             follow_up = parse_date(client.get("nextActionAt"))
             if follow_up and 0 <= (follow_up - now).total_seconds() <= 86400:

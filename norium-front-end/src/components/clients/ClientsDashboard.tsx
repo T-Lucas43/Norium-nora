@@ -3,10 +3,13 @@ import ClientTagsPanel from "../business/ClientTagsPanel";
 import ClientRelationsPanel from "../business/ClientRelationsPanel";
 import BusinessDialog from "../business/BusinessDialog";
 import ImportPanel from "../business/ImportPanel";
+import ClientArchiveDialog from "../business/ClientArchiveDialog";
 import ClientViewsPanel, { ClientBulkTags, type ClientFilters } from "../business/ClientViewsPanel";
 import { requestScope } from "../../core/api/sessionScope";
 import {
   ArrowLeft,
+  Archive,
+  ArchiveRestore,
   ArrowUpRight,
   CalendarClock,
   Camera,
@@ -76,6 +79,8 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
     [photoBusy, setPhotoBusy] = useState(false);
   const [tab, setTab] = useState<DetailTab>("overview");
   const [importOpen, setImportOpen] = useState(false);
+  const [archiveMode, setArchiveMode] = useState<ClientFilters["archive"]>("exclude");
+  const [archiveClient, setArchiveClient] = useState<{ client: Client; archived: boolean } | null>(null);
   const [advanced, setAdvanced] = useState<Pick<ClientFilters, "stage" | "ownerId" | "tagIds">>({ stage: "all", ownerId: "", tagIds: [] });
   const [taggedIds, setTaggedIds] = useState<Set<string> | null>(null);
   const [tagFilterLoading, setTagFilterLoading] = useState(false);
@@ -83,7 +88,8 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
   const [tagRevision, setTagRevision] = useState(0);
   useEffect(() => { const refreshTags = () => setTagRevision(value => value+1); window.addEventListener("norium:client-tags-changed", refreshTags); return () => window.removeEventListener("norium:client-tags-changed", refreshTags); }, []);
   const tagSignature = advanced.tagIds.join(",");
-  useEffect(() => { setClients([]); setSelectedId(null); setCheckedIds([]); setAdvanced({ stage: "all", ownerId: "", tagIds: [] }); setQuery(""); setFilter("all"); setEditor(null); setAccessClient(null); setImportOpen(false); }, [scope]);
+  useEffect(() => { setClients([]); setSelectedId(null); setCheckedIds([]); setAdvanced({ stage: "all", ownerId: "", tagIds: [] }); setQuery(""); setFilter("all"); setArchiveMode("exclude"); setArchiveClient(null); setEditor(null); setAccessClient(null); setImportOpen(false); }, [scope]);
+  useEffect(() => setCheckedIds([]), [query, filter, archiveMode, advanced.stage, advanced.ownerId, tagSignature]);
   useEffect(() => {
     if (!tagSignature) { setTaggedIds(null); setTagFilterLoading(false); return; }
     const controller = new AbortController(); setTaggedIds(null); setTagFilterLoading(true);
@@ -100,7 +106,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
     setLoading(true);
     setError("");
     try {
-      const data = await apiRequest<{ items: Client[] }>("/api/clientes");
+      const data = await apiRequest<{ items: Client[] }>("/api/clientes?archived=all");
       if (requestScope() !== requestedScope) return;
       setClients(
         data.items.map((item) => ({
@@ -154,6 +160,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
   const selected = clients.find((item) => item.id === selectedId) || null;
   const canEditSelected = selected?.accessRole !== "view";
   const canShareSelected = selected?.accessRole === "owner";
+  const liveClients = clients.filter(item => !item.archivedAt);
   const filtered = useMemo(() => {
     const simplify = (value: string) =>
       value
@@ -163,6 +170,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
     return clients
       .filter(
         (item) =>
+          (archiveMode === "all" || !!item.archivedAt === (archiveMode === "only")) &&
           (filter === "all" || item.status === filter) &&
           (advanced.stage === "all" || item.stage === advanced.stage) &&
           (!advanced.ownerId || item.ownerId === advanced.ownerId) &&
@@ -178,8 +186,8 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
             ? (a.nextActionAt || "9999").localeCompare(b.nextActionAt || "9999")
             : b.updatedAt.localeCompare(a.updatedAt),
       );
-  }, [clients, query, filter, sort, advanced.stage, advanced.ownerId, tagSignature, taggedIds]);
-  const nextContacts = clients.filter(
+  }, [clients, query, filter, sort, archiveMode, advanced.stage, advanced.ownerId, tagSignature, taggedIds]);
+  const nextContacts = liveClients.filter(
     (item) =>
       item.nextActionAt &&
       new Date(item.nextActionAt).getTime() <= Date.now() + 7 * 86400000 &&
@@ -350,8 +358,8 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
             <div>
               <h1>Clientes</h1>
               <p>
-                {clients.length} {clients.length === 1 ? "cliente" : "clientes"} ·{" "}
-                {clients.filter((item) => item.status === "active").length} ativos
+                {liveClients.length} em uso · {clients.length-liveClients.length} arquivados ·{" "}
+                {liveClients.filter((item) => item.status === "active").length} ativos
               </p>
             </div>
             <div className="nx-ph-actions">
@@ -387,15 +395,15 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
             </div>
           </div>
           <div className="nx-kpis">
-            <Metric icon={UsersRound} value={clients.length} label="Total de clientes" />
+            <Metric icon={UsersRound} value={liveClients.length} label="Clientes em uso" />
             <Metric
               icon={UserRoundCheck}
-              value={clients.filter((item) => item.status === "active").length}
+              value={liveClients.filter((item) => item.status === "active").length}
               label="Clientes ativos"
             />
             <Metric
               icon={MessageCircle}
-              value={clients.filter((item) => item.status === "lead").length}
+              value={liveClients.filter((item) => item.status === "lead").length}
               label="Em prospecção"
             />
             <Metric icon={CalendarClock} value={nextContacts} label="Contatos até os próximos 7 dias" />
@@ -465,7 +473,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
               {filtered.length} {filtered.length === 1 ? "cliente" : "clientes"}
             </span>
           </div>
-          <ClientViewsPanel clients={clients} value={{ query, status: filter, ...advanced }} onChange={next => { setQuery(next.query); setFilter(next.status); setAdvanced({ stage: next.stage, ownerId: next.ownerId, tagIds: next.tagIds }); setVisible(25); }} />
+          <ClientViewsPanel clients={clients} value={{ query, status: filter, archive: archiveMode, ...advanced }} onChange={next => { setQuery(next.query); setFilter(next.status); setArchiveMode(next.archive); setAdvanced({ stage: next.stage, ownerId: next.ownerId, tagIds: next.tagIds }); setVisible(25); }} />
           <div className="nx-card client-table-card">
             {loading || tagFilterLoading ? (
               <p className="client-empty" role="status">
@@ -502,6 +510,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                           <ClientAvatar client={client} />
                           <span>
                             <strong>{client.name}</strong>
+                            {client.archivedAt && <span className="nx-badge">Arquivado</span>}
                             <small>{client.company || client.email || "Cliente individual"}</small>
                           </span>
                         </button>
@@ -522,12 +531,12 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
               <div className="client-empty">
                 <Search size={24} />
                 <h4>
-                  {query || filter !== "all"
+                  {archiveMode === "only" && !query && filter === "all" ? "Nenhum cliente arquivado" : query || filter !== "all" || archiveMode !== "exclude"
                     ? "Nenhum resultado"
                     : "Sua carteira começa aqui"}
                 </h4>
                 <p>
-                  {query || filter !== "all"
+                  {archiveMode === "only" && !query && filter === "all" ? "Os cadastros arquivados aparecerão aqui para consulta e restauração." : query || filter !== "all" || archiveMode !== "exclude"
                     ? "Ajuste a busca ou os filtros."
                     : "Cadastre um cliente para organizar os contatos, contratos e documentos."}
                 </p>
@@ -569,6 +578,11 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                 >
                   <Pencil size={14} />
                   Editar
+                </button>
+              )}
+              {canEditSelected && (
+                <button type="button" className="nx-btn is-sm" disabled={photoBusy} onClick={() => setArchiveClient({ client: selected, archived: !selected.archivedAt })}>
+                  {selected.archivedAt ? <ArchiveRestore size={14} /> : <Archive size={14} />}{selected.archivedAt ? "Restaurar" : "Arquivar"}
                 </button>
               )}
               {canShareSelected && (
@@ -640,6 +654,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
               )}
               <div className="client-badges">
                 <span className={`nx-badge ${statusBadge[selected.status]}`}>{statusLabels[selected.status]}</span>
+                {selected.archivedAt && <span className="nx-badge">Arquivado em {dateLabel(selected.archivedAt)}</span>}
                 <span className="nx-badge">{stageLabels[selected.stage]}</span>
                 {selected.accessRole && selected.accessRole !== "owner" && (
                   <span className="nx-badge is-violet">Compartilhado por {selected.createdByName || "membro da equipe"}</span>
@@ -866,6 +881,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
         />
       )}
       {importOpen && <BusinessDialog title="Importar clientes" onClose={() => setImportOpen(false)}><ImportPanel target="clients" onComplete={() => void load()} /></BusinessDialog>}
+      {archiveClient && <ClientArchiveDialog clients={[archiveClient.client]} archived={archiveClient.archived} onComplete={() => void load()} onClose={() => setArchiveClient(null)} />}
       {accessClient && (
         <ClientAccessDialog
           client={accessClient}

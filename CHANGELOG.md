@@ -18,6 +18,8 @@
 - feat(catalogo): histórico de preços paginado na edição do item; visões salvas permitem editar nome e filtros com controle de versão.
 - fix(modelos): seleção por teclado inclui comandos da Nora; alterações invalidam os atalhos sem polling, com contexto de sessão/workspace e preenchimento dos nomes conhecidos no Gmail.
 - feat(clientes): seleção de responsável em até 100 cadastros, com confirmação, conferência de acesso, conflito por atualização e resultado individual; propriedade e compartilhamento são preservados.
+- feat(clientes): arquivamento/restauração individual e em até 100 selecionados; visão de arquivados salva nos filtros, indicadores da carteira em uso e preservação do histórico e dos vínculos.
+- fix(clientes): importação pede revisão para cadastros arquivados; novas sugestões da Nora e novos lembretes de acompanhamento desconsideram cadastros arquivados.
 - chore(local): Docker Compose com PostgreSQL e frontend/API na mesma origem, conta local aleatória e remoção do bootstrap após o primeiro acesso confirmado.
 - Estado: compilação e análise estática conferidas; funcionalidades ainda sem aceite funcional, sem push e sem deploy.
 

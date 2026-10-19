@@ -25,9 +25,8 @@ class SelectedClient(StrictModel):
     expectedUpdatedAt: str = Field(min_length=1, max_length=64)
 
 
-class Assignment(StrictModel):
+class ClientSelection(StrictModel):
     clients: list[SelectedClient] = Field(min_length=1, max_length=100)
-    userId: str = Field(default="", max_length=120)
 
     @field_validator("clients")
     @classmethod
@@ -35,6 +34,14 @@ class Assignment(StrictModel):
         if len({item.id for item in value}) != len(value):
             raise ValueError("Selecione cada cliente uma única vez.")
         return value
+
+
+class Assignment(ClientSelection):
+    userId: str = Field(default="", max_length=120)
+
+
+class Archival(ClientSelection):
+    archived: bool = Field(strict=True)
 
 
 async def assignees(user: dict) -> list[dict]:
@@ -109,4 +116,50 @@ async def assign_clients(payload: Assignment, response: Response, user: dict = D
     if updated_ids:
         await business_audit(user, "business_clients_assigned", "client_batch", "selection",
                              {"clientIds": updated_ids, "assigneeId": payload.userId, "count": len(updated_ids)})
+    return {"items": list(results.values()), "updated": len(updated_ids), "total": len(results)}
+
+
+@router.post("/archive")
+async def archive_clients(payload: Archival, response: Response, user: dict = Depends(clients_user)):
+    response.headers["Cache-Control"] = "no-store"
+    results = {item.id: {"id": item.id, "status": "not_allowed"} for item in payload.clients}
+    expected = {item.id: item.expectedUpdatedAt for item in payload.clients}
+    seen: set[str] = set()
+    async with _lock:
+        for store_id in await client_store_ids_for_user(user):
+            rows = copy.deepcopy(await asyncio.to_thread(list_clients, store_id))
+            changed: list[str] = []
+            for row in rows:
+                identifier = str(row.get("id") or "")
+                if identifier not in expected or identifier in seen:
+                    continue
+                try:
+                    require_client_access(row, user, store_id, "edit")
+                except HTTPException:
+                    continue
+                seen.add(identifier)
+                if row.get("updatedAt") != expected[identifier]:
+                    results[identifier]["status"] = "conflict"
+                    continue
+                if bool(row.get("archivedAt")) == payload.archived:
+                    results[identifier]["status"] = "unchanged"
+                    continue
+                stamp = now()
+                row.update(archivedAt=stamp if payload.archived else None, updatedAt=stamp)
+                changed.append(identifier)
+            if not changed:
+                continue
+            try:
+                await save_clients(store_id, rows)
+            except Exception:
+                logger.exception("Client archival persistence failed")
+                for identifier in changed:
+                    results[identifier]["status"] = "reload_required"
+            else:
+                for identifier in changed:
+                    results[identifier]["status"] = "updated"
+    updated_ids = [identifier for identifier, result in results.items() if result["status"] == "updated"]
+    if updated_ids:
+        await business_audit(user, "business_clients_archived" if payload.archived else "business_clients_restored",
+                             "client_batch", "selection", {"clientIds": updated_ids, "count": len(updated_ids)})
     return {"items": list(results.values()), "updated": len(updated_ids), "total": len(results)}

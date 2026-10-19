@@ -414,7 +414,7 @@ def _match_client(tenant: str, texto: str) -> dict[str, Any] | None:
     matches = [
         item
         for item in list_clients(tenant)
-        if any(
+        if not item.get("archivedAt") and any(
             _delimited_present(normalized, token)
             for token in (item.get("name"), item.get("company"), item.get("email"))
         )
@@ -425,9 +425,9 @@ def _match_client(tenant: str, texto: str) -> dict[str, Any] | None:
 
 
 def _client_options(tenant: str) -> str:
-    clients = list_clients(tenant)
+    clients = [item for item in list_clients(tenant) if not item.get("archivedAt")]
     if not clients:
-        return "Ainda não há clientes cadastrados. Cadastre o cliente na tela Clientes e tente novamente."
+        return "Não há clientes em uso. Cadastre ou restaure o cliente na tela Clientes e tente novamente."
     names = [
         str(item.get("name") or item.get("company") or item.get("email") or "Cliente")
         for item in clients[:8]

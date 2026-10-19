@@ -368,6 +368,7 @@ async def tagged_clients(tagIds: str = Query(max_length=2000), user: dict = Depe
 
 class ClientFilters(StrictModel):
     query: str = Field(default="", max_length=120)
+    archive: Literal["exclude", "only", "all"] = "exclude"
     status: Literal["all", "lead", "active", "inactive"] = "all"
     stage: Literal["all", "new", "contacted", "proposal", "won", "lost"] = "all"
     ownerId: str = Field(default="", max_length=160)

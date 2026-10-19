@@ -433,8 +433,87 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+  evolution-image-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Build corrected Evolution runtime from the exact source
+        run: |
+          docker build -f Dockerfile.evolution --build-arg "NORIUM_RELEASE_SHA=$(git rev-parse HEAD)" -t norium-evolution-ci .
+          test "$(docker image inspect norium-evolution-ci --format '{{.Config.User}}')" = '1000:1000'
+          docker build -f Dockerfile.evolution-postgres -t norium-evolution-postgres-ci .
+          docker build -f Dockerfile.evolution-redis -t norium-evolution-redis-ci .
+          test "$(docker image inspect norium-evolution-postgres-ci --format '{{.Config.User}}')" = '70:70'
+      - name: Audit Evolution and private data services without exceptions
+        env:
+          TRIVY_VERSION: '0.75.0'
+          TRIVY_ARCHIVE_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/evolution-audit"
+          mkdir -p "$evidence" "$RUNNER_TEMP/evolution-trivy"
+          curl --fail --show-error --location "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o "$RUNNER_TEMP/evolution-trivy.tar.gz"
+          printf '%s  %s\n' "$TRIVY_ARCHIVE_SHA256" "$RUNNER_TEMP/evolution-trivy.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/evolution-trivy.tar.gz" -C "$RUNNER_TEMP/evolution-trivy" trivy
+          scanner="$RUNNER_TEMP/evolution-trivy/trivy"
+          : > "$evidence/empty-ignore"
+          "$scanner" --config= image --no-progress --scanners vuln --format cyclonedx --output "$evidence/evolution-sbom.cdx.json" norium-evolution-ci
+          "$scanner" --config= image --no-progress --scanners vuln --ignorefile "$evidence/empty-ignore" --severity HIGH,CRITICAL --exit-code 1 --exit-on-eol 1 --format json --output "$evidence/evolution-vulnerabilities.json" norium-evolution-ci
+          "$scanner" --config= image --no-progress --scanners vuln --ignorefile "$evidence/empty-ignore" --severity HIGH,CRITICAL --exit-code 1 --exit-on-eol 1 --format json --output "$evidence/postgres-vulnerabilities.json" norium-evolution-postgres-ci
+          "$scanner" --config= image --no-progress --scanners vuln --ignorefile "$evidence/empty-ignore" --severity HIGH,CRITICAL --exit-code 1 --exit-on-eol 1 --format json --output "$evidence/redis-vulnerabilities.json" norium-evolution-redis-ci
+          export EVIDENCE="$evidence"
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          root = pathlib.Path(os.environ['EVIDENCE'])
+          reports = ['evolution-vulnerabilities.json', 'postgres-vulnerabilities.json', 'redis-vulnerabilities.json']
+          for name in reports:
+              data = json.loads((root / name).read_text())
+              if not data.get('Results') or any(v['Severity'] in {'HIGH', 'CRITICAL'} for r in data['Results'] for v in (r.get('Vulnerabilities') or [])):
+                  raise SystemExit('Incomplete or failed image audit')
+          image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', 'norium-evolution-ci'], text=True))[0]
+          receipt = {'commitSha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+                     'dockerImageId': image['Id'], 'complete': True, 'vulnerabilityGatePassed': True,
+                     'upstreamRevision': 'cd800f2976e1e5b682fbf86a01ee4d85ae61f370', 'reports': reports,
+                     'rootFs': image['RootFS'], 'user': image['Config']['User'],
+                     'postgresImageId': subprocess.check_output(['docker', 'image', 'inspect', 'norium-evolution-postgres-ci', '--format', '{{.Id}}'], text=True).strip(),
+                     'redisImageId': subprocess.check_output(['docker', 'image', 'inspect', 'norium-evolution-redis-ci', '--format', '{{.Id}}'], text=True).strip()}
+          (root / 'evolution-audit-receipt.json').write_text(json.dumps(receipt, indent=2))
+          PY
+      - name: Preserve Evolution security evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evolution-audit-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/evolution-audit/*
+          if-no-files-found: error
+          retention-days: 90
+      - name: Export the exact audited Evolution image
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.deploy_homologacao || inputs.export_image)))
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evolution-image"
+          image_id="$(docker image inspect norium-evolution-ci --format '{{.Id}}')"
+          postgres_image_id="$(docker image inspect norium-evolution-postgres-ci --format '{{.Id}}')"
+          redis_image_id="$(docker image inspect norium-evolution-redis-ci --format '{{.Id}}')"
+          docker save "$image_id" "$postgres_image_id" "$redis_image_id" | gzip > "$RUNNER_TEMP/evolution-image/image.tar.gz"
+          cp "$RUNNER_TEMP/evolution-audit/evolution-audit-receipt.json" "$RUNNER_TEMP/evolution-image/"
+          cd "$RUNNER_TEMP/evolution-image"
+          sha256sum image.tar.gz > image.tar.gz.sha256
+      - name: Preserve audited Evolution image for Shard
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.deploy_homologacao || inputs.export_image)))
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evolution-deploy-image-${{ github.sha }}
+          path: ${{ runner.temp }}/evolution-image/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 5
+
   shard-source-artifact:
-    needs: [validate, postgres-persistence, team-call-quality, shard-image-security]
+    needs: [validate, postgres-persistence, team-call-quality, shard-image-security, evolution-image-security]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -456,7 +535,7 @@ jobs:
   deploy-homologacao:
     # Dispatch explicito em main. PRs nunca recebem SSH ou alteram o runtime.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_homologacao
-    needs: [validate, postgres-persistence, team-call-quality, shard-image-security, shard-source-artifact]
+    needs: [validate, postgres-persistence, team-call-quality, shard-image-security, evolution-image-security, shard-source-artifact]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: homologacao

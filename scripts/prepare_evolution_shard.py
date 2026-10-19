@@ -9,9 +9,25 @@ import os
 import base64
 from pathlib import Path
 import secrets
+import argparse
+import json
+import re
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--audit-receipt', type=Path, required=True)
+    args = parser.parse_args()
+    receipt = json.loads(args.audit_receipt.read_text(encoding='utf-8'))
+    image = str(receipt.get('dockerImageId') or '')
+    if (not re.fullmatch(r'sha256:[a-f0-9]{64}', image) or receipt.get('complete') is not True
+            or receipt.get('vulnerabilityGatePassed') is not True
+            or not re.fullmatch(r'[a-f0-9]{40}', str(receipt.get('commitSha') or ''))):
+        raise SystemExit('O recibo não comprova uma imagem auditada do GitHub.')
+    sidecars = {key: str(receipt.get(field) or '') for key, field in (
+        ('EVOLUTION_POSTGRES_IMAGE', 'postgresImageId'), ('EVOLUTION_REDIS_IMAGE', 'redisImageId'))}
+    if not all(re.fullmatch(r'sha256:[a-f0-9]{64}', value) for value in sidecars.values()):
+        raise SystemExit('O recibo não comprova as imagens auxiliares auditadas.')
     target = Path.cwd()
     paths = (target / ".env", target / "norium-evolution.env")
     if any(path.exists() or path.is_symlink() for path in paths):
@@ -22,6 +38,8 @@ def main() -> None:
     if shutil.disk_usage(target).free < 6 * 1024**3:
         raise SystemExit("São necessários pelo menos 6 GiB livres antes de preparar a instalação.")
     values = {
+        "EVOLUTION_IMAGE": image,
+        **sidecars,
         "EVOLUTION_DATABASE_PASSWORD": secrets.token_urlsafe(32),
         "EVOLUTION_API_KEY": secrets.token_urlsafe(32),
         "EVOLUTION_CREDENTIAL_ENCRYPTION_KEY": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii"),
@@ -33,7 +51,9 @@ def main() -> None:
         "EVOLUTION_BASE_URL": "http://evolution-api:8080",
         "EVOLUTION_PRIVATE_NETWORK_ENABLED": "1",
         "EVOLUTION_WEBHOOK_URL": "http://norium-api:8000/api/whatsapp/webhook",
-        **{key: value for key, value in values.items() if key != "EVOLUTION_DATABASE_PASSWORD"},
+        "EVOLUTION_DATABASE_URL": "postgresql://evolution:" + values['EVOLUTION_DATABASE_PASSWORD'] + "@evolution-database:5432/evolution",
+        "EVOLUTION_MESSAGE_RETENTION_DAYS": "30",
+        **{key: value for key, value in values.items() if key not in {"EVOLUTION_DATABASE_PASSWORD", "EVOLUTION_IMAGE", *sidecars}},
     }
     for path, settings in zip(paths, (values, provider), strict=True):
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

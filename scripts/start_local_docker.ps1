@@ -1,4 +1,4 @@
-param([switch]$NoBuild, [switch]$WithEvolution, [switch]$PrepareOnly)
+param([switch]$NoBuild, [switch]$WithEvolution, [switch]$PrepareOnly, [switch]$EnableEvolution)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $runtimeRoot = Join-Path $projectRoot 'output/docker-local'
@@ -63,6 +63,11 @@ try {
         $values['LOCAL_EVOLUTION_ENABLED'] = '1'
         $values['LOCAL_EVOLUTION_BASE_URL'] = 'http://evolution-api:8080'
         $values['LOCAL_EVOLUTION_WEBHOOK_URL'] = 'http://app:8000/api/whatsapp/webhook'
+        $values['LOCAL_EVOLUTION_DATABASE_URL'] = 'postgresql://evolution:' + $values['LOCAL_EVOLUTION_DATABASE_PASSWORD'] + '@evolution-database:5432/evolution'
+    }
+    if ($EnableEvolution) {
+        if ($values['LOCAL_EVOLUTION_ENABLED'] -ne '1') { throw 'Prepare o perfil com -WithEvolution antes de habilitar.' }
+        $values['LOCAL_EVOLUTION_CONNECTIONS_ENABLED'] = '1'
     }
     Save-LocalEnvironment $values
     if ($PrepareOnly) {

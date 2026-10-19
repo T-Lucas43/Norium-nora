@@ -1873,9 +1873,7 @@ def _whatsapp_connection_shape(
         "conectadoEm": result.get("conectadoEm"),
         "consentRequired": bool(result.get("consentRequired")),
         "plano": plan if not is_evolution() and plan in {"lite", "pro"} else None,
-        "provider": PROVIDER,
-        "providerLabel": "Evolution API" if is_evolution() else "W-API",
-        "requiresPlanSelection": not is_evolution(),
+        **({"provider": PROVIDER, "providerLabel": "Evolution API", "requiresPlanSelection": False} if is_evolution() else {}),
     }
 
 
@@ -2182,9 +2180,7 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
             "status": status,
             "qrcode": None if status == "conectado" else resultado.qr_code,
             "plano": None if is_evolution() else resultado.plan,
-            "provider": PROVIDER,
-            "providerLabel": "Evolution API" if is_evolution() else "W-API",
-            "requiresPlanSelection": not is_evolution(),
+            **({"provider": PROVIDER, "providerLabel": "Evolution API", "requiresPlanSelection": False} if is_evolution() else {}),
             "sincronizacao": dict(contact_sync_state(resolved_user_id)),
         }
     raise HTTPException(status_code=503, detail="API do WhatsApp ainda nao esta disponivel.")
@@ -2216,7 +2212,10 @@ async def _whatsapp_connection_established(
 
 
 async def _whatsapp_disconnect_local(resolved_user_id: str) -> None:
-    """Remove binding e caches locais sem deslogar a instancia remota."""
+    """Remove caches locais; Evolution também encerra e elimina a sessão remota."""
+    if is_evolution():
+        from app.services.evolution_data import purge_account
+        await purge_account(resolved_user_id)
     sync_task = whatsapp_contact_sync_tasks.pop(resolved_user_id, None)
     if sync_task and not sync_task.done():
         sync_task.cancel()

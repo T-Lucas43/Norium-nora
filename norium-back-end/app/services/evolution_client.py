@@ -74,17 +74,19 @@ class EvolutionClient(WapiClient):
 
     @property
     def configured(self) -> bool:
-        return self._config.configured and self._connections_enabled
+        from app.services.evolution_data import database_configured
+        return self._config.configured and self._connections_enabled and database_configured()
 
     @property
     def availability_detail(self) -> str:
         if not self._connections_enabled:
-            return "Evolution API preparada. O pareamento aguarda a correção e revisão de segurança da imagem do provedor."
-        return "Evolution API não configurada pelo administrador."
+            return "O administrador ainda não habilitou as conexões da Evolution API neste ambiente."
+        return "O administrador precisa concluir a configuração privada da Evolution e do ciclo de dados."
 
     async def _call(self, method: str, route: str, *, token: str, body: Mapping[str, Any] | None = None,
-                    params: Mapping[str, Any] | None = None, timeout: float = 25, read_only: bool = False) -> Any:
-        if not self.configured or not token:
+                    params: Mapping[str, Any] | None = None, timeout: float = 25, read_only: bool = False,
+                    control_plane: bool = False) -> Any:
+        if not (self.config.configured if control_plane else self.configured) or not token:
             raise WapiError("Evolution API não configurada.", code="not_configured")
         # Cada rota é construída neste arquivo; nunca aceitar URL do usuário/provedor.
         if not re.fullmatch(r"/[A-Za-z0-9_/-]+", route) or ".." in route or "//" in route:
@@ -151,6 +153,38 @@ class EvolutionClient(WapiClient):
 
     async def set_webhook(self, instance_id: str, token: str, event: str, url: str) -> dict[str, Any]:
         return await self._call("POST", f"/webhook/set/{self._name(instance_id)}", token=token, body={"webhook": self._hook(url)})
+
+    async def delete_instance_data(self, owned_instance_name: str) -> None:
+        """Somente o ciclo de privacidade chama com nome comprovado localmente."""
+        name = self._name(owned_instance_name)
+        async def listing():
+            try:
+                rows = await self._call("GET", "/instance/fetchInstances", token=self.config.master_api_key,
+                                        params={"instanceName": name}, read_only=True, control_plane=True)
+            except WapiError as exc:
+                if exc.status == 404:
+                    return []
+                raise
+            if not isinstance(rows, list):
+                raise WapiError("Não foi possível confirmar a exclusão Evolution.", code="invalid_response")
+            return [row for row in rows if isinstance(row, dict) and row.get("name") == name]
+        rows = await listing()
+        if not rows:
+            return
+        if rows[0].get("connectionStatus") != "close":
+            await self._call("DELETE", f"/instance/logout/{name}", token=self.config.master_api_key, control_plane=True)
+        for attempt in range(6):
+            rows = await listing()
+            if not rows:
+                return
+            if rows[0].get("connectionStatus") == "close":
+                break
+            await asyncio.sleep(0.5)
+        else:
+            raise WapiError("A sessão Evolution ainda está encerrando; exclusão será retomada.", code="remote_outcome_unknown")
+        await self._call("DELETE", f"/instance/delete/{name}", token=self.config.master_api_key, control_plane=True)
+        if await listing():
+            raise WapiError("A exclusão Evolution ainda não foi confirmada.", code="remote_outcome_unknown")
 
     async def _referenced_message(self, name: str, token: str, body: Mapping[str, Any]) -> dict[str, Any]:
         remote, identifier = jid(str(body.get("phone") or "")), str(body.get("messageId") or "")

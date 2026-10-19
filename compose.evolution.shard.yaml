@@ -3,7 +3,7 @@ name: norium-evolution
 # Criar .env com scripts/prepare_evolution_shard.py antes de iniciar.
 services:
   evolution-database:
-    image: postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: ${EVOLUTION_POSTGRES_IMAGE:?Load the audited private database image first}
     restart: unless-stopped
     mem_limit: 512m
     cpus: 0.75
@@ -23,7 +23,7 @@ services:
       driver: json-file
       options: {max-size: 10m, max-file: '3'}
   evolution-redis:
-    image: redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    image: ${EVOLUTION_REDIS_IMAGE:?Load the audited private cache image first}
     restart: unless-stopped
     mem_limit: 192m
     cpus: 0.25
@@ -35,7 +35,7 @@ services:
       driver: json-file
       options: {max-size: 10m, max-file: '3'}
   evolution-api:
-    image: evoapicloud/evolution-api@sha256:1bd8afc4a6cf48822e6cf02469aeae7bd35a12a6b616eacd1291926307f4d339
+    image: ${EVOLUTION_IMAGE:?Load the audited GitHub image and run the preparation script first}
     container_name: norium-evolution-api
     restart: unless-stopped
     init: true
@@ -51,8 +51,18 @@ services:
       evolution-database: {condition: service_healthy}
       evolution-redis: {condition: service_started}
     environment:
+      SERVER_TYPE: http
       SERVER_PORT: '8080'
+      AUTHENTICATION_TYPE: apikey
       SERVER_URL: http://evolution-api:8080
+      CONFIG_SESSION_PHONE_CLIENT: Norium
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      QRCODE_LIMIT: '30'
+      QRCODE_COLOR: '#198754'
+      CACHE_REDIS_TTL: '604800'
+      WEBSOCKET_ENABLED: 'false'
+      S3_ENABLED: 'false'
+      CHATWOOT_ENABLED: 'false'
       SERVER_DISABLE_DOCS: 'true'
       SERVER_DISABLE_MANAGER: 'true'
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?Missing API key}
@@ -93,6 +103,7 @@ services:
       options: {max-size: 10m, max-file: '3'}
 networks:
   data:
+    name: norium-evolution-data
     internal: true
   edge:
     external: true

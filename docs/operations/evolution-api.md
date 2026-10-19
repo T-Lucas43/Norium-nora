@@ -1,118 +1,114 @@
 # WhatsApp por Evolution API
 
-O Norium possui um adaptador para a **Evolution API 2.3.7**, projeto da Evolution
-Foundation. [Documentação oficial](https://docs.evolutionfoundation.com.br/evolution-api)
-e [licença com condições adicionais](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/LICENSE).
-A identificação do fornecedor também aparece nas configurações do WhatsApp.
+O adaptador usa Evolution API 2.3.7, da Evolution Foundation.
+[Documentação](https://docs.evolutionfoundation.com.br/evolution-api) e
+[licença com condições adicionais](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/LICENSE).
+A atribuição aparece nas configurações. Não foi copiado o painel do fornecedor.
 
 ## Estado em 19/10/2026
 
-**Código integrado, ativação bloqueada.** A imagem oficial foi iniciada localmente,
-aplicou suas migrações e respondeu HTTP 200 à listagem autenticada, sem instâncias.
-Não houve pareamento nem envio real. O build do frontend/API e a inicialização do
-Norium foram conferidos separadamente: a revisão `5134978` está em execução local,
-página HTTP 200 e readiness pronta com PostgreSQL. Isso não comprova funcionamento
-com uma conta WhatsApp conectada. Evidência sanitizada em
-`output/docker-local/evolution-runtime-evidence.json`.
+A imagem original foi reprovada: 11 ocorrências CRITICAL e 254 HIGH. São
+ocorrências em pacotes/arquivos, não vulnerabilidades únicas nem prova de exploração.
+Ela não pode ser promovida. Relatório: `output/docker-local/evolution-vulnerabilities.json`.
 
-A auditoria Trivy 0.75.0 do digest abaixo encontrou **11 ocorrências CRITICAL e
-254 HIGH**. São ocorrências em pacotes/arquivos, não 265 vulnerabilidades distintas
-nem comprovação de explorabilidade de cada uma. Relatório local:
-`output/docker-local/evolution-vulnerabilities.json`.
+O runtime foi reconstruído em `Dockerfile.evolution`, usando somente dist,
+esquema/migrações e recursos públicos do fornecedor. Não copia seu `.env`, npm
+global ou dependências antigas. A fonte continua na revisão
+`cd800f2976e1e5b682fbf86a01ee4d85ae61f370`, tag `2.3.7`.
 
-Um bloqueio confirmado é **CVE-2026-48063 / GHSA-qvv5-jq5g-4cgg** no
-`baileys@7.0.0-rc.9`: a faixa afetada e a correção em rc12 constam no
-[aviso de segurança revisado](https://github.com/advisories/GHSA-qvv5-jq5g-4cgg).
-É possível falsificar eventos de mensagens e corromper sincronização de estado.
-Filtrar apenas o webhook não corrige o estado interno da sessão do fornecedor.
+- Node 24 e Alpine mantidos, bases fixadas por digest.
+- Baileys `7.0.0-rc14`, corrigindo a faixa afetada por
+  [GHSA-qvv5-jq5g-4cgg](https://github.com/WhiskeySockets/Baileys/security/advisories/GHSA-qvv5-jq5g-4cgg).
+- Lock Linux próprio, sem dependências de desenvolvimento nem `--force`.
+- Overrides específicos: link-preview-js 4, sharp 0.35, Axios legado 0.34 e deepmerge-ts 8.
+  São alterações intencionais de compatibilidade; inicialização não comprova todas as funções.
+- O caminho FFmpeg do instalador aponta para o binário mantido pelo Alpine.
+- API como UID/GID 1000. PostgreSQL auxiliar como 70, sem helper root gosu;
+  Redis recebe correções do repositório Alpine. Dados existentes permanecem nos volumes.
 
-Por isso `EVOLUTION_CONNECTIONS_ENABLED=0` bloqueia o provisionamento e o QR
-antes de criar claims/instâncias. Nenhuma chave ou conta WhatsApp real foi usada.
-**Não promover este digest para o Shard nem liberar pareamento.** Preparar uma
-imagem corrigida, conferir compatibilidade e repetir a auditoria antes da revisão
-humana. Uma nova versão RC ou somente atualizar Baileys não resolve automaticamente
-os demais achados. Não adicionar exceções globais ao scanner.
+Trivy 0.75.0 encontrou **zero HIGH/CRITICAL nas três imagens corrigidas**, sem
+exceções: `output/evolution-audit/vulnerabilities-v3.json`, `postgres-fixed.json`
+e `redis-fixed.json`. O CI repete a auditoria, gera SBOM/recibo e exporta as três
+imagens exatas. Uma auditoria limpa não garante ausência de vulnerabilidades futuras.
 
-## Contratos implementados
+A API corrigida iniciou localmente, aplicou/verificou 57 migrações e respondeu HTTP
+200 à listagem autenticada, com zero instâncias. PostgreSQL e API ficaram healthy.
+Não houve QR, pareamento, leitura de chats reais nem envio. Suítes de testes não
+foram executadas manualmente nesta correção; o CI obrigatório continua habilitado.
+Publicação e ativação remota dependem do CI e da revisão técnica humana do diff.
 
-- Conexão/estado/QR, reconciliação por nome determinístico e ciclo de vida existente.
+## Contratos e limites
+
+- Conexão/estado/QR e reconciliação por nome determinístico, com consentimento do titular.
 - Texto, imagem, vídeo, documento, áudio, figurinha e localização, sem retry de escrita.
-- Referências/reação/edição/exclusão buscam a chave real da mensagem na instância
-  e confirmam conversa/autoria, sem fabricar `fromMe`.
-- Contatos, conversas, consulta recente de histórico, grupos e foto do perfil.
-- Webhooks minimizados de mensagens, conexão, ACK e presença; mantêm autenticação,
-  deduplicação e confirmação de propriedade na fronteira existente.
-- Recursos sem correspondência verificada, como envio temporário/view-once e GIF,
-  são recusados explicitamente. A publicação de Status permanece indisponível.
+- Referências/reação/edição/exclusão consultam a chave real e confirmam conversa/autoria.
+- Contatos, conversas, grupos, foto do perfil e até 100 mensagens recentes disponíveis.
+- Webhooks minimizados com autenticação, deduplicação e prova local de propriedade.
+- View-once, GIF e publicação de Status sem contrato verificado são recusados.
 
-Esses itens são implementação de contrato, **não aceite funcional com WhatsApp**.
-A consulta de histórico limita-se às 100 mensagens recentes disponíveis no provedor;
-não é sincronização retroativa completa. `syncFullHistory` e armazenamento histórico
-automático ficam desligados. O recebimento normal mantém histórico no banco do
-fornecedor para referências de mensagens. Esses dados/volumes têm ciclo de vida
-próprio: exportação, eliminação e retenção do Norium não eliminam automaticamente
-o banco externo Evolution. O procedimento operacional do fornecedor ainda precisa
-ser integrado/validado antes de disponibilização a contas reais.
+Estes itens são implementação de contrato, não aceite funcional com conta pareada.
+Sincronização retroativa completa e armazenamento histórico automático ficam desligados.
+Nenhuma autorização desta implantação permite enviar mensagens em nome do usuário.
 
-## Isolamento e retorno à W-API
+## Dados pessoais
 
-`WHATSAPP_PROVIDER` é definido pelo servidor e congelado no processo. O padrão
-continua `wapi`. Não aceitar URL, token ou instância enviados pelo frontend.
+`evolution_data.py` integra o gateway ao ciclo de privacidade. A associação da
+instância é comprovada pelo registro local e hash determinístico da conta;
+identificadores enviados pelo provedor não definem acesso entre contas.
 
-Evolution usa documentos `evolution_instance`, `evolution_conversas` e caches
-próprios; seu registro PostgreSQL usa tabelas `evolution_*`. Credenciais de instância
-usam a implementação Fernet existente e chave própria. Consentimento tem versão
-específica. W-API LITE/PRO continuam com o comportamento anterior. O perfil `pro`
-interno reutilizado pelo catálogo não é um plano comercial Evolution e não aparece
-como tal na interface. A restauração de snapshots não reaproveita o vínculo do outro
-provedor.
+- Exportação pessoal inclui mensagens/contatos/chats do próprio vínculo, sem tokens,
+  sessão, webhook, proxy ou chaves. Consulta com snapshot read-only e limites explícitos;
+  se ultrapassados, falha inteira, sem ZIP parcial silencioso.
+- Desconectar a Evolution encerra e elimina a instância remota, além dos históricos
+  locais já eliminados pelo fluxo anterior. A interface informa essa consequência.
+- Exclusão de conta só elimina o registro local após confirmação da remoção remota;
+  uma falha mantém o vínculo privado para retomada pelo worker.
+- Mensagens do gateway expiram em 30 dias por padrão (configurável 1–180), em lotes
+  de 1.000; relacionamentos MessageUpdate/Media são eliminados por cascata.
+- Contatos/chats permanecem enquanto vinculados e são removidos com a instância.
+- Backups do operador seguem sua retenção separada; não são prometidos apagamentos
+  retroativos de backups. Sem acesso ao banco privado, exportação/purga falham fechadas.
 
-Para voltar à W-API, restaurar a configuração anterior e reiniciar o Norium. Isso
-retoma os vínculos e o histórico W-API preservados; não migrar sessões entre APIs.
+`EVOLUTION_DATABASE_URL` é somente do operador, aceita apenas o serviço interno
+`evolution-database:5432/evolution`, com usuário evolution e rede privada explícita.
+A API não publica portas; PostgreSQL/Redis usam rede Docker interna separada.
+
+## Isolamento e rollback
+
+`WHATSAPP_PROVIDER` é selecionado pelo servidor e congelado no processo; padrão wapi.
+Frontend não define URL, segredo ou instância. Evolution tem documentos/caches e
+registros PostgreSQL próprios (`evolution_*`), chave Fernet e versão de consentimento
+próprias. O perfil interno pro não é plano comercial Evolution.
+
+Restaurar configuração/imagem anterior retoma vínculos W-API preservados. Não migrar
+sessões entre provedores. Para pausa sem remoção: `docker compose stop`; nunca `down -v`.
 
 ## Docker local
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/start_local_docker.ps1 -WithEvolution
+powershell -ExecutionPolicy Bypass -File scripts/start_local_docker.ps1 -WithEvolution -EnableEvolution
 ```
 
-URL do Norium: `http://localhost:8765`. Mesma conta de desenvolvimento existente.
-Segredos aleatórios são preservados em `output/docker-local/.env`, ignorado pelo
-Git. A API Evolution, Redis e PostgreSQL não publicam portas no host. Não há painel
-do fornecedor exposto. A API privada está iniciada para preparação da integração;
-o pareamento no Norium permanece bloqueado pela auditoria.
+Somente executar a ativação com as imagens corrigidas auditadas. URL:
+`http://localhost:8765/`. Conta e segredos existentes ficam preservados nos arquivos
+ignorados `output/docker-local`. O titular aceita os termos no Norium e escaneia o QR.
 
-`-PrepareOnly` prepara arquivos sem alterar containers. Nunca usar `down -v` para
-pausar. Manter os três volumes Evolution e os dois volumes do Norium.
+## ShardCloud e GitHub
 
-## Instalação no Shard — pendente
-
-Arquivo preparado: `compose.evolution.shard.yaml`, sem portas públicas, volumes
-próprios, banco/cache em rede interna, limites e logs rotacionados. O serviço se
-liga à rede `norium-edge` existente. Não altera o container Norium nem o proxy.
-
-Imagem original auditada:
-
-`evoapicloud/evolution-api@sha256:1bd8afc4a6cf48822e6cf02469aeae7bd35a12a6b616eacd1291926307f4d339`
-
-Fonte correspondente: tag `2.3.7`, commit
-`cd800f2976e1e5b682fbf86a01ee4d85ae61f370`; o rótulo OCI da imagem confirmou a revisão.
-
-A VPS tem 686 MB livres, 99% do disco ocupado e aproximadamente 4,8 GB de RAM
-disponível. `docker system df` indicou 8,69 GB recuperáveis de cache de build.
-Nenhum cache, container, volume, backup ou imagem de rollback foi removido.
-
-Ordem de promoção após correção do fornecedor:
-
-1. Atualizar o digest, guardar auditoria sem HIGH/CRITICAL e revisar compatibilidade.
-2. Revisão humana das alterações de autorização, privacidade e infraestrutura.
-3. Resolver espaço com uma ação específica revisada; exigir pelo menos 6 GiB livres.
-4. Publicar o código/artefato imutável pelo GitHub antes de instalar no Shard.
-5. Em diretório dedicado, `python3 scripts/prepare_evolution_shard.py` cria arquivos
-   novos com permissão 0600, sem imprimir nem substituir segredos.
-6. Somente então iniciar o Compose revisado. Incorporar `norium-evolution.env` ao
-   ambiente do Norium pelo fluxo existente, sem mostrar seu conteúdo no console.
-7. Prontidão, aceite do titular, QR e validação de envio/recebimento autorizada.
-
-O gerador deixa `EVOLUTION_CONNECTIONS_ENABLED=0`. Ativação remota ainda não ocorreu.
-Pausa sem apagar dados: `docker compose -f compose.evolution.shard.yaml stop`.
+1. Publicar/revisar o diff e aguardar todos os gates do CI do SHA exato.
+2. Liberar espaço com ação específica aprovada: somente cache Docker de build sem uso.
+   A leitura da VPS mostrou 685 MB livres e 8,69 GB recuperáveis desse cache; nada foi removido.
+3. Importar os artefatos imutáveis Norium e `evolution-deploy-image-SHA` do GitHub,
+   conferir checksums e recibos. Não reconstruir a aplicação na VPS.
+4. Em diretório dedicado, copiar o Compose e executar
+   `python3 scripts/prepare_evolution_shard.py --audit-receipt CAMINHO_DO_RECIBO`.
+   Exige pelo menos 6 GiB livres, recibo completo e IDs das três imagens; cria
+   arquivos 0600 novos, sem sobrescrever nem imprimir segredos.
+5. Iniciar os três serviços privados. Incorporar o arquivo privado
+   `norium-evolution.env` ao candidato Norium e ligá-lo à rede interna
+   `norium-evolution-data`; não expor PostgreSQL/Redis à rede de borda.
+6. Após auditoria/revisão, habilitar `EVOLUTION_CONNECTIONS_ENABLED=1`. O gerador
+   deixa 0 por segurança. Preservar todas as outras configurações de segurança,
+   volumes e dados do Norium. Backup e rollback antes da promoção.
+7. Conferir release/readiness; titular aceita termos e escaneia QR. Somente depois
+   um teste autorizado de envio/recebimento pode comprovar o fluxo WhatsApp completo.

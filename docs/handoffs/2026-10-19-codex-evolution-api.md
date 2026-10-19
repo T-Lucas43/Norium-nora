@@ -87,3 +87,27 @@ build foram identificados, mas nenhuma limpeza foi feita.
   Testes funcionais/suítes não executados, pareamento e envio real não realizados.
 - Sem push, PR novo ou alteração na VPS. Commits posteriores só de documentação
   não representam outra imagem em execução.
+
+
+## Correção solicitada e publicação — atualização de 19/10
+
+O usuário pediu corrigir/publicar o WhatsApp e também fazer o deploy do Norium.
+Isso autoriza push/deploy do conjunto; a revisão técnica humana do novo diff ainda
+é exigida pelo item 5 de AI_GOVERNANCE. As evidências anteriores acima representam
+a imagem original; o estado atual e o procedimento estão em operations/evolution-api.md.
+
+- Runtime reconstruído: Baileys rc14, bases mantidas, lock de produção, UID1000,
+  FFmpeg do Alpine; PG auxiliar sem gosu, UID70; Redis com correções Alpine.
+- As três imagens corrigidas passaram Trivy 0.75.0 sem HIGH/CRITICAL e sem ignores.
+- Inicialização normal local e listagem autenticada HTTP200, zero instâncias;
+  57 migrações verificadas. Conta WhatsApp real não pareada nem usada.
+- Exportação, desconexão/exclusão e retenção do banco privado integradas ao ciclo
+  por conta; falhas de purga preservam o vínculo para retomada.
+- CI passa a auditar/exportar as três imagens auxiliares imutáveis junto ao gate
+  do Norium. Compose Shard exige IDs provenientes do recibo auditado.
+- AST/YAML, TypeScript e lint conferidos; sem suítes manuais nesta correção.
+- Shard ainda sem mudanças: espaço insuficiente exige limpeza específica de cache
+  de build sem uso, mediante confirmação; imagens/volumes/backups ficam preservados.
+- Próximo: commit/PR, CI, revisão técnica humana da revisão exata, importação dos
+  artefatos GitHub e promoção preservando backup/rollback. Não declarar deploy
+  concluído antes de verificar a release e readiness no Shard.

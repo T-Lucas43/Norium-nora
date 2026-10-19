@@ -131,7 +131,7 @@ def binding_plan(binding: InstanceBinding) -> str | None:
 class WapiConnectService:
     def __init__(self, client: WapiClient | None = None) -> None:
         from app.services.whatsapp_provider import create_whatsapp_client, is_evolution
-        self._client = client or create_whatsapp_client()
+        self._client = client or (create_whatsapp_client() if is_evolution() else WapiClient())
         # Valida e congela a configuração: nenhum tenant pode ativá-la
         # tardiamente por uma alteração de ambiente durante o processo.
         self._homologation = None if is_evolution() else _load_homologation_config()
@@ -151,7 +151,7 @@ class WapiConnectService:
         binding = wb.get_binding(user_id)
         record = binding.consent_record()
         return {
-            "provider": PROVIDER,
+            **({"provider": PROVIDER} if PROVIDER == "evolution" else {}),
             "termVersion": CONSENT_TERM_VERSION,
             "accepted": binding.has_valid_consent(),
             "acceptedVersion": record.term_version if record else None,
@@ -1022,7 +1022,8 @@ class WapiConnectService:
 
     async def start(self, user_id: str, plan: str | None = None) -> dict[str, Any]:
         """Inicia a conexão. Exige aceite; retorna o estado já com QR quando houver."""
-        if not self.configured:
+        from app.services.whatsapp_provider import is_evolution
+        if is_evolution() and not self.configured:
             raise WapiError(getattr(self._client, "availability_detail", "Provedor WhatsApp não configurado."), code="not_configured")
         self._require_consent(user_id)
         await self.ensure_instance(user_id, plan=plan)

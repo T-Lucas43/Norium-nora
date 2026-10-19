@@ -1,0 +1,38 @@
+# A aplicação upstream permanece em 2.3.7; o runtime é reconstruído com lock
+# próprio. Não copiar o node_modules, npm global ou o .env da imagem antiga.
+FROM evoapicloud/evolution-api@sha256:1bd8afc4a6cf48822e6cf02469aeae7bd35a12a6b616eacd1291926307f4d339 AS upstream
+
+FROM node@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS dependencies
+WORKDIR /evolution
+RUN apk add --no-cache openssl
+COPY infra/evolution/package.json infra/evolution/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY --from=upstream /evolution/prisma ./prisma
+RUN DATABASE_CONNECTION_URI=postgresql://localhost/evolution node node_modules/prisma/build/index.js generate --schema prisma/postgresql-schema.prisma
+# A API upstream usa o caminho do instalador. Direcioná-lo ao FFmpeg mantido
+# pelo Alpine evita executar o binário antigo distribuído pelo pacote npm.
+RUN node -e "const fs=require('fs');const p=require('@ffmpeg-installer/ffmpeg').path;if(!p.startsWith('/evolution/node_modules/@ffmpeg-installer/'))process.exit(1);fs.unlinkSync(p);fs.symlinkSync('/usr/bin/ffmpeg',p)"
+
+FROM alpine@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
+RUN apk add --no-cache libstdc++ libgcc tzdata ffmpeg openssl ca-certificates
+COPY --from=dependencies /usr/local/bin/node /usr/local/bin/node
+WORKDIR /evolution
+COPY --from=dependencies --chown=1000:1000 /evolution/node_modules ./node_modules
+COPY --from=dependencies --chown=1000:1000 /evolution/package.json /evolution/package-lock.json ./
+COPY --from=dependencies --chown=1000:1000 /evolution/prisma ./prisma
+COPY --from=upstream --chown=1000:1000 /evolution/prisma/postgresql-migrations ./prisma/migrations
+COPY --from=upstream --chown=1000:1000 /evolution/dist ./dist
+COPY --from=upstream --chown=1000:1000 /evolution/manager ./manager
+COPY --from=upstream --chown=1000:1000 /evolution/public ./public
+COPY --chown=1000:1000 infra/evolution/UPSTREAM-LICENSE ./UPSTREAM-LICENSE
+COPY --chown=1000:1000 infra/evolution/entrypoint.sh ./entrypoint.sh
+RUN mkdir -p /evolution/instances && chown 1000:1000 /evolution /evolution/instances && chmod 755 /evolution/entrypoint.sh
+ARG NORIUM_RELEASE_SHA=unknown
+LABEL org.opencontainers.image.title="Norium Evolution runtime" \
+      org.opencontainers.image.source="https://github.com/T-Lucas43/Norium-nora" \
+      org.opencontainers.image.revision=$NORIUM_RELEASE_SHA \
+      com.norium.upstream.revision="cd800f2976e1e5b682fbf86a01ee4d85ae61f370"
+ENV NODE_ENV=production DOCKER_ENV=true TZ=America/Sao_Paulo DATABASE_PROVIDER=postgresql
+USER 1000:1000
+EXPOSE 8080
+ENTRYPOINT ["/evolution/entrypoint.sh"]

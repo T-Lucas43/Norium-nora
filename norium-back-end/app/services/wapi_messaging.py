@@ -41,8 +41,8 @@ def wapi_phone(conversa_id: str) -> str:
 
 class WapiMessagingService:
     def __init__(self, client: WapiClient | None = None) -> None:
-        from app.services.whatsapp_provider import create_whatsapp_client
-        self._client = client or create_whatsapp_client()
+        from app.services.whatsapp_provider import create_whatsapp_client, is_evolution
+        self._client = client or (create_whatsapp_client() if is_evolution() else WapiClient())
 
     def _creds(self, user_id: str) -> tuple[str, str]:
         try:

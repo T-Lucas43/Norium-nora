@@ -1954,7 +1954,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       {confirmarDesconexaoAberta && (
         <ConfirmDialog
           title="Desconectar WhatsApp?"
-          description="A sessao e o historico local deste usuario serao removidos. Nenhum outro usuario sera afetado."
+          description={evolutionProvider ? "A sessão, o histórico sincronizado local e os dados temporários dessa conta no gateway Evolution serão removidos. Os demais dados do Norium e as contas de outras pessoas serão preservados." : "A sessao e o historico local deste usuario serao removidos. Nenhum outro usuario sera afetado."}
           confirmLabel="Desconectar"
           danger
           busy={desconectando}

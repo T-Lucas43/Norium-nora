@@ -44,12 +44,14 @@ services:
       NORIUM_OAUTH_CREDENTIAL_ENCRYPTION_KEY: ${LOCAL_OAUTH_KEY:?Missing local encryption key}
       WAPI_CREDENTIAL_ENCRYPTION_KEY: ${LOCAL_WAPI_KEY:?Missing local W-API encryption key}
       WHATSAPP_PROVIDER: ${LOCAL_WHATSAPP_PROVIDER:-wapi}
-      EVOLUTION_CONNECTIONS_ENABLED: '0'
+      EVOLUTION_CONNECTIONS_ENABLED: ${LOCAL_EVOLUTION_CONNECTIONS_ENABLED:-0}
       EVOLUTION_BASE_URL: ${LOCAL_EVOLUTION_BASE_URL:-}
       EVOLUTION_API_KEY: ${LOCAL_EVOLUTION_API_KEY:-}
       EVOLUTION_CREDENTIAL_ENCRYPTION_KEY: ${LOCAL_EVOLUTION_CREDENTIAL_KEY:-}
       EVOLUTION_PRIVATE_NETWORK_ENABLED: ${LOCAL_EVOLUTION_ENABLED:-0}
       EVOLUTION_WEBHOOK_URL: ${LOCAL_EVOLUTION_WEBHOOK_URL:-}
+      EVOLUTION_DATABASE_URL: ${LOCAL_EVOLUTION_DATABASE_URL:-}
+      EVOLUTION_MESSAGE_RETENTION_DAYS: '30'
       WAPI_WEBHOOK_SECRET: ${LOCAL_EVOLUTION_WEBHOOK_SECRET:-}
       NORIUM_PERSISTENT_SESSIONS_ENABLED: 'true'
       NORIUM_BOOTSTRAP_ADMIN_EMAIL: ${LOCAL_ADMIN_EMAIL:-admin@norium.local}
@@ -73,7 +75,10 @@ services:
       - app-data:/app/data
   evolution-database:
     profiles: [evolution]
-    image: postgres:17-alpine
+    image: norium-evolution-postgres:local
+    build:
+      context: .
+      dockerfile: Dockerfile.evolution-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: evolution
@@ -91,7 +96,10 @@ services:
       options: {max-size: 10m, max-file: '3'}
   evolution-redis:
     profiles: [evolution]
-    image: redis:7-alpine
+    image: norium-evolution-redis:local
+    build:
+      context: .
+      dockerfile: Dockerfile.evolution-redis
     restart: unless-stopped
     command: [redis-server, --appendonly, 'yes']
     volumes:
@@ -101,7 +109,12 @@ services:
       options: {max-size: 10m, max-file: '3'}
   evolution-api:
     profiles: [evolution]
-    image: evoapicloud/evolution-api@sha256:1bd8afc4a6cf48822e6cf02469aeae7bd35a12a6b616eacd1291926307f4d339
+    image: norium-evolution:local
+    build:
+      context: .
+      dockerfile: Dockerfile.evolution
+      args:
+        NORIUM_RELEASE_SHA: ${LOCAL_RELEASE_SHA:?Missing revision}
     restart: unless-stopped
     init: true
     mem_limit: 1200m
@@ -110,8 +123,18 @@ services:
       evolution-database: {condition: service_healthy}
       evolution-redis: {condition: service_started}
     environment:
+      SERVER_TYPE: http
       SERVER_PORT: '8080'
+      AUTHENTICATION_TYPE: apikey
       SERVER_URL: http://evolution-api:8080
+      CONFIG_SESSION_PHONE_CLIENT: Norium
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      QRCODE_LIMIT: '30'
+      QRCODE_COLOR: '#198754'
+      CACHE_REDIS_TTL: '604800'
+      WEBSOCKET_ENABLED: 'false'
+      S3_ENABLED: 'false'
+      CHATWOOT_ENABLED: 'false'
       SERVER_DISABLE_DOCS: 'true'
       SERVER_DISABLE_MANAGER: 'true'
       AUTHENTICATION_API_KEY: ${LOCAL_EVOLUTION_API_KEY:-}
@@ -144,7 +167,7 @@ services:
     volumes:
       - evolution-instances:/evolution/instances
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://localhost:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 15

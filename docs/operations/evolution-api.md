@@ -9,8 +9,11 @@ A identificação do fornecedor também aparece nas configurações do WhatsApp.
 
 **Código integrado, ativação bloqueada.** A imagem oficial foi iniciada localmente,
 aplicou suas migrações e respondeu HTTP 200 à listagem autenticada, sem instâncias.
-Não houve pareamento nem envio real. O frontend compilado e a inicialização do
-Norium devem ser conferidos separadamente; prontidão do fornecedor não os comprova.
+Não houve pareamento nem envio real. O build do frontend/API e a inicialização do
+Norium foram conferidos separadamente: a revisão `5134978` está em execução local,
+página HTTP 200 e readiness pronta com PostgreSQL. Isso não comprova funcionamento
+com uma conta WhatsApp conectada. Evidência sanitizada em
+`output/docker-local/evolution-runtime-evidence.json`.
 
 A auditoria Trivy 0.75.0 do digest abaixo encontrou **11 ocorrências CRITICAL e
 254 HIGH**. São ocorrências em pacotes/arquivos, não 265 vulnerabilidades distintas

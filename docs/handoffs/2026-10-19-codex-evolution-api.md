@@ -71,3 +71,19 @@ Corrigir/validar a imagem e o ciclo de vida dos dados no fornecedor antes de usa
 contas reais. Não promover a imagem vulnerável nem pedir aceite para ignorar os
 achados. Espaço do Shard também continua pendente: 8,69 GB recuperáveis de cache de
 build foram identificados, mas nenhuma limpeza foi feita.
+
+## Evidência da execução local
+
+- Código em execução: `5134978d0236b70e4819142a1c93f945a5892088`, versão
+  `2026.10.19`, ambiente `local`, URL `http://localhost:8765/`.
+- Build Docker concluído, incluindo TypeScript, Vite e limites de bundle; AST
+  Python, lint do frontend e `git diff --check` sem erros.
+- Gitleaks conferiu os arquivos alterados e o commit exato: nenhum segredo encontrado.
+- `/health/ready` retornou pronto, persistência PostgreSQL; página HTTP 200;
+  containers Norium, PostgreSQL e Evolution healthy. Redis em execução.
+- Configuração efetiva: `provider=evolution`, `connectionsEnabled=false`;
+  presença das duas chaves confirmada somente como booleano, sem mostrar valores.
+- Evidência sanitizada: `output/docker-local/evolution-runtime-evidence.json`.
+  Testes funcionais/suítes não executados, pareamento e envio real não realizados.
+- Sem push, PR novo ou alteração na VPS. Commits posteriores só de documentação
+  não representam outra imagem em execução.

@@ -127,3 +127,18 @@ a imagem original; o estado atual e o procedimento estão em operations/evolutio
   obrigatório no fracionamento/transporte da imagem imutável. Sem novos testes manuais.
 - CI da revisão atual, aceite técnico humano, limpeza específica do cache e promoção
   remota continuam pendentes. Não confundir imagem local com a release do Shard.
+
+
+## Atualização do gate geral
+
+No CI de 5f43d5d passaram os 1.689 testes backend e os 54 testes de release,
+PostgreSQL e as auditorias das imagens Norium/Evolution. O gate pip-audit bloqueou
+três alertas de aiohttp 3.14.3. Atualizado para 3.14.4, correção indicada nos avisos
+GHSA-5wr8-gcqf-gqf3, GHSA-2g87-pp6c-29x5 e GHSA-494j-54xm-rwp3 do fornecedor.
+
+A auditoria local das dependências backend, dependências opcionais Nora e npm
+terminou sem alertas. Bandit também passou após substituir três concatenações de
+SQL fixo por variantes literais; parâmetros e locks/fencing são preservados.
+Sem exceções novas ou redução de severidade. O CI completo precisa passar de novo
+na revisão que contém essas correções antes da promoção. O pedido de revisão
+anterior mencionava 5f43d5d; o aceite deve identificar a revisão atualizada.

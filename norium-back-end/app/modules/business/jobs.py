@@ -152,7 +152,9 @@ def claim():
 def apply_chunk(job: dict, operation):
     """Fence an idempotent internal effect and its progress under the job lock."""
     with database() as (db, pg):
-        row = sql(db, pg, "SELECT * FROM norium_business_jobs WHERE id=?" + (" FOR UPDATE" if pg else ""), (job["id"],)).fetchone()
+        query = ("SELECT * FROM norium_business_jobs WHERE id=? FOR UPDATE" if pg else
+                 "SELECT * FROM norium_business_jobs WHERE id=?")
+        row = sql(db, pg, query, (job["id"],)).fetchone()
         if not row or row["status"] != "running" or row["lease"] != job["lease"] or row["lease_until"] <= time.time():
             raise RuntimeError("business_job_lease_lost")
         progress, result, completed = operation(dict(row))
@@ -170,7 +172,9 @@ def fail(job: dict, code: str, *, keep_payload: bool = False):
 
 def retry(user: dict, identifier: str):
     with database() as (db, pg):
-        row = sql(db, pg, "SELECT * FROM norium_business_jobs WHERE id=? AND user_id=? AND team_id=? AND workspace=?" + (" FOR UPDATE" if pg else ""),
+        query = ("SELECT * FROM norium_business_jobs WHERE id=? AND user_id=? AND team_id=? AND workspace=? FOR UPDATE" if pg else
+                 "SELECT * FROM norium_business_jobs WHERE id=? AND user_id=? AND team_id=? AND workspace=?")
+        row = sql(db, pg, query,
                   (identifier, require_user_id(user), require_team_id(user), current_workspace_id())).fetchone()
         if not row:
             raise HTTPException(404, "Importação não encontrada.")
@@ -211,10 +215,13 @@ def expire_inputs():
     from .store import mutate, snapshot
     stamp = time.time()
     with database() as (db, pg):
-        rows = sql(db, pg, """SELECT id,user_id,team_id,workspace,result FROM norium_business_jobs
+        query = ("""SELECT id,user_id,team_id,workspace,result FROM norium_business_jobs
             WHERE cleanup_at=0 AND created_at<? AND (status!='running' OR lease_until<?)
-            ORDER BY created_at LIMIT 50""" + (" FOR UPDATE SKIP LOCKED" if pg else ""),
-            (stamp-INPUT_TTL_SECONDS, stamp)).fetchall()
+            ORDER BY created_at LIMIT 50 FOR UPDATE SKIP LOCKED""" if pg else
+            """SELECT id,user_id,team_id,workspace,result FROM norium_business_jobs
+            WHERE cleanup_at=0 AND created_at<? AND (status!='running' OR lease_until<?)
+            ORDER BY created_at LIMIT 50""")
+        rows = sql(db, pg, query, (stamp-INPUT_TTL_SECONDS, stamp)).fetchall()
         for row in rows:
             context = set_request_context("business-input-expiration", row["workspace"])
             try:

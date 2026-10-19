@@ -13,7 +13,7 @@ from app.infrastructure.persistence import postgres_store, files, document_cache
 
 UPLOAD_STORES = ("team_chat_uploads", "finance_uploads", "task_uploads")
 SQLITE_STORES = ("ai_costs.sqlite3", "automation_events.sqlite3", "outbound_receipts.sqlite3",
-                 "scheduling.sqlite3", "nora_brain.sqlite3", "wapi_binding_registry_db.sqlite3")
+                 "scheduling.sqlite3", "nora_brain.sqlite3", "wapi_binding_registry_db.sqlite3", "business_jobs.sqlite3", "public_links.sqlite3")
 # Every personal relational store must have an explicit ownership predicate.
 ROW_SCOPES = {
     "scheduling_services": "tenant_id", "scheduling_availability": "tenant_id",
@@ -29,6 +29,8 @@ ROW_SCOPES = {
     "nora_budget": "account", "nora_outbound_receipts": "tenant|actor",
     "nora_tombstone_scopes": "tenant|actor",
     "norium_outbound_receipts": "user_id", "nora_knowledge_embeddings": "tenant|user_id",
+    "norium_business_jobs": "user_id",
+    "norium_public_links": "user_id",
 }
 NON_PERSONAL_TABLES = {"rates", "metadata", "nora_schema", "nora_internal_nonces", "sqlite_sequence", "wapi_binding_metadata"}
 SPECIAL_COVERAGE = {"scheduling_holds", "nora_tombstones", "norium_auth_accounts", "norium_auth_sessions", "norium_auth_events", "norium_auth_credentials"}

@@ -42,7 +42,7 @@ def tenant_id(user: dict[str, Any]) -> str:
 
 def client_summary(item: dict, user: dict | None = None, store_id: str = "") -> dict:
     summary = {
-        **{key: value for key, value in item.items() if key != "attachments"},
+        **{key: value for key, value in item.items() if key not in {"attachments", "_businessImportReceipts"}},
         "attachmentCount": len(item.get("attachments", [])),
         "access": item.get("access") if isinstance(item.get("access"), dict) else {"teamPermission": "none", "people": []},
     }
@@ -66,6 +66,8 @@ class ClientCreate(StrictModel):
     nextActionAt: str | None = None
     tags: list[str] = Field(default_factory=list, max_length=20)
     notes: str = Field(default="", max_length=2000)
+    city: str = Field(default="", max_length=100)
+    state: str = Field(default="", pattern=r"^(?:[A-Z]{2})?$")
 
 
 class ClientUpdate(StrictModel):
@@ -82,6 +84,8 @@ class ClientUpdate(StrictModel):
     nextActionAt: str | None = None
     tags: list[str] | None = Field(default=None, max_length=20)
     notes: str | None = Field(default=None, max_length=2000)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, pattern=r"^(?:[A-Z]{2})?$")
 
 
 class ClientFileUpload(StrictModel):
@@ -231,19 +235,25 @@ async def delete_client_avatar(client_id: str, user: dict = Depends(current_user
 @router.get("/{client_id}/contracts")
 async def list_client_contracts(client_id: str, user: dict = Depends(current_user)) -> dict:
     from app.modules.commercial.service import list_commercial_data
+    from app.modules.business.store import snapshot
     assert_route_permissions(user, "/api/comercial")
-    _, _, _, client = await find_accessible_client(user, client_id, "view")
+    client_owner, _, _, client = await find_accessible_client(user, client_id, "view")
     commercial = await list_commercial_data(user)
     linked_ids = set(client.get("contractIds", []))
+    relations = await asyncio.to_thread(snapshot, user, "client_relations")
+    business_links = {(row["resourceId"], row["resourceOwnerId"]): row for row in relations["items"]
+                      if row.get("resourceType") == "contract" and row.get("clientId") == client_id
+                      and row.get("clientOwnerId") == client_owner and not row.get("removedAt")}
     result = []
     for contract in commercial["contracts"]:
         primary = contract.get("client", {}).get("id") == client_id
+        business = business_links.get((contract["id"], str(contract.get("createdBy") or "")))
         result.append(
             linked_contract_summary(
                 contract,
-                primary or contract["id"] in linked_ids,
+                primary or contract["id"] in linked_ids or bool(business),
                 primary,
-            )
+            ) | {"businessLinkVersion": business.get("version", 1) if business else None}
         )
     return {
         "items": sorted(
@@ -278,6 +288,18 @@ async def unlink_client_contract(client_id: str, contract_id: str, user: dict = 
     contract = next((item for item in available["items"] if item["id"] == contract_id), None)
     if contract and contract["primary"]:
         raise HTTPException(409, "Este cliente faz parte do contrato original. O vínculo original é preservado.")
+    if contract and contract.get("businessLinkVersion") is not None:
+        from app.modules.commercial.service import find_accessible_document
+        from app.modules.business.store import mutate
+        document_owner, _, _, _ = await find_accessible_document(user, "contract", contract_id, "edit")
+        def remove_business_link(data):
+            relation = next((row for row in data["items"] if row.get("clientId") == client_id and row.get("clientOwnerId") == user_id
+                             and row.get("resourceType") == "contract" and row.get("resourceId") == contract_id
+                             and row.get("resourceOwnerId") == document_owner and not row.get("removedAt")), None)
+            if relation is None or relation.get("version", 1) != contract["businessLinkVersion"]:
+                raise HTTPException(409, "O vínculo mudou. Recarregue antes de desvincular.")
+            relation.update(removedAt=now_iso(), updatedAt=now_iso(), updatedBy=require_user_id(user), version=relation.get("version", 1)+1)
+        await asyncio.to_thread(mutate, user, "client_relations", remove_business_link)
     async with _lock:
         items = await asyncio.to_thread(load_clients, user_id)
         client = client_or_404(items, client_id)

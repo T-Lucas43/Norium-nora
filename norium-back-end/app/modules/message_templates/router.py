@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
 
 from app.core.tenant import get_user_db_path, read_json_file, write_json_file
+from app.core.identity import require_user_id
 from app.modules.auth.router import current_user
 from app.shared.schemas import StrictModel
 
@@ -27,7 +28,7 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
     {"id": "builtin_whatsapp_support", "name": "Retorno de suporte", "channel": "whatsapp", "category": "suporte", "subject": "", "body": "Olá, {{client_name}}! Recebemos sua solicitação sobre {{service_name}} e ela já está em atendimento. O próximo passo é {{next_step}}. Manteremos você atualizado por aqui. Obrigado pela compreensão."},
 ]
 
-ALLOWED_VARIABLES = {"client_name", "company_name", "sender_name", "service_name", "professional_name", "date", "time", "next_step"}
+ALLOWED_VARIABLES = {"client_name", "company_name", "sender_name", "service_name", "professional_name", "date", "time", "next_step", "nome", "servico", "desconto", "pix"}
 
 
 class TemplatePayload(StrictModel):
@@ -37,6 +38,7 @@ class TemplatePayload(StrictModel):
     subject: str = Field(default="", max_length=200)
     body: str = Field(min_length=2, max_length=12000)
     shortcut: str = Field(default="", max_length=30, pattern=r"^(?:[a-z][a-z0-9_-]{1,29})?$")
+    channels: list[Literal["email", "whatsapp", "team"]] = Field(default_factory=list, max_length=3)
 
 
 class RenderPayload(StrictModel):
@@ -49,7 +51,7 @@ def now_iso() -> str:
 
 
 def store_path(user: dict[str, Any]):
-    return get_user_db_path(str(user.get("id") or "primary"), "message_templates")
+    return get_user_db_path(require_user_id(user), "message_templates")
 
 
 def load_custom(user: dict[str, Any]) -> list[dict[str, Any]]:
@@ -68,9 +70,10 @@ def sanitize(payload: TemplatePayload, *, template_id: str, created_at: str | No
         "name": payload.name.strip(),
         "channel": payload.channel,
         "category": payload.category.strip().lower(),
-        "subject": payload.subject.strip() if payload.channel == "email" else "",
+        "subject": payload.subject.strip() if "email" in {payload.channel, *payload.channels} else "",
         "body": payload.body.strip(),
         "shortcut": payload.shortcut,
+        "channels": list(dict.fromkeys([payload.channel, *payload.channels])),
         "builtIn": False,
         "createdAt": created_at or now_iso(),
         "updatedAt": now_iso(),
@@ -86,7 +89,7 @@ def all_templates(user: dict[str, Any]) -> list[dict[str, Any]]:
 def list_templates(channel: Literal["email", "whatsapp", "team"] | None = None, user: dict[str, Any] = Depends(current_user)):
     templates = all_templates(user)
     if channel:
-        templates = [item for item in templates if item.get("channel") == channel]
+        templates = [item for item in templates if channel in (item.get("channels") or [item.get("channel")])]
     return {"templates": templates}
 
 

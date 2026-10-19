@@ -355,7 +355,7 @@ async def shortcuts(user: dict[str, Any] = Depends(current_user)):
     from app.modules.message_templates.router import all_templates
     domain().require_team_chat(user)
     items = await asyncio.to_thread(all_templates, user)
-    return {"templates": [{"id": item["id"], "name": item["name"], "shortcut": item.get("shortcut") or item["id"].removeprefix("builtin_").removeprefix("template_").replace("_", "-"), "body": item["body"]} for item in items if item.get("channel") in {"team", "whatsapp"}]}
+    return {"templates": [{"id": item["id"], "name": item["name"], "shortcut": item.get("shortcut") or item["id"].removeprefix("builtin_").removeprefix("template_").replace("_", "-"), "body": item["body"]} for item in items if ("team" in item["channels"] if item.get("channels") else item.get("channel") in {"team", "whatsapp"})]}
 
 
 @router.get("/conversation-attachments")

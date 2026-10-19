@@ -68,7 +68,12 @@ from app.modules.auth.email_router import router as account_email_router
 from app.modules.mail.router import router as gmail_router
 from app.modules.message_templates.router import router as message_templates_router
 from app.modules.nora.router import router as nora_router
+from app.modules.nora.operational_readiness import router as nora_operations_router
+from app.modules.business.router import router as business_router
+from app.modules.business.imports import router as business_import_router
+from app.modules.business.public_links import router as business_public_router
 from app.modules.operations.router import router as operations_router
+from app.modules.operations.exact import router as exact_operations_router
 from app.modules.platform.router import router as platform_router
 from app.modules.profile.router import router as perfil_router
 from app.modules.public_site.router import router as public_site_router
@@ -250,6 +255,7 @@ def create_app() -> FastAPI:
         from app.modules.automations.events import worker as automation_worker
         from app.services.gmail_incremental import worker as gmail_worker
         from app.modules.team.chat_queue import worker as team_chat_worker
+        from app.modules.business.jobs import worker as business_worker
         await start_recording_maintenance()
         delivery = asyncio.create_task(worker())
         reminders = asyncio.create_task(reminder_worker())
@@ -257,6 +263,7 @@ def create_app() -> FastAPI:
         privacy_maintenance = asyncio.create_task(data_lifecycle_worker())
         gmail_sync = asyncio.create_task(gmail_worker())
         team_chat_queue = asyncio.create_task(team_chat_worker())
+        business_queue = asyncio.create_task(business_worker())
         try:
             yield
         finally:
@@ -267,6 +274,9 @@ def create_app() -> FastAPI:
             privacy_maintenance.cancel()
             gmail_sync.cancel()
             team_chat_queue.cancel()
+            business_queue.cancel()
+            with suppress(asyncio.CancelledError):
+                await business_queue
             with suppress(asyncio.CancelledError):
                 await team_chat_queue
             with suppress(asyncio.CancelledError):
@@ -508,6 +518,10 @@ def create_app() -> FastAPI:
 
     # A ordem é mantida para preservar a documentação e a resolução das rotas.
     app.include_router(nora_router)
+    app.include_router(nora_operations_router)
+    app.include_router(business_router)
+    app.include_router(business_import_router)
+    app.include_router(business_public_router)
     app.include_router(public_site_router)
     app.include_router(auth_router)
     app.include_router(privacy_router)
@@ -523,6 +537,7 @@ def create_app() -> FastAPI:
     app.include_router(message_templates_router)
     app.include_router(inbox_router)
     app.include_router(operations_router)
+    app.include_router(exact_operations_router)
     app.include_router(workhub_router)
     app.include_router(clients_router)
     app.include_router(workhub_clients_router)

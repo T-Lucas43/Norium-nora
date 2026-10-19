@@ -1,7 +1,7 @@
 """Cheap Gmail history polling without bodies or an open browser tab.
 
 Opt-in worker, one serialized account at a time. historyId is checkpointed only
-when all pages finish. Gmail 404 resets with a bounded ID-only baseline.
+when all pages finish. Initial metadata scans are paginated and resumable.
 """
 from __future__ import annotations
 import asyncio
@@ -32,15 +32,29 @@ def poll(service):
     api = service._service().users()
     history_id = str(state.get("historyId") or "")
     changes, complete, next_token = {}, True, state.get("pageToken")
+    metadata_changes = []
     try:
-        if not history_id:
+        baseline = state.get("baseline")
+        if not history_id or state.get("baselineComplete") is not True:
             # Fetch the checkpoint before the listing, so any concurrent change
             # is replayed by the next history poll rather than silently skipped.
-            profile = read(service, api.getProfile(userId="me"), 1)
-            listing = read(service, api.messages().list(userId="me", maxResults=100), 5)
+            if not isinstance(baseline, dict):
+                profile = read(service, api.getProfile(userId="me"), 1)
+                baseline = {"historyId": str(profile["historyId"]), "pageToken": None, "count": 0}
+            params = {"userId": "me", "maxResults": 100}
+            if baseline.get("pageToken"):
+                params["pageToken"] = baseline["pageToken"]
+            listing = read(service, api.messages().list(**params), 5)
             ids = [str(r["id"]) for r in listing.get("messages", []) if r.get("id")]
-            state.update(historyId=str(profile["historyId"]), knownIds=ids, fullCoverage=False,
-                         baselineCount=len(ids), pageToken=None)
+            baseline = {**baseline, "count": int(baseline.get("count") or 0) + len(ids),
+                        "pageToken": listing.get("nextPageToken")}
+            # Keep only a bounded inventory. Coverage refers to pages
+            # scanned, never to retaining all messages or hydrating their bodies.
+            known = list(dict.fromkeys([*(state.get("knownIds") or []), *ids]))[-500:]
+            state.update(historyId=baseline["historyId"], knownIds=known, fullCoverage=False,
+                         baselineCount=baseline["count"], baseline=baseline,
+                         baselineComplete=not bool(baseline["pageToken"]), pageToken=None)
+            complete = False  # Replay history after the final baseline page too.
             changed = len(ids)
         else:
             checkpoint = history_id
@@ -55,6 +69,8 @@ def poll(service):
                         message = row.get("message") or {}
                         if message.get("id"):
                             changes[str(message["id"])] = kind
+                            metadata_changes.append({"id": str(message["id"]),
+                                "threadId": str(message.get("threadId") or ""), "kind": kind})
             next_token = result.get("nextPageToken")
             state["pageToken"] = next_token
             # Cached IDs are a bounded inventory, never advertised as all mail.
@@ -68,6 +84,9 @@ def poll(service):
                 state["historyId"] = str(result.get("historyId") or checkpoint)
             changed = len(changes)
             complete = not bool(next_token)
+            state["fullCoverage"] = complete
+            if complete:
+                state.pop("baseline", None)
     except Exception as exc:
         code = getattr(getattr(exc, "resp", None), "status", None)
         if code == 404:
@@ -83,7 +102,8 @@ def poll(service):
     state.update(lastPoll=time.time(), interval=interval, nextPoll=time.time()+interval,
                  lastChanged=changed, status="current" if complete else "catching_up")
     service._write_profile_section("gmailIncrementalSync", state)
-    return {"changed":changed,"complete":complete,"interval":interval}
+    return {"changed":changed,"complete":complete,"interval":interval,
+            "metadataChanges": metadata_changes[:500]}
 
 
 async def worker():
@@ -110,7 +130,8 @@ async def worker():
                 result = await asyncio.to_thread(poll, service)
                 if result["changed"]:
                     from app.modules.inbox.router import manager
-                    await manager.broadcast(user["id"], {"type":"GMAIL_CHANGED", "count":result["changed"]})
+                    await manager.broadcast(user["id"], {"type":"GMAIL_CHANGED", "count":result["changed"],
+                        "complete": result["complete"]})
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -126,4 +147,4 @@ async def worker():
             finally:
                 reset_request_context(context)
             await asyncio.sleep(2)
-        await asyncio.sleep(30)
+        await asyncio.sleep(60)

@@ -29,6 +29,7 @@ import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import "../../styles/screens/inteligencia-equipe-conta.css";
 import SettingsNav, { readSettingsSection, storeSettingsSection, type SettingsSection } from "./SettingsNav";
 import NoraUsageSettings from "./NoraUsageSettings";
+import NoraOperationsSettings from "./NoraOperationsSettings";
 
 type SettingsDashboardProps = {
   userId?: string;
@@ -250,6 +251,7 @@ export default function SettingsDashboard({
           {message && <p role="status" className="nxi-alert is-success">{message}</p>}
 
           {section === "consumo" && currentUser && <NoraUsageSettings userId={currentUser.id} onOpenAdmin={showAdmin ? onOpenAdmin : undefined} />}
+          {section === "consumo" && currentUser?.systemAdmin && <NoraOperationsSettings />}
 
           {showAdmin && (
             <section hidden={section !== "admin"} className="nx-card nxi-card-pad flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

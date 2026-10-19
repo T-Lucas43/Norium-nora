@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, X } from "lucide-react";
 import Button from "../shared/Button";
 import { messageTemplatesApi, type MessageChannel, type MessageTemplate } from "../../features/message-templates/api";
+import { requestScope } from "../../core/api/sessionScope";
 
 const variableLabels: Record<string, string> = {
   client_name: "Nome do cliente",
@@ -12,6 +13,10 @@ const variableLabels: Record<string, string> = {
   date: "Data",
   time: "Horário",
   next_step: "Próximo passo",
+  nome: "Nome do cliente",
+  servico: "Serviço",
+  desconto: "Desconto",
+  pix: "Informação Pix",
 };
 
 function variablesFrom(template?: MessageTemplate) {
@@ -19,11 +24,15 @@ function variablesFrom(template?: MessageTemplate) {
   return Array.from(new Set(Array.from(text.matchAll(/\{\{([a-z_]+)\}\}/g), (match) => match[1])));
 }
 
-export default function MessageTemplatePicker({ channel, clientName = "", onApply }: {
+export default function MessageTemplatePicker({ channel, clientName = "", templateVariables, onApply }: {
   channel: MessageChannel;
   clientName?: string;
+  templateVariables?: Record<string, string>;
   onApply: (value: { subject: string; body: string }) => void;
 }) {
+  const scope = requestScope();
+  const variableSignature = JSON.stringify({ client_name: clientName, nome: clientName, ...templateVariables });
+  const sequence = useRef(0);
   const [open, setOpen] = useState(false);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -33,29 +42,36 @@ export default function MessageTemplatePicker({ channel, clientName = "", onAppl
   const selected = useMemo(() => templates.find((item) => item.id === selectedId), [selectedId, templates]);
   const requiredVariables = useMemo(() => variablesFrom(selected), [selected]);
 
-  useEffect(() => { setVariables((current) => ({ ...current, client_name: clientName || current.client_name || "" })); }, [clientName]);
+  useEffect(() => { setVariables(JSON.parse(variableSignature)); }, [variableSignature, scope]);
+  useEffect(() => () => { sequence.current++; }, []);
+  useEffect(() => { sequence.current++; setTemplates([]); setSelectedId(""); setOpen(false); setLoading(false); setError(""); }, [scope, channel]);
+  useEffect(() => { const update = () => { sequence.current++; setTemplates([]); setSelectedId(""); setOpen(false); setLoading(false); }; window.addEventListener("norium:message-templates-changed", update); return () => window.removeEventListener("norium:message-templates-changed", update); }, []);
 
   async function show() {
     setOpen(true);
     if (templates.length) return;
+    const requestSequence = ++sequence.current;
     setLoading(true); setError("");
     try {
       const result = await messageTemplatesApi.list(channel);
+      if (requestScope() !== scope || requestSequence !== sequence.current) return;
       setTemplates(result.templates);
       setSelectedId(result.templates[0]?.id || "");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível carregar os modelos."); }
-    finally { setLoading(false); }
+    } catch (reason) { if (requestScope() === scope && requestSequence === sequence.current) setError(reason instanceof Error ? reason.message : "Não foi possível carregar os modelos."); }
+    finally { if (requestScope() === scope && requestSequence === sequence.current) setLoading(false); }
   }
 
   async function apply() {
     if (!selectedId) return;
+    const requestSequence = ++sequence.current;
     setLoading(true); setError("");
     try {
       const rendered = await messageTemplatesApi.render(selectedId, variables);
+      if (requestScope() !== scope || requestSequence !== sequence.current) return;
       onApply(rendered);
       setOpen(false);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível aplicar o modelo."); }
-    finally { setLoading(false); }
+    } catch (reason) { if (requestScope() === scope && requestSequence === sequence.current) setError(reason instanceof Error ? reason.message : "Não foi possível aplicar o modelo."); }
+    finally { if (requestScope() === scope && requestSequence === sequence.current) setLoading(false); }
   }
 
   return <div className="relative">

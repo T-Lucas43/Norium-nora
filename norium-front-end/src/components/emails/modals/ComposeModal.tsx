@@ -3,6 +3,7 @@ import { Loader2, Paperclip, Send, Sparkles, X } from "lucide-react";
 import AttachmentPreview from "../AttachmentPreview";
 import type { ComposeState } from "../../../features/mail/types";
 import MessageTemplatePicker from "../../message-templates/MessageTemplatePicker";
+import { useQuickReplies } from "../../message-templates/useQuickReplies";
 
 type ComposeModalProps = {
   compose: ComposeState;
@@ -19,6 +20,7 @@ type ComposeModalProps = {
   onSaveDraft: () => void;
   onSend: () => void;
   onClose: () => void;
+  templateVariables?: Record<string, string>;
 };
 
 /** Janela de nova mensagem (canto inferior direito, como no layout aprovado). */
@@ -35,8 +37,12 @@ export default function ComposeModal({
   onSaveDraft,
   onSend,
   onClose,
+  templateVariables,
 }: ComposeModalProps) {
   const semDestinatario = !compose.to.trim();
+  const quick = useQuickReplies({ channel: "email", text: compose.body, additionalText: compose.subject,
+    variables: templateVariables,
+    onApply: ({ body, subject }) => onChange({ ...compose, body, subject: subject || compose.subject }) });
 
   return (
     <div className="nx-mail-layer nx-mail-compose-wrap">
@@ -86,13 +92,17 @@ export default function ComposeModal({
           />
         </div>
 
+        {quick.panel}
         <textarea
+          {...quick.inputProps}
+          onKeyDown={quick.onKeyDown}
           value={compose.body}
           onChange={(event) => onChange({ ...compose, body: event.target.value })}
           placeholder="Digite sua mensagem"
           aria-label="Mensagem"
           className="nx-mail-compose-body"
         />
+        {quick.missingVariables.length > 0 && <p role="status">Preencha os campos destacados por chaves: {quick.missingVariables.join(", ")}.</p>}
 
         {compose.attachments.length > 0 && (
           <AttachmentPreview attachments={compose.attachments} onRemove={onRemoveAttachment} />
@@ -100,7 +110,7 @@ export default function ComposeModal({
         {suggestionPanel}
 
         <div className="nx-mail-compose-foot">
-          <button type="button" onClick={onSend} disabled={sending || semDestinatario} className="nx-btn is-primary">
+          <button type="button" onClick={onSend} disabled={sending || semDestinatario || quick.missingVariables.length > 0} className="nx-btn is-primary">
             {sending ? <Loader2 size={15} className="nx-mail-spin" /> : <Send size={15} />}
             Enviar
           </button>
@@ -117,7 +127,7 @@ export default function ComposeModal({
             <span className="sr-only">Anexar arquivo</span>
             <input type="file" multiple className="hidden" onChange={(event) => onAddFiles(event.target.files)} />
           </label>
-          <MessageTemplatePicker channel="email" onApply={({ subject, body }) => onChange({ ...compose, subject: subject || compose.subject, body })} />
+          <MessageTemplatePicker channel="email" templateVariables={templateVariables} onApply={({ subject, body }) => onChange({ ...compose, subject: subject || compose.subject, body })} />
           {canUseNora && (
             <button
               type="button"

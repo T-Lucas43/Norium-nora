@@ -108,6 +108,8 @@
 .team-v3-shortcuts { display:grid; gap:3px; background:var(--nx-surface); border:1px solid var(--nx-border); border-radius:8px; padding:6px; max-height:220px; overflow-y:auto; }
 .team-v3-shortcuts button { display:flex; gap:10px; padding:8px; border-radius:5px; text-align:left; font-size:12px; }
 .team-v3-shortcuts button:hover { background:var(--nx-hover); }
+.team-v3-shortcuts button[aria-selected=true] { background:var(--nx-hover); outline:1px solid var(--nx-border); }
+.team-v3-shortcut-preview { display:block; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--nx-text-3); }
 .team-v3-markdown { overflow-wrap:anywhere; }
 .team-v3-markdown p { white-space:pre-wrap; }.team-v3-markdown strong { font-weight:600; }
 .team-v3-markdown ul,.team-v3-markdown ol { padding-left:20px; }.team-v3-markdown ul { list-style:disc; }

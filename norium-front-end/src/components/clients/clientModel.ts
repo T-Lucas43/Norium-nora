@@ -21,6 +21,9 @@ export type Client = {
   status: ClientStatus;
   stage: ClientStage;
   ownerName: string;
+  ownerId?: string;
+  city?: string;
+  state?: string;
   nextActionAt: string | null;
   tags: string[];
   notes: string;

@@ -554,6 +554,8 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
                 scrollRef={messageScrollRef}
                 replyBox={(
                   <MailReplyBox
+                    key={selectedMessage.id}
+                    templateVariables={{ sender_name: status?.name || "", client_name: selectedMessage.fromEmail.toLowerCase() !== status?.email?.toLowerCase() ? selectedMessage.fromName : "", nome: selectedMessage.fromEmail.toLowerCase() !== status?.email?.toLowerCase() ? selectedMessage.fromName : "" }}
                     text={replyText}
                     attachments={replyAttachments}
                     sending={sending}
@@ -583,6 +585,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
 
       {composeOpen && (
         <ComposeModal
+          templateVariables={{ sender_name: status?.name || "" }}
           compose={compose}
           sending={sending}
           canUseNora={canUseNora}

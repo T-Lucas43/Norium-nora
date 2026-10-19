@@ -29,6 +29,8 @@ const NOTIFICATIONS_TAB = "Notificações";
 
 type SocketMessage = {
   type?: string;
+  jobId?: string;
+  workspace?: string;
   event?: OmnichannelEvent;
   notification?: Partial<SystemNotification>;
   title?: string;
@@ -643,6 +645,10 @@ export function useWebSockets(
             return;
           }
 
+          if (payload.type === "BUSINESS_JOB_UPDATED") {
+            window.dispatchEvent(new CustomEvent("norium:business-job-updated", { detail: { jobId: payload.jobId, workspace: payload.workspace } }));
+            return;
+          }
           if (payload.type === "SYSTEM_NOTIFICATION" || payload.type === "SYSTEM_ALERT") {
             handleSocketSystemMessage(payload);
           }

@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { authToken, wsBaseUrl } from "../../core/api/config";
 import { authenticatedWebSocketUrl } from "../../core/api/client";
+import DocumentClientLink from "../business/DocumentClientLink";
 import type { AuthSession } from "../../types/auth";
 import type {
   Branding,
@@ -667,6 +668,7 @@ export default function CommercialEditor({
             <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--nx-text-3)]">
               <StatusPill status={sourceDocument.status} />
               <span>v{sourceDocument.version}</span>
+              <DocumentClientLink key={`${sourceDocument.id}:${sourceDocument.version}`} kind={contract ? "contract" : "proposal"} documentId={sourceDocument.id} />
               <SaveIndicator state={saveState} error={saveError} />
             </div>
           </div>

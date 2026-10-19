@@ -1,4 +1,5 @@
 import ProposalPdfUploadDialog from "./ProposalPdfUploadDialog";
+import CatalogPanel from "../business/CatalogPanel";
 import ProposalPdfWorkspace from "./ProposalPdfWorkspace";
 import { proposalStatuses, statusLabels } from "./proposalWorkflow";
 import SignatureComposer from "./SignatureComposer";
@@ -150,7 +151,7 @@ function brandingForTemplate(template?: CommercialTemplate | null) {
   };
 }
 
-type View = "all" | "mine" | "shared" | "documents" | "proposals" | "contracts" | "files" | "templates" | "brands";
+type View = "all" | "mine" | "shared" | "documents" | "proposals" | "contracts" | "files" | "templates" | "brands" | "catalog";
 type DisplayMode = "list" | "grid";
 type SortMode = "updated_desc" | "updated_asc" | "title";
 
@@ -955,6 +956,7 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
                   <ViewTab active={view === "files"} label="Arquivos e PDFs" count={data.uploadedDocuments.length} onClick={() => { setView("files"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "templates"} label="Modelos" count={data.templates.length} onClick={() => setView("templates")} />
                   <ViewTab active={view === "brands"} label="Marcas" count={data.brandProfiles.length} onClick={() => setView("brands")} />
+                  <ViewTab active={view === "catalog"} label="Catálogo" onClick={() => setView("catalog")} />
                 </div>
                 <div className="nxd-controls">
                   <label className="nx-input nxd-search"><Search size={15} className="nx-faint" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar documentos" placeholder="Buscar por documento ou cliente" /></label>
@@ -1057,6 +1059,7 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
                 />
               )}
 
+              {view === "catalog" && <CatalogPanel />}
               {view === "brands" && (
                 <LibraryView
                   title="Perfis de marca"
@@ -2015,8 +2018,8 @@ function Metric({ label, value, icon: Icon, onClick, tone = "blue" }: { label: s
   return <button type="button" data-metric-tone={tone} onClick={onClick} className="nx-card nx-kpi nxd-kpi"><span className="nx-kpi-l"><Icon size={16} className="nx-faint" />{label}</span><strong className="nx-kpi-v">{value}</strong></button>;
 }
 
-function ViewTab({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
-  return <button type="button" aria-pressed={active} onClick={onClick} className={`nx-tab ${active ? "is-active" : ""}`}>{label}<span className="nxw-tab-count">{count}</span></button>;
+function ViewTab({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
+  return <button type="button" aria-pressed={active} onClick={onClick} className={`nx-tab ${active ? "is-active" : ""}`}>{label}{count != null && <span className="nxw-tab-count">{count}</span>}</button>;
 }
 
 function StatusChip({ status }: { status: string }) {

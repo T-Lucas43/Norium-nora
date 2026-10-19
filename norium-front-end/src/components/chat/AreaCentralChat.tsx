@@ -34,6 +34,8 @@ import { conversationDisplayName, formatWhatsAppPhone, isTechnicalWhatsAppLabel 
 import NoraChatComposer from "./NoraChatComposer";
 import MessageNoraActions, { type MessageNoraRequest } from "./MessageNoraActions";
 import MessageTemplatePicker from "../message-templates/MessageTemplatePicker";
+import { useQuickReplies } from "../message-templates/useQuickReplies";
+import ClientTagsPanel from "../business/ClientTagsPanel";
 import { avatarColor } from "./avatarColor";
 
 function messageDayLabel(timestamp?: number) {
@@ -565,6 +567,9 @@ export default function AreaCentralChat({
   wallpaperUrl,
 }: AreaCentralProps) {
   const [resposta, setResposta] = useState("");
+  const quick = useQuickReplies({ channel: "whatsapp", text: resposta,
+    variables: { client_name: conversaAtiva ? conversationDisplayName(conversaAtiva) : "", nome: conversaAtiva ? conversationDisplayName(conversaAtiva) : "" },
+    onApply: ({ body }) => setResposta(body) });
   const [respondendoA, setRespondendoA] = useState<MsgConteudo | null>(null);
   const [mostrarPesquisa, setMostrarPesquisa] = useState(false);
   const [termoPesquisa, setTermoPesquisa] = useState("");
@@ -690,6 +695,7 @@ export default function AreaCentralChat({
   });
 
   const acionarEnviar = () => {
+    if (quick.missingVariables.length) return;
     const texto = resposta.trim();
     if (!texto && anexosPendentes.length === 0) return;
     void onEnviar(texto, respondendoA?.id);
@@ -812,6 +818,7 @@ export default function AreaCentralChat({
         </div>
       )}
 
+      <details className="border-b border-[var(--nx-border)] px-4 py-2"><summary className="text-xs cursor-pointer text-[var(--nx-text-2)]">Etiquetas do contato</summary><ClientTagsPanel key={conversaAtiva.id} conversationId={conversaAtiva.id} canEdit /></details>
       <div
         ref={scrollRef}
         onScroll={handleMessageScroll}
@@ -1056,12 +1063,15 @@ export default function AreaCentralChat({
             </div>
           )}
 
+          {quick.panel}
+          {quick.missingVariables.length > 0 && <p role="status" className="business-note">Preencha antes de enviar: {quick.missingVariables.join(", ")}.</p>}
           <input
             type="text"
             value={resposta}
+            {...quick.inputProps}
             disabled={gravando || enviandoAnexos}
             onChange={(event) => setResposta(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") acionarEnviar(); }}
+            onKeyDown={(event) => { if (quick.onKeyDown(event)) return; if (event.key === "Enter") acionarEnviar(); }}
             placeholder={gravando ? `Gravando áudio: ${formatarTempo(tempoGravacao)}` : "Digite uma mensagem"}
             aria-label="Mensagem"
             className="nx-conv-composer-input"
@@ -1087,7 +1097,7 @@ export default function AreaCentralChat({
               <button
                 type="button"
                 onClick={acionarEnviar}
-                disabled={enviandoAnexos || (!resposta.trim() && anexosPendentes.length === 0)}
+                disabled={enviandoAnexos || quick.missingVariables.length > 0 || (!resposta.trim() && anexosPendentes.length === 0)}
                 title="Enviar"
                 className="nx-conv-send"
                 aria-label="Enviar">

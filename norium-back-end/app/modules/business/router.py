@@ -6,7 +6,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import Field, field_validator
@@ -274,9 +274,15 @@ async def client_tags(client_id: str, user: dict = Depends(clients_user)):
 
 
 class ConversationTagChange(StrictModel):
-    conversationIds: list[str] = Field(min_length=1, max_length=100)
+    conversationIds: list[Annotated[str, Field(min_length=1, max_length=180)]] = Field(min_length=1, max_length=100)
     tagId: str = Field(min_length=1, max_length=100)
     apply: bool = True
+
+
+class ContactTagChange(StrictModel):
+    contactIds: list[Annotated[str, Field(min_length=1, max_length=180)]] = Field(min_length=1, max_length=100)
+    tagId: str = Field(min_length=1, max_length=100)
+    apply: bool = Field(default=True, strict=True)
 
 
 async def owned_conversations(user: dict, identifiers: list[str]):
@@ -298,54 +304,114 @@ async def conversation_binding_key(user: dict) -> str:
 
 @router.post("/tags/conversations")
 async def tag_conversations(payload: ConversationTagChange, user: dict = Depends(current_user)):
+    from .whatsapp_contacts import aliases_for, contact_alias_index, identity
     identifiers = list(dict.fromkeys(payload.conversationIds))
-    await owned_conversations(user, identifiers)
+    conversations = await owned_conversations(user, [])
+    index = await contact_alias_index(user)
+    if any(identifier not in conversations and identity(identifier) not in index for identifier in identifiers):
+        raise HTTPException(404, "Contato ou conversa não encontrado neste espaço de trabalho.")
+    return await change_whatsapp_tags(user, payload.tagId, payload.apply, [aliases_for(index, identifier) for identifier in identifiers])
+
+
+async def change_whatsapp_tags(user: dict, tag_id: str, apply: bool, groups: list[frozenset[str]]):
+    from .whatsapp_contacts import canonical, identity
     binding_key = await conversation_binding_key(user)
     actor = require_user_id(user)
     tag_data = await asyncio.to_thread(snapshot, user, "tags")
-    if not any(item["id"] == payload.tagId and item["scope"] in {"contact", "conversation"} and active_tag(item) for item in tag_data["items"]):
+    if not any(item["id"] == tag_id and item["scope"] in {"contact", "conversation"} and active_tag(item) for item in tag_data["items"]):
         raise HTTPException(404, "Etiqueta de contato não encontrada.")
+    unique = {canonical(group): group for group in groups}
     def change(data):
-        for identifier in identifiers:
+        for identifier, aliases in unique.items():
             def matches(row):
-                return row.get("conversationOwnerId") == actor and row.get("conversationId") == identifier and row.get("tagId") == payload.tagId and row.get("bindingKey") == binding_key
-            if payload.apply and not any(matches(row) for row in data["items"]):
+                return row.get("conversationOwnerId") == actor and identity(row.get("conversationId")) in aliases and row.get("tagId") == tag_id and row.get("bindingKey") == binding_key
+            if apply and not any(matches(row) for row in data["items"]):
                 require_room(data["items"], 50_000)
                 data["items"].append({"conversationOwnerId": actor, "conversationId": identifier,
-                    "tagId": payload.tagId, "bindingKey": binding_key, "createdBy": actor, "createdAt": now()})
-            elif not payload.apply:
+                    "tagId": tag_id, "bindingKey": binding_key, "createdBy": actor, "createdAt": now()})
+            elif not apply:
                 data["items"] = [row for row in data["items"] if not matches(row)]
-        return {"updated": len(identifiers)}
-    return await asyncio.to_thread(mutate, user, "tag_links", change)
+        return {"updated": len(unique)}
+    result = await asyncio.to_thread(mutate, user, "tag_links", change)
+    await business_audit(user, "business_whatsapp_tags_changed", "tag", tag_id, {"count": len(unique), "apply": apply})
+    return result
+
+
+@router.post("/tags/contacts")
+async def tag_contacts(payload: ContactTagChange, user: dict = Depends(current_user)):
+    from .whatsapp_contacts import contact_alias_index, identity
+    assert_route_permissions(user, "/api/chat")
+    await conversation_binding_key(user)
+    index = await contact_alias_index(user)
+    identifiers = {identity(value) for value in payload.contactIds}
+    if not identifiers or any(identifier not in index for identifier in identifiers):
+        raise HTTPException(404, "Contato não encontrado no catálogo local deste espaço de trabalho.")
+    return await change_whatsapp_tags(user, payload.tagId, payload.apply, [index[identifier] for identifier in identifiers])
 
 
 @router.get("/tags/conversation/{conversation_id}")
 async def conversation_tags(conversation_id: str, user: dict = Depends(current_user)):
-    await owned_conversations(user, [conversation_id])
+    from .whatsapp_contacts import aliases_for, contact_alias_index, identity
+    conversations = await owned_conversations(user, [])
     binding_key = await conversation_binding_key(user)
+    index = await contact_alias_index(user)
+    if conversation_id not in conversations and identity(conversation_id) not in index:
+        raise HTTPException(404, "Contato ou conversa não encontrado neste espaço de trabalho.")
+    aliases = aliases_for(index, conversation_id)
     tag_data, links = await asyncio.gather(asyncio.to_thread(snapshot, user, "tags"), asyncio.to_thread(snapshot, user, "tag_links"))
-    identifiers = {row["tagId"] for row in links["items"] if row.get("conversationOwnerId") == require_user_id(user) and row.get("conversationId") == conversation_id and row.get("bindingKey") == binding_key}
+    identifiers = {row["tagId"] for row in links["items"] if row.get("conversationOwnerId") == require_user_id(user) and identity(row.get("conversationId")) in aliases and row.get("bindingKey") == binding_key}
     return {"items": [tag_summary(user, row) for row in tag_data["items"] if row["id"] in identifiers and active_tag(row)]}
 
 
 @router.get("/tagged-conversations")
 async def tagged_conversations(tagIds: str = Query(max_length=2000), offset: int = Query(0, ge=0),
                                limit: int = Query(200, ge=1, le=200), user: dict = Depends(current_user)):
+    from .whatsapp_contacts import aliases_for, canonical, contact_alias_index, identity
     conversations = await owned_conversations(user, [])
     identifiers = {item for item in tagIds.split(",") if item}
     if not identifiers or len(identifiers) > 20:
         raise HTTPException(422, "Selecione de uma a 20 etiquetas.")
     binding_key = await conversation_binding_key(user)
+    index = await contact_alias_index(user)
     definitions, links = await asyncio.gather(asyncio.to_thread(snapshot, user, "tags"), asyncio.to_thread(snapshot, user, "tag_links"))
     allowed = {item["id"] for item in definitions["items"] if active_tag(item) and item["scope"] in {"contact", "conversation"}}
     linked = {}
     for row in links["items"]:
         if row.get("conversationOwnerId") == require_user_id(user) and row.get("bindingKey") == binding_key and row.get("tagId") in identifiers & allowed:
-            linked.setdefault(row["conversationId"], set()).add(row["tagId"])
-    matching = [identifier for identifier in conversations if identifiers.issubset(linked.get(identifier, set()))]
+            linked.setdefault(canonical(aliases_for(index, identity(row.get("conversationId")))), set()).add(row["tagId"])
+    matching = [identifier for identifier in conversations if identifiers.issubset(linked.get(canonical(aliases_for(index, identifier)), set()))]
     matching.sort(key=lambda identifier: (bool(conversations[identifier].get("fixada")),
                                          str(conversations[identifier].get("timestampUltimaMsg") or "").zfill(20)), reverse=True)
     return {"ids": matching[offset:offset+limit], "total": len(matching),
+            "nextOffset": offset+limit if offset+limit < len(matching) else None}
+
+
+@router.get("/tagged-contacts")
+async def tagged_contacts(response: Response, tagIds: str = Query(max_length=2000), offset: int = Query(0, ge=0),
+                          limit: int = Query(200, ge=1, le=200), user: dict = Depends(current_user)):
+    from .whatsapp_contacts import canonical, contact_alias_index, identity
+    assert_route_permissions(user, "/api/chat")
+    response.headers["Cache-Control"] = "no-store"
+    identifiers = {item for item in tagIds.split(",") if item}
+    if not identifiers or len(identifiers) > 20:
+        raise HTTPException(422, "Selecione de uma a 20 etiquetas.")
+    binding_key = await conversation_binding_key(user)
+    index = await contact_alias_index(user)
+    definitions, links = await asyncio.gather(asyncio.to_thread(snapshot, user, "tags"), asyncio.to_thread(snapshot, user, "tag_links"))
+    allowed = {row["id"] for row in definitions["items"] if active_tag(row) and row["scope"] in {"contact", "conversation"}}
+    linked: dict[str, set[str]] = {}
+    groups: dict[str, frozenset[str]] = {}
+    for row in links["items"]:
+        alias = identity(row.get("conversationId"))
+        if row.get("conversationOwnerId") != require_user_id(user) or row.get("bindingKey") != binding_key or alias not in index or row.get("tagId") not in identifiers & allowed:
+            continue
+        group = index[alias]
+        primary = canonical(group)
+        groups[primary] = group
+        linked.setdefault(primary, set()).add(row["tagId"])
+    matching = sorted(primary for primary, labels in linked.items() if identifiers.issubset(labels))
+    page = matching[offset:offset+limit]
+    return {"ids": sorted({alias for primary in page for alias in groups[primary]}), "total": len(matching),
             "nextOffset": offset+limit if offset+limit < len(matching) else None}
 
 

@@ -6,7 +6,7 @@ import BusinessDialog from "./BusinessDialog";
 import type { BusinessTag } from "./TagManager";
 
 export default function SelectionTagDialog({ ids, target, onClose }: {
-  ids: string[]; target: "clients" | "conversations"; onClose: () => void;
+  ids: string[]; target: "clients" | "conversations" | "contacts"; onClose: () => void;
 }) {
   const scope = requestScope(); const [labels, setLabels] = useState<BusinessTag[]>([]);
   const [selected, setSelected] = useState(""); const [error, setError] = useState("");
@@ -22,17 +22,17 @@ export default function SelectionTagDialog({ ids, target, onClose }: {
     if (!selected || busy || !ids.length || ids.length > 100 || requestScope() !== scope) return;
     setBusy(true); setError("");
     try { await apiRequest(`/api/business/tags/${target}`, { method: "POST", body: JSON.stringify({
-        [target === "clients" ? "clientIds" : "conversationIds"]: ids, tagId: selected, apply: shouldApply }) });
+        [target === "clients" ? "clientIds" : target === "contacts" ? "contactIds" : "conversationIds"]: ids, tagId: selected, apply: shouldApply }) });
       if (requestScope() !== scope) return;
       window.dispatchEvent(new Event(target === "clients" ? "norium:client-tags-changed" : "norium:conversation-tags-changed")); onClose();
     } catch (err) { if (requestScope() === scope) setError(err instanceof Error ? err.message : "Não foi possível alterar as etiquetas da seleção."); }
     finally { if (requestScope() === scope) setBusy(false); }
   }
-  return <BusinessDialog title={`Etiquetas de ${ids.length} ${target === "clients" ? "clientes" : "conversas"}`} busy={busy} onClose={onClose}>
+  return <BusinessDialog title={`Etiquetas de ${ids.length} ${target === "clients" ? "clientes" : target === "contacts" ? "contatos" : "conversas"}`} busy={busy} onClose={onClose}>
     <div className="business-form">
       {loading && <p role="status">Carregando etiquetas…</p>}
       <label>Etiqueta<select className="business-input" value={selected} onChange={event => setSelected(event.target.value)}><option value="">Selecione</option>{labels.map(label => <option key={label.id} value={label.id}>{label.name}</option>)}</select></label>
-      {!loading && !labels.length && <p className="business-note">Crie uma etiqueta na ficha de um cliente ou contato antes de aplicá-la em lote.</p>}
+      {!loading && !labels.length && <p className="business-note">Crie uma etiqueta em Gerenciar etiquetas antes de aplicá-la à seleção.</p>}
       <p className="business-note">A alteração será aplicada à seleção, após conferir seu acesso a cada registro. Limite de 100 por lote.</p>
       {error && <p className="business-error" role="alert">{error}</p>}
       <footer><Button disabled={busy} onClick={onClose}>Cancelar</Button><Button disabled={busy || !selected || loading} onClick={() => void apply(false)}>Remover etiqueta</Button><Button variant="primary" loading={busy} disabled={!selected || loading} onClick={() => void apply(true)}>Aplicar etiqueta</Button></footer>

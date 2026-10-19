@@ -20,6 +20,8 @@
 - feat(clientes): seleção de responsável em até 100 cadastros, com confirmação, conferência de acesso, conflito por atualização e resultado individual; propriedade e compartilhamento são preservados.
 - feat(clientes): arquivamento/restauração individual e em até 100 selecionados; visão de arquivados salva nos filtros, indicadores da carteira em uso e preservação do histórico e dos vínculos.
 - fix(clientes): importação pede revisão para cadastros arquivados; novas sugestões da Nora e novos lembretes de acompanhamento desconsideram cadastros arquivados.
+- feat(whatsapp): seleção de até 100 contatos na agenda, etiquetas em lote sem criar conversas, filtro por etiquetas e exportação dos contatos selecionados.
+- fix(etiquetas): correspondência por identificadores locais explícitos entre contato/conversa, com escopo de usuário, workspace e instância; criação de etiquetas no gerenciador existente.
 - chore(local): Docker Compose com PostgreSQL e frontend/API na mesma origem, conta local aleatória e remoção do bootstrap após o primeiro acesso confirmado.
 - Estado: compilação e análise estática conferidas; funcionalidades ainda sem aceite funcional, sem push e sem deploy.
 

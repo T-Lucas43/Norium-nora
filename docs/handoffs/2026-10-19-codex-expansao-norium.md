@@ -122,8 +122,8 @@ em 375 px. Não promover este estado como onda concluída.
    notificador com preferências/descadastro e base PDF aplicada a cada entrega.
    Presença já existe no Chat, mas requer conferência das integrações de tela.
 3. **Onda 1:** aceite funcional de responsável e arquivamento/restauração em lote; preparação de
-   envios com manifesto/aprovação e opt-out; seleção equivalente na agenda de
-   contatos, além da lista de conversas; comprovar importação/retomada, ACL,
+   envios com manifesto/aprovação e opt-out; aceite da seleção/etiquetas na agenda
+   de contatos e na lista de conversas; comprovar importação/retomada, ACL,
    privacidade, navegação por teclado e layout nos dois temas. Os filtros de
    WhatsApp, edição de visões, histórico do catálogo e seleção dos comandos da
    Nora já estão integrados no código, sem aceite funcional ainda.
@@ -205,3 +205,33 @@ conclusão das ondas ou autorização de promoção.
 - Critérios pendentes de aceite: três clientes selecionados, concorrência com
   edição, falta de permissão, restauração conservando arquivos/vínculos,
   seleção por teclado, dois temas e 375 px. Exigem validação antes da promoção.
+
+### Continuação: agenda de contatos do WhatsApp
+
+- `WhatsAppDirectory.tsx` ganhou seleção de até 100 contatos, selecionar os
+  visíveis, aplicação/remoção de etiquetas e exportação CSV só de nome/telefone
+  da seleção, com proteção de fórmulas. Lista renderiza 50 contatos/grupos por
+  vez; filtros e cabeçalho rolam sem ocupar toda a lista.
+- Hook de filtros existente agora atende contatos e conversas. A agenda usa
+  `GET /api/business/tagged-contacts`, pagina 200 identidades por consulta e
+  oferece carregar as demais correspondências. Seleção e resultados são
+  separados por sessão/workspace e descartados ao trocar seção/filtro.
+- `POST /api/business/tags/contacts` aceita apenas IDs encontrados no catálogo
+  local do próprio ator. Nenhuma conversa ou sincronização é criada por essas
+  rotas. O gerenciador de etiquetas permite criar a primeira etiqueta.
+- `whatsapp_contacts.py` aproxima somente representações de identidade que já
+  constam em campos/aliases explícitos do provedor e no histórico local. Não usa
+  nome como identidade nem adivinha números. Limites: 50.000 registros locais,
+  64 aliases por identidade e 300.000 aliases no total; erro fechado ao exceder.
+- Aplicação, remoção e leitura na ficha usam esses mesmos aliases; vínculos
+  antigos continuam reconhecidos. Contatos sem histórico podem receber etiqueta
+  sem criar uma conversa. Troca de instância continua isolada pelo bindingKey.
+- Os vínculos mantêm o formato já inventariado em privacidade, com
+  `conversationOwnerId`; exclusão de membro também cobre as relações de contatos.
+  A auditoria registra etiqueta, quantidade e operação, sem nomes/telefones.
+- TypeScript forçado, AST Python, lint dos quatro componentes alterados e
+  `git diff --check` passaram. Não houve suíte funcional, chamada a provedor,
+  sincronização ou alteração de dados de WhatsApp para validar esta etapa.
+- Aceite pendente: três contatos, contato sem conversa, variantes JID/LID
+  explícitas, preservação de etiquetas antigas, outro ator/workspace/instância,
+  remoção de etiqueta, paginação, teclado e layout em 375 px.

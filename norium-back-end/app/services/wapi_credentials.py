@@ -20,11 +20,12 @@ ACTIVE_KEY_ENV = "EVOLUTION_CREDENTIAL_ENCRYPTION_KEY" if is_evolution() else "W
 PREVIOUS_KEYS_ENV = "EVOLUTION_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS" if is_evolution() else "WAPI_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS"
 _TEST_ENVIRONMENTS = frozenset({"test", "testing"})
 _EPHEMERAL_TEST_KEY = Fernet.generate_key().decode("ascii")
+_PROVIDER_LABEL = "Evolution API" if is_evolution() else "W-API"
 _MISSING_KEY_MESSAGE = (
-    f"Configuração da criptografia de credenciais WhatsApp ausente; defina {ACTIVE_KEY_ENV}."
+    f"Configuração da criptografia de credenciais {_PROVIDER_LABEL} ausente; defina {ACTIVE_KEY_ENV}."
 )
 _INVALID_KEY_MESSAGE = (
-    f"Configuração da criptografia WhatsApp inválida; verifique {ACTIVE_KEY_ENV} e {PREVIOUS_KEYS_ENV}."
+    f"Configuração da criptografia de credenciais {_PROVIDER_LABEL} inválida; verifique {ACTIVE_KEY_ENV} e {PREVIOUS_KEYS_ENV}."
 )
 
 

@@ -10,7 +10,7 @@ import zipfile
 
 
 REQUIRED_GATES = {"validate", "postgres-persistence", "team-call-quality",
-                  "shard-image-security", "shard-source-artifact"}
+                  "shard-image-security", "evolution-image-security", "shard-source-artifact"}
 IMAGE_FILES = {"image.tar.gz", "image.tar.gz.sha256", "image-provenance.json",
                "image-audit-receipt.json"}
 PART_BYTES = 250 * 1024 * 1024

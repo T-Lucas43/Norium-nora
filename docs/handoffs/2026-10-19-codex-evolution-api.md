@@ -111,3 +111,19 @@ a imagem original; o estado atual e o procedimento estão em operations/evolutio
 - Próximo: commit/PR, CI, revisão técnica humana da revisão exata, importação dos
   artefatos GitHub e promoção preservando backup/rollback. Não declarar deploy
   concluído antes de verificar a release e readiness no Shard.
+
+
+## Publicação e conferência local
+
+- PR #68 aberto em https://github.com/T-Lucas43/Norium-nora/pull/68.
+- Norium local na revisão 819cec1, readiness PostgreSQL pronta, login local e
+  provedor Evolution habilitado; evidência sanitizada em
+  output/evolution-audit/local-release-evidence.json. Nenhuma instância pareada.
+- Gitleaks conferiu os nove commits até 819cec1 e não encontrou segredos.
+- CI confirmou o gate das três imagens Evolution e persistência PostgreSQL.
+  A validação geral detectou mensagens W-API alteradas e duas fixtures existentes
+  desatualizadas para o catálogo/baseline; mensagens preservadas e fixtures alinhadas.
+- Contratos existentes do workflow incluem o novo gate, que também passa a ser
+  obrigatório no fracionamento/transporte da imagem imutável. Sem novos testes manuais.
+- CI da revisão atual, aceite técnico humano, limpeza específica do cache e promoção
+  remota continuam pendentes. Não confundir imagem local com a release do Shard.

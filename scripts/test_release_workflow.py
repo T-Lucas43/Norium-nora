@@ -18,7 +18,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         workflow = self.workflow()
         self.assertEqual(workflow["name"], "Shard Cloud - validacao e homologacao")
         self.assertEqual(set(workflow["jobs"]), {
-            "validate", "postgres-persistence", "team-call-quality", "shard-image-security", "shard-source-artifact", "deploy-homologacao",
+            "validate", "postgres-persistence", "team-call-quality", "shard-image-security", "evolution-image-security", "shard-source-artifact", "deploy-homologacao",
         })
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
         for forbidden in ("azure/login", "AZURE_", "az bicep", "az containerapp", "az webapp", "Dockerfile.azure"):
@@ -37,7 +37,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_all_candidate_gates_checkout_reviewed_head(self):
         workflow = self.workflow()
-        for job in ("validate", "postgres-persistence", "team-call-quality", "shard-image-security"):
+        for job in ("validate", "postgres-persistence", "team-call-quality", "shard-image-security", "evolution-image-security"):
             with self.subTest(job=job):
                 checkout = next(step for step in workflow["jobs"][job]["steps"] if step.get("uses", "").startswith("actions/checkout@"))
                 self.assertEqual("${{ github.event.pull_request.head.sha || github.sha }}", checkout["with"]["ref"])
@@ -201,7 +201,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_shard_source_artifact_requires_all_gates_and_has_no_provider_credentials(self):
         workflow = self.workflow()
         job = workflow["jobs"]["shard-source-artifact"]
-        self.assertEqual(set(job["needs"]), {"validate", "postgres-persistence", "team-call-quality", "shard-image-security"})
+        self.assertEqual(set(job["needs"]), {"validate", "postgres-persistence", "team-call-quality", "shard-image-security", "evolution-image-security"})
         self.assertNotIn("if", job)
         checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
         self.assertEqual("${{ github.event.pull_request.head.sha || github.sha }}", checkout["with"]["ref"])

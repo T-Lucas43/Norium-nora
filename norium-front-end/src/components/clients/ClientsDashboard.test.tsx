@@ -55,6 +55,7 @@ describe("Client workspace", () => {
         if (path === "/api/business/client-views") return { items: [], canShare: false };
         if (path === "/api/business/tags?scope=client") return { items: [] };
         if (path === "/api/business/tags/client/client-1") return { items: [] };
+        if (path === "/api/business/clients/client-1/relations?offset=0&limit=25") return { items: [], total: 0, nextOffset: null };
         if (path === "/api/team-chat/members")
           return {
             members: [

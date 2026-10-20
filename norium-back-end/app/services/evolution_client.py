@@ -199,7 +199,7 @@ class EvolutionClient(WapiClient):
             key = row.get("key") if isinstance(row, dict) else None
             if isinstance(key, dict) and key.get("id") == identifier and remote in {key.get("remoteJid"), key.get("remoteJidAlt")} and isinstance(key.get("fromMe"), bool):
                 return {"key": {field: key[field] for field in ("id", "remoteJid", "fromMe", "participant") if field in key},
-                        "message": row.get("message") or {}}
+                        "message": _media_bytes(row["message"]) if isinstance(row.get("message"), dict) else {}}
         raise WapiError("Mensagem de referência não disponível nesta conta/conversa.", status=422, code="invalid_message")
 
     async def download_media(self, instance_id: str, token: str, *, media_key: str, direct_path: str,

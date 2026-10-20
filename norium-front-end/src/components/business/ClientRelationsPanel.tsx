@@ -25,6 +25,7 @@ export default function ClientRelationsPanel({ clientId, canEdit }: { clientId: 
   const load = useCallback(async (signal: AbortSignal) => {
     setLoading(true); setError("");
     try { const data = await apiRequest<Page>(`/api/business/clients/${encodeURIComponent(clientId)}/relations?offset=${offset}&limit=25`, { signal });
+      if (!Array.isArray(data.items)) throw new Error("Resposta inválida ao consultar documentos vinculados.");
       if (!signal.aborted && requestScope() === scope) setPage(data);
     } catch (err) { if (!signal.aborted && requestScope() === scope) setError(err instanceof Error ? err.message : "Não foi possível consultar os documentos vinculados."); }
     finally { if (!signal.aborted && requestScope() === scope) setLoading(false); }

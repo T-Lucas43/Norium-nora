@@ -201,3 +201,10 @@ Docker local estava saudável em `http://localhost:8765/`, com reinicialização
 `unless-stopped`. O próximo rebuild e a conferência dos downloads ainda precisam
 concluir. A candidata não foi promovida ao Shard; o aceite anterior identifica
 9ce7525 e os gates da nova revisão precisam passar antes da promoção.
+
+Conferência adicional: após alinhar também etiquetas vinculadas e relações da
+ficha de clientes, os 136 testes frontend dos 27 arquivos afetados passaram,
+incluindo WhatsApp, mídias, clientes, etiquetas e relatórios. A falha anterior de
+relatórios não se reproduziu isoladamente nem nessa execução; seu log foi mantido.
+A suíte completa anterior registrou 951 sucessos e sete falhas antes desses ajustes;
+o CI completo da candidata ainda é obrigatório. Nenhum limite de teste foi reduzido.

@@ -1,0 +1,5 @@
+# A entrada oficial suporta execução direta como postgres. O diretório inicial
+# do volume já pertence a esse usuário; não é necessário o helper root gosu.
+FROM postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+RUN rm /usr/local/bin/gosu
+USER 70:70

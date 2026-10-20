@@ -343,6 +343,7 @@ export function ClientContracts({ clientId, canEdit = true }: { clientId: string
       await apiRequest(`/api/clientes/${clientId}/contracts/${item.id}`, {
         method: linked ? "PUT" : "DELETE",
       });
+      window.dispatchEvent(new CustomEvent("norium:client-relations-changed", { detail: { clientId } }));
       setItems((current) =>
         current.map((contract) =>
           contract.id === item.id ? { ...contract, linked } : contract,

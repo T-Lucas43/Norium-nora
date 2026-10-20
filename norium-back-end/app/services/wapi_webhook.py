@@ -509,6 +509,34 @@ _FLAT_MEDIA_TYPES = {
 }
 
 
+def updated_reactions(existing: Any, event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Substitui somente a reação do autor; preserva as dos demais participantes."""
+    from_me = bool(event.get("fromMe"))
+    sender = str(event.get("senderId") or "") if not from_me else ""
+    rows = []
+    for item in existing or []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        if bool(row.get("fromMe")) != from_me:
+            rows.append(row)
+            continue
+        senders = [str(value) for value in row.get("senders", [])] if isinstance(row.get("senders"), list) else []
+        if not from_me and sender and senders:
+            remaining = [value for value in senders if value != sender]
+            if remaining:
+                rows.append({**row, "senders": remaining, "count": len(remaining)})
+    emoji = str(event.get("texto") or "")
+    if emoji:
+        matching = next((row for row in rows if not from_me and not row.get("fromMe") and row.get("emoji") == emoji and row.get("senders")), None)
+        if matching is not None and sender:
+            matching["senders"] = list(dict.fromkeys([*matching["senders"], sender]))
+            matching["count"] = len(matching["senders"])
+        else:
+            rows.append({"emoji": emoji, "count": 1, "fromMe": from_me, "senders": [sender] if sender else []})
+    return rows
+
+
 def _media_meta(node: dict[str, Any], dtype: str, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
     """Preserva o discriminador mesmo quando o catálogo não traz a chave completa.
 

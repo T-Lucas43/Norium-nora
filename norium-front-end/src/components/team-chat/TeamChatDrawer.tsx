@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, AtSign, CalendarDays, CalendarPlus, CheckCheck, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Send, Settings2, MessageSquare, PanelRight, Pin, PinOff, SmilePlus, Users, UserRound, Video, Volume2, X } from "lucide-react";
 import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authToken } from "../../utils/api";
+import { requestScope } from "../../core/api/sessionScope";
 import { downloadWithAuth } from "../../utils/download";
 import TeamConversationNavigation from "./TeamConversationNavigation";
 import TeamMessageActions from "./TeamMessageActions";
@@ -548,7 +549,11 @@ export default function TeamChatDrawer({ open, onClose, onOpen, session, onUnrea
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const [scheduledItems, setScheduledItems] = useState<ScheduleItem[]>([]);
   const [shortcuts, setShortcuts] = useState<{ id: string; name: string; shortcut: string; body: string }[]>([]);
+  const templateScope = requestScope(); const [shortcutsScope, setShortcutsScope] = useState("");
+  const shortcutsGeneration = useRef(0); const [shortcutsRevision, setShortcutsRevision] = useState(0);
+  useEffect(() => { const update = () => { shortcutsGeneration.current++; setShortcutsScope(""); setShortcutsRevision(value => value+1); }; window.addEventListener("norium:message-templates-changed", update); return () => window.removeEventListener("norium:message-templates-changed", update); }, []);
   const [shortcutDismissed, setShortcutDismissed] = useState(false);
+  const [shortcutIndex, setShortcutIndex] = useState(0);
   const [mediaFilter, setMediaFilter] = useState("");
   const [mediaPage, setMediaPage] = useState<Attachment[]>([]);
   const [mediaMore, setMediaMore] = useState(false);
@@ -871,7 +876,7 @@ export default function TeamChatDrawer({ open, onClose, onOpen, session, onUnrea
       const command = outgoingText.trim().replace(/^\/nora\s*/i, "");
       const source = quotedMessage || messages[messages.length-1];
       if (/^buscar(?:\s|$)/i.test(command)) setNoraInput({ mode: "search", question: command.replace(/^buscar\s*/i, "") });
-      else if (source) setNoraInput({ mode: "ask", source, question: /^tarefa(?:\s|$)/i.test(command) ? "Proponha um título e uma descrição de tarefa a partir desta conversa. Não crie nada; vou revisar." : /^agendar(?:\s|$)/i.test(command) ? "Proponha uma pauta de reunião a partir desta conversa. Não crie nada nem invente horários livres." : "Resuma esta conversa, decisões e pendências. " + command.replace(/^resumir\s*/i, "") });
+      else if (source) setNoraInput({ mode: "ask", source, question: /^tarefa(?:\s|$)/i.test(command) ? "Proponha um título e uma descrição de tarefa a partir desta conversa. Não crie nada; vou revisar." : /^agendar(?:\s|$)/i.test(command) ? "Proponha uma pauta de reunião a partir desta conversa. Não crie nada nem invente horários livres." : /^relatorio(?:\s|$)/i.test(command) ? "Prepare um relatório desta conversa com resumo, decisões, responsáveis e pendências, somente com o contexto disponível. " + command.replace(/^relatorio\s*/i, "") : "Resuma esta conversa, decisões e pendências. " + command.replace(/^resumir\s*/i, "") });
       else setError("Abra uma conversa com mensagens para dar contexto à Nora.");
       return;
     }
@@ -985,8 +990,30 @@ export default function TeamChatDrawer({ open, onClose, onOpen, session, onUnrea
   useEffect(() => { if (open && selectedThreadId) window.dispatchEvent(new CustomEvent("norium:presence-context", { detail: { type: "conversation", id: selectedThreadId } })); return () => { if (open && selectedThreadId) window.dispatchEvent(new CustomEvent("norium:presence-context", { detail: null })); }; }, [open, selectedThreadId]);
   async function setNotifications(mode: "all" | "mentions" | "none", mutedUntil?: string) { try { await collaboration.request(`/threads/${encodeURIComponent(selectedThreadId)}/notifications`, { method: "PATCH", body: JSON.stringify({ mode, mutedUntil: mutedUntil ? new Date(mutedUntil).toISOString() : null }) }); void loadThreads(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao salvar notificações."); } }
   useEffect(() => { if (!open) return; let cancelled = false; void collaborationRef.current.request("/collaboration-capabilities").then((data) => { if (!cancelled) setQueueEnabled(Boolean(data.scheduledMessages)); }).catch(() => { if (!cancelled) setQueueEnabled(false); }); return () => { cancelled = true; }; }, [open, session.token]);
-  useEffect(() => { if (!text.startsWith("/") || shortcuts.length || !selectedThreadId) return; let cancelled = false; void collaborationRef.current.request("/shortcuts").then((data) => { if (!cancelled) setShortcuts(data.templates || []); }).catch((error) => { if (!cancelled) setError(error.message); }); return () => { cancelled = true; }; }, [text, shortcuts.length, selectedThreadId]);
-  const shortcutOptions = text.startsWith("/") && !shortcutDismissed ? shortcuts.filter((item) => `${item.shortcut} ${item.name}`.toLocaleLowerCase("pt-BR").includes(text.slice(1).toLocaleLowerCase("pt-BR"))).slice(0, 6) : [];
+  const slashActive = text.startsWith("/");
+  useEffect(() => { if (!slashActive || shortcutsScope === templateScope || !selectedThreadId) return; let cancelled = false;
+    const generation = shortcutsGeneration.current;
+    void collaborationRef.current.request("/shortcuts").then((data) => { if (!cancelled && generation === shortcutsGeneration.current && requestScope() === templateScope) { setShortcuts(data.templates || []); setShortcutsScope(templateScope); } })
+      .catch((error) => { if (!cancelled && generation === shortcutsGeneration.current && requestScope() === templateScope) setError(error.message); });
+    return () => { cancelled = true; };
+  }, [slashActive, shortcutsScope, templateScope, selectedThreadId, shortcutsRevision]);
+  type SlashOption = { id: string; name: string; shortcut: string; body: string; action?: "poll" | "reminder" };
+  const slashCommands: SlashOption[] = [
+    ...(noraAllowed ? [{ shortcut: "nora resumir", name: "Resumir conversa" }, { shortcut: "nora tarefa", name: "Preparar tarefa" },
+      { shortcut: "nora agendar", name: "Preparar reunião" }, { shortcut: "nora relatorio", name: "Preparar relatório" },
+      { shortcut: "nora buscar", name: "Buscar com a Nora" }].map(item => ({ ...item, id: `command-${item.shortcut}`, body: `/${item.shortcut} ` })) : []),
+    ...(shortcutsScope === templateScope ? shortcuts : []),
+    { id: "command-poll", name: "Criar enquete", shortcut: "enquete", body: "", action: "poll" },
+    ...(queueEnabled && messages.length ? [{ id: "command-reminder", name: "Lembrar a última mensagem", shortcut: "lembrar", body: "", action: "reminder" as const }] : []),
+  ];
+  const shortcutOptions = slashActive && !shortcutDismissed ? slashCommands.filter(item =>
+    `${item.shortcut} ${item.name}`.toLocaleLowerCase("pt-BR").includes(text.slice(1).toLocaleLowerCase("pt-BR"))).slice(0, 12) : [];
+  function applyShortcut(item: SlashOption) {
+    if (item.action === "poll") setProductivity({ action: "poll" });
+    else if (item.action === "reminder" && messages.length && queueEnabled) setProductivity({ action: "reminder", source: messages[messages.length-1] });
+    else setText(item.body.replaceAll("{{sender_name}}", session.user.nome));
+    setShortcutDismissed(true); setShortcutIndex(0); inputRef.current?.focus();
+  }
   function productivityDone(data: Record<string, unknown>) { const message = data.message as TeamMessage | undefined; if (message?.threadId === selectedThreadRef.current) { setMessages((current) => [...current.filter((item) => item.id !== message.id), message].sort((a, b) => a.createdAt.localeCompare(b.createdAt))); collaboration.handleMessage(message); } if (data.scheduled && !productivity?.scheduled) { setText(""); setFiles([]); } collaboration.invalidate(); void loadThreads(); }
   async function showScheduled() { try { const data = await collaboration.request(`/scheduled-messages?threadId=${encodeURIComponent(selectedThreadId)}`); setScheduledItems(data.scheduled || []); setScheduledOpen(true); } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao abrir agendadas."); } }
   async function cancelScheduled(job: ScheduleItem) { try { await collaboration.request(`/scheduled-messages/${encodeURIComponent(job.id)}`, { method: "DELETE" }); setScheduledItems((current) => current.filter((item) => item.id !== job.id)); } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao cancelar."); } }
@@ -1316,16 +1343,20 @@ export default function TeamChatDrawer({ open, onClose, onOpen, session, onUnrea
 
           {contentTab === "chat" && <footer className="team-chat-footer">
             {mentionedUserIds.length > 0 && <label className="team-v3-urgent"><input type="checkbox" checked={urgentMention} onChange={(event) => setUrgentMention(event.target.checked)} />Marcar menção como urgente</label>}
-            {text.startsWith("/") && !shortcutDismissed && <div className="team-v3-shortcuts" aria-label="Comandos e respostas rápidas">{noraAllowed && ["resumir", "tarefa", "agendar", "buscar"].filter(command => `nora ${command}`.includes(text.slice(1).toLowerCase())).map(command => <button key={command} type="button" onClick={() => { setText(`/nora ${command} `); setShortcutDismissed(true); inputRef.current?.focus(); }}>/nora {command}</button>)}{shortcutOptions.map((item) => <button type="button" key={item.id} onClick={() => { setText(item.body.replaceAll("{{sender_name}}", session.user.nome)); setShortcutDismissed(true); inputRef.current?.focus(); }}><strong>/{item.shortcut}</strong><small>{item.name}</small></button>)}<button type="button" onClick={() => setProductivity({ action: "poll" })}>/enquete · Criar enquete</button>{queueEnabled && messages.length > 0 && <button type="button" onClick={() => setProductivity({ action: "reminder", source: messages[messages.length-1] })}>/lembrar · Lembrar a última mensagem</button>}</div>}
+            {shortcutOptions.length > 0 && <div className="team-v3-shortcuts" id="team-quick-replies" role="listbox" aria-label="Comandos e respostas rápidas">
+              {shortcutOptions.map((item, index) => <button type="button" role="option" id={`team-quick-reply-${index}`} aria-selected={index === Math.min(shortcutIndex, shortcutOptions.length-1)} key={item.id} onMouseDown={event => event.preventDefault()} onClick={() => applyShortcut(item)}><strong>/{item.shortcut}</strong><span><small>{item.name}</small>{!item.id.startsWith("command-") && <small className="team-v3-shortcut-preview">{item.body.slice(0, 100)}</small>}</span></button>)}
+            </div>}
             {quotedMessage && <div className="team-v3-quote"><div><strong>Respondendo a {quotedMessage.senderName}</strong><p>{quotedMessage.text}</p></div><button type="button" className="team-icon-button" aria-label="Cancelar resposta citada" onClick={() => setQuotedMessage(null)}><X size={14} /></button></div>}
             {emojiPickerOpen && <div className="team-composer-emoji-picker"><TeamEmojiPicker onSelect={insertEmoji} onClose={() => setEmojiPickerOpen(false)} /></div>}
             <div className="team-chat-composer">
-            <textarea ref={inputRef} value={text} rows={2} maxLength={2000} aria-label="Mensagem para a conversa" aria-autocomplete="list" aria-controls={showMentionSuggestions ? "team-mention-options" : undefined} aria-activedescendant={showMentionSuggestions ? `team-mention-${Math.min(mentionIndex, mentionOptions.length - 1)}` : undefined}
-              onChange={(event) => { setText(event.target.value); setCursor(event.target.selectionStart); setMentionDismissed(false); setMentionIndex(0); setShortcutDismissed(false); }}
+            <textarea ref={inputRef} value={text} rows={2} maxLength={2000} aria-label="Mensagem para a conversa" aria-autocomplete="list" aria-controls={showMentionSuggestions ? "team-mention-options" : shortcutOptions.length ? "team-quick-replies" : undefined} aria-activedescendant={showMentionSuggestions ? `team-mention-${Math.min(mentionIndex, mentionOptions.length - 1)}` : shortcutOptions.length ? `team-quick-reply-${Math.min(shortcutIndex, shortcutOptions.length - 1)}` : undefined}
+              onChange={(event) => { setText(event.target.value); setCursor(event.target.selectionStart); setMentionDismissed(false); setMentionIndex(0); setShortcutDismissed(false); setShortcutIndex(0); }}
               onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) return;
                 if (event.key === "Escape" && shortcutOptions.length) { event.preventDefault(); setShortcutDismissed(true); return; }
+                if (shortcutOptions.length && ["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setShortcutIndex(current => (current + (event.key === "ArrowDown" ? 1 : -1) + shortcutOptions.length) % shortcutOptions.length); return; }
+                if (shortcutOptions.length && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) { event.preventDefault(); applyShortcut(shortcutOptions[Math.min(shortcutIndex, shortcutOptions.length - 1)]); return; }
                 if (event.key === "ArrowUp" && !text && !showMentionSuggestions) { const last = messages.findLast((message) => message.senderId === session.user.id && !message.metadata?.deletedAt && !message.metadata?.action); if (last) { event.preventDefault(); beginEdit(last); return; } }
                 if (showMentionSuggestions && ["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setMentionIndex((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + mentionOptions.length) % mentionOptions.length); return; }
                 if (showMentionSuggestions && (event.key === "Enter" || event.key === "Tab")) { event.preventDefault(); selectMention(mentionOptions[Math.min(mentionIndex, mentionOptions.length - 1)]); return; }

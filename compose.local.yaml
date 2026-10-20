@@ -1,0 +1,184 @@
+name: norium-expansao-local
+services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: norium_local
+      POSTGRES_USER: norium_local
+      POSTGRES_PASSWORD: ${LOCAL_DATABASE_PASSWORD:?Run prepare-local.ps1 first}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U norium_local -d norium_local']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  app:
+    image: norium-expansao:local
+    build:
+      context: .
+      dockerfile: Dockerfile.shard
+      args:
+        NORIUM_RELEASE_SHA: ${LOCAL_RELEASE_SHA:?Missing revision}
+        NORIUM_RELEASE_VERSION: '2026.10.19'
+        NORIUM_DEPLOYMENT_STAGE: local
+    init: true
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8765:8000'
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: development
+      APP_ENV: development
+      PORT: '8000'
+      FRONTEND_URL: http://localhost:8765
+      BACKEND_PUBLIC_URL: http://localhost:8765
+      NORIUM_DATA_DIR: /app/data
+      NORIUM_DATABASE_URL: postgresql://norium_local:${LOCAL_DATABASE_PASSWORD}@database:5432/norium_local
+      NORIUM_DATABASE_SSLMODE: disable
+      NORIUM_POSTGRES_REQUIRED: '0'
+      NORIUM_AUTH_SECRET: ${LOCAL_AUTH_SECRET:?Missing local secret}
+      NORIUM_OAUTH_CREDENTIAL_ENCRYPTION_KEY: ${LOCAL_OAUTH_KEY:?Missing local encryption key}
+      WAPI_CREDENTIAL_ENCRYPTION_KEY: ${LOCAL_WAPI_KEY:?Missing local W-API encryption key}
+      WHATSAPP_PROVIDER: ${LOCAL_WHATSAPP_PROVIDER:-wapi}
+      EVOLUTION_CONNECTIONS_ENABLED: ${LOCAL_EVOLUTION_CONNECTIONS_ENABLED:-0}
+      EVOLUTION_BASE_URL: ${LOCAL_EVOLUTION_BASE_URL:-}
+      EVOLUTION_API_KEY: ${LOCAL_EVOLUTION_API_KEY:-}
+      EVOLUTION_CREDENTIAL_ENCRYPTION_KEY: ${LOCAL_EVOLUTION_CREDENTIAL_KEY:-}
+      EVOLUTION_PRIVATE_NETWORK_ENABLED: ${LOCAL_EVOLUTION_ENABLED:-0}
+      EVOLUTION_WEBHOOK_URL: ${LOCAL_EVOLUTION_WEBHOOK_URL:-}
+      EVOLUTION_DATABASE_URL: ${LOCAL_EVOLUTION_DATABASE_URL:-}
+      EVOLUTION_MESSAGE_RETENTION_DAYS: '30'
+      WAPI_WEBHOOK_SECRET: ${LOCAL_EVOLUTION_WEBHOOK_SECRET:-}
+      NORIUM_PERSISTENT_SESSIONS_ENABLED: 'true'
+      NORIUM_BOOTSTRAP_ADMIN_EMAIL: ${LOCAL_ADMIN_EMAIL:-admin@norium.local}
+      NORIUM_BOOTSTRAP_ADMIN_USER_ID: local-admin-expansao
+      NORIUM_BOOTSTRAP_ADMIN_NAME: Tarcisio - Local
+      NORIUM_BOOTSTRAP_ADMIN_PASSWORD: ${LOCAL_ADMIN_PASSWORD:-}
+      NORA_LEGACY_WRITER_SINGLETON: '1'
+      NORA_BRAIN_ENABLED: '0'
+      NORA_BRAIN_ALLOW_MODEL_CALLS: '0'
+      NORA_BRAIN_EXECUTOR_ENABLED: '0'
+      NORA_KNOWLEDGE_EMBEDDINGS_ENABLED: '0'
+      NORA_INTENT_LLM: '0'
+      NORIUM_BRAVE_ENABLED: '0'
+      NORIUM_GMAIL_INCREMENTAL_ENABLED: '0'
+      NORIUM_TEAM_CHAT_QUEUE_ENABLED: '0'
+      NORIUM_BUSINESS_WORKER_ENABLED: '1'
+      TEAM_CALL_ENABLED: 'false'
+      TEAM_CALL_RECORDING_ENABLED: 'false'
+      NORA_MEETING_ENABLED: '0'
+    volumes:
+      - app-data:/app/data
+  evolution-database:
+    profiles: [evolution]
+    image: norium-evolution-postgres:local
+    build:
+      context: .
+      dockerfile: Dockerfile.evolution-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: evolution
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${LOCAL_EVOLUTION_DATABASE_PASSWORD:-}
+    volumes:
+      - evolution-database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U evolution -d evolution']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  evolution-redis:
+    profiles: [evolution]
+    image: norium-evolution-redis:local
+    build:
+      context: .
+      dockerfile: Dockerfile.evolution-redis
+    restart: unless-stopped
+    command: [redis-server, --appendonly, 'yes']
+    volumes:
+      - evolution-redis:/data
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  evolution-api:
+    profiles: [evolution]
+    image: norium-evolution:local
+    build:
+      context: .
+      dockerfile: Dockerfile.evolution
+      args:
+        NORIUM_RELEASE_SHA: ${LOCAL_RELEASE_SHA:?Missing revision}
+    restart: unless-stopped
+    init: true
+    mem_limit: 1200m
+    cpus: 1.5
+    depends_on:
+      evolution-database: {condition: service_healthy}
+      evolution-redis: {condition: service_started}
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: '8080'
+      AUTHENTICATION_TYPE: apikey
+      SERVER_URL: http://evolution-api:8080
+      CONFIG_SESSION_PHONE_CLIENT: Norium
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      QRCODE_LIMIT: '30'
+      QRCODE_COLOR: '#198754'
+      CACHE_REDIS_TTL: '604800'
+      WEBSOCKET_ENABLED: 'false'
+      S3_ENABLED: 'false'
+      CHATWOOT_ENABLED: 'false'
+      SERVER_DISABLE_DOCS: 'true'
+      SERVER_DISABLE_MANAGER: 'true'
+      AUTHENTICATION_API_KEY: ${LOCAL_EVOLUTION_API_KEY:-}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: 'false'
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${LOCAL_EVOLUTION_DATABASE_PASSWORD:-}@evolution-database:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: norium-local
+      DATABASE_SAVE_DATA_INSTANCE: 'true'
+      DATABASE_SAVE_DATA_NEW_MESSAGE: 'true'
+      DATABASE_SAVE_MESSAGE_UPDATE: 'true'
+      DATABASE_SAVE_DATA_CONTACTS: 'true'
+      DATABASE_SAVE_DATA_CHATS: 'true'
+      DATABASE_SAVE_DATA_HISTORIC: 'true'
+      DATABASE_SAVE_DATA_LABELS: 'false'
+      CACHE_REDIS_ENABLED: 'true'
+      CACHE_REDIS_URI: redis://evolution-redis:6379/0
+      CACHE_REDIS_PREFIX_KEY: norium-evolution
+      CACHE_REDIS_SAVE_INSTANCES: 'true'
+      CACHE_LOCAL_ENABLED: 'false'
+      WEBHOOK_GLOBAL_ENABLED: 'false'
+      TELEMETRY_ENABLED: 'false'
+      LOG_LEVEL: ERROR,WARN
+      LOG_BAILEYS: error
+      # API acessível somente na rede Docker; o navegador usa a API do Norium.
+      # A versão 2.3.7 recusa inclusive chamadas sem Origin com lista restrita.
+      CORS_ORIGIN: '*'
+      DEL_INSTANCE: 'false'
+      DEL_TEMP_INSTANCES: 'false'
+      LANGUAGE: pt-BR
+    volumes:
+      - evolution-instances:/evolution/instances
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+volumes:
+  database:
+  app-data:
+  evolution-database:
+  evolution-redis:
+  evolution-instances:
+

@@ -11,6 +11,8 @@ _SECRET_PATTERNS = (
     re.compile(r"\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|password|senha)\s*[:=]\s*[^\s,;]+", re.I),
     re.compile(r"\bbearer\s+[A-Za-z0-9._~+/-]+=*", re.I),
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+    # Also cover relative links and tokens truncated by the input bound.
+    re.compile(r"(?:https?://[^\s/<>]+)?/p/(?:budget|portal|documents|satisfaction|site-chat|waitlist)#[A-Za-z0-9_-]+", re.I),
 )
 # CPF com pontuacao (000.000.000-00) e sempre removido; 11 digitos seguidos so quando o
 # digito verificador fecha, para nao confundir celular (11987654321) com CPF.

@@ -1,9 +1,14 @@
-import { ArrowRight, ContactRound, Plus, Search, UsersRound } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowRight, ContactRound, ListChecks, Plus, Search, UsersRound } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { ChatConversa } from "./types";
 import { contactDisplayName, contactMatchesSearch } from "./contactPicker";
 import type { Contact, WhatsAppSyncProgress } from "./whatsappApi";
 import { useWhatsAppProfilePhoto } from "./useAuthenticatedMedia";
+import { requestScope } from "../../core/api/sessionScope";
+import { useConversationLabels } from "../business/useConversationLabels";
+import SelectionTagDialog from "../business/SelectionTagDialog";
+import { saveBlob } from "../clients/clientModel";
+import Button from "../shared/Button";
 
 interface WhatsAppDirectoryProps {
   mode: "contacts" | "groups";
@@ -50,18 +55,33 @@ function SyncBar({ sync }: { sync?: WhatsAppSyncProgress | null }) {
 }
 
 export default function WhatsAppDirectory({ mode, contacts, groups, loading, error, sync, onOpenContact, onOpenGroup, onCreateGroup, onRefresh }: WhatsAppDirectoryProps) {
+  const scope = requestScope();
+  const labels = useConversationLabels("contacts", mode === "contacts");
   const [search, setSearch] = useState("");
+  const [selectionMode, setSelectionMode] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [tagsOpen, setTagsOpen] = useState(false), [visible, setVisible] = useState(50);
+  useEffect(() => { setSearch(""); setSelectedIds([]); setSelectionMode(false); setTagsOpen(false); setVisible(50); }, [scope, mode]);
+  useEffect(() => { setVisible(50); setSelectedIds([]); }, [search, labels.signature]);
+  useEffect(() => { const available = new Set(contacts.map(contact => contact.id || contact.phone));
+    setSelectedIds(current => current.some(id => !available.has(id)) ? current.filter(id => available.has(id)) : current);
+  }, [contacts]);
   const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
-  const filteredContacts = useMemo(() => contacts.filter((contact) => contactMatchesSearch(contact, search)), [contacts, search]);
+  const filteredContacts = useMemo(() => contacts.filter(contact => contactMatchesSearch(contact, search)
+    && (!labels.signature || [contact.id, contact.phone, contact.lid, ...(contact.aliases || [])].some(id => id && labels.matching?.has(id.trim().toLowerCase())))), [contacts, search, labels.signature, labels.matching]);
   const filteredGroups = useMemo(() => groups.filter((group) => `${group.contato} ${group.metadados?.descricaoGrupo || ""}`.toLocaleLowerCase("pt-BR").includes(normalizedSearch)), [groups, normalizedSearch]);
   const title = mode === "contacts" ? "Contatos" : "Grupos";
   const Icon = mode === "contacts" ? ContactRound : UsersRound;
   const empty = mode === "contacts" ? filteredContacts.length === 0 : filteredGroups.length === 0;
+  function exportSelected() {
+    const cell = (value: string) => `"${(/^[\s]*[=+\-@]/.test(value) ? `'${value}` : value).replaceAll('"', '""')}"`;
+    const rows = [["Nome", "WhatsApp"], ...contacts.filter(contact => selectedIds.includes(contact.id || contact.phone)).map(contact => [contactDisplayName(contact), contact.phone || contact.id])];
+    saveBlob(new Blob(["\uFEFF"+rows.map(row => row.map(cell).join(";")).join("\r\n")], { type: "text/csv;charset=utf-8" }), "contatos-whatsapp-selecionados.csv");
+  }
 
   return (
     <>
       <aside className="norium-chat-sidebar flex h-full min-h-0 w-[300px] min-w-[280px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)] text-[var(--text)]">
-        <header className="shrink-0 border-b border-[var(--border)] px-4 py-4">
+        <header className="max-h-[55%] shrink-0 overflow-y-auto border-b border-[var(--border)] px-4 py-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="flex items-center gap-2 text-[15px] font-semibold"><Icon size={16} className="text-[var(--nx-primary-text)]" /> {title}</h2>
@@ -75,6 +95,10 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
             <Search size={15} className="text-[var(--text-secondary)]" />
             <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={mode === "contacts" ? "Pesquisar nome ou telefone" : "Pesquisar grupos"} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--text-secondary)]" aria-label={`Pesquisar ${title.toLocaleLowerCase("pt-BR")}`} />
           </label>
+          {mode === "contacts" && <div className="mt-3 grid gap-3">{labels.toolbar}
+            <Button size="sm" icon={<ListChecks size={14} />} onClick={() => { setSelectionMode(current => !current); setSelectedIds([]); setTagsOpen(false); }}>{selectionMode ? "Encerrar seleção" : "Selecionar contatos"}</Button>
+            {selectionMode && <label className="business-note flex items-center gap-2"><input type="checkbox" aria-label="Selecionar até 100 contatos visíveis" disabled={!filteredContacts.length || loading || labels.loading} checked={!!filteredContacts.length && filteredContacts.slice(0, Math.min(visible, 100)).every(contact => selectedIds.includes(contact.id || contact.phone))} onChange={event => setSelectedIds(event.target.checked ? filteredContacts.slice(0, Math.min(visible, 100)).map(contact => contact.id || contact.phone) : [])} />Selecionar contatos visíveis (até 100)</label>}
+          </div>}
         </header>
 
         <SyncBar sync={sync} />
@@ -87,20 +111,24 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
               <button type="button" onClick={onRefresh} className="nx-btn is-sm mt-3">Tentar novamente</button>
             </div>
           )}
-          {!loading && !error && mode === "contacts" && filteredContacts.map((contact) => {
+          {!loading && !error && mode === "contacts" && filteredContacts.slice(0, visible).map((contact) => {
             const name = contactDisplayName(contact);
+            const id = contact.id || contact.phone;
             return (
-              <button key={contact.id || contact.phone} type="button" onClick={() => onOpenContact(contact)} className="group flex w-full items-center gap-3 border-b border-[var(--border)]/55 px-4 py-3 text-left transition hover:bg-[var(--surface-hover)]">
+              <div key={id} className="group flex w-full items-center gap-3 border-b border-[var(--border)]/55 px-4 py-3 text-left transition hover:bg-[var(--surface-hover)]">
+                {selectionMode && <input type="checkbox" aria-label={`Selecionar contato ${name}`} checked={selectedIds.includes(id)} disabled={!selectedIds.includes(id) && selectedIds.length >= 100} onChange={event => setSelectedIds(current => event.target.checked ? [...current, id] : current.filter(value => value !== id))} />}
+                <button type="button" onClick={() => onOpenContact(contact)} className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--nx-primary)]">
                 <DirectoryAvatar identifier={contact.id || contact.phone} name={name} photoUrl={contact.photoUrl} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-bold">{name}</span>
                   <span className="mt-0.5 block truncate text-xs text-[var(--text-secondary)]">{contact.bio || contact.phone || contact.id}</span>
                 </span>
                 <ArrowRight size={15} className="text-[var(--text-secondary)] opacity-0 transition group-hover:opacity-100" />
-              </button>
+                </button>
+              </div>
             );
           })}
-          {!loading && !error && mode === "groups" && filteredGroups.map((group) => (
+          {!loading && !error && mode === "groups" && filteredGroups.slice(0, visible).map((group) => (
             <button key={group.id} type="button" onClick={() => onOpenGroup(group)} className="group flex w-full items-center gap-3 border-b border-[var(--border)]/55 px-4 py-3 text-left transition hover:bg-[var(--surface-hover)]">
               <DirectoryAvatar identifier={group.id} name={group.contato} photoUrl={group.metadados?.photoUrl || group.photoUrl} group />
               <span className="min-w-0 flex-1">
@@ -110,14 +138,18 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
               <ArrowRight size={15} className="text-[var(--text-secondary)] opacity-0 transition group-hover:opacity-100" />
             </button>
           ))}
-          {!loading && !error && empty && (
+          {!loading && !error && !labels.loading && empty && (
             <div className="grid place-items-center gap-2 px-8 py-14 text-center text-[var(--text-secondary)]">
               <Icon size={28} strokeWidth={1.5} />
               <p className="text-sm font-semibold">Nenhum {mode === "contacts" ? "contato" : "grupo"} encontrado.</p>
             </div>
           )}
+          {!loading && !error && (mode === "contacts" ? filteredContacts.length : filteredGroups.length) > visible && <div className="p-3"><Button size="sm" onClick={() => setVisible(value => value+50)}>Carregar mais {mode === "contacts" ? "contatos" : "grupos"}</Button></div>}
+          {mode === "contacts" && labels.more && <div className="p-3">{labels.more}</div>}
         </div>
+        {mode === "contacts" && selectionMode && <div className="business-conversation-bulk" role="region" aria-label="Ações para contatos selecionados"><strong>{selectedIds.length}/100 selecionados</strong><div className="flex flex-wrap gap-2"><Button size="sm" disabled={!selectedIds.length} onClick={() => setTagsOpen(true)}>Etiqueta</Button><Button size="sm" disabled={!selectedIds.length} onClick={exportSelected}>Exportar selecionados</Button><Button size="sm" onClick={() => setSelectedIds([])}>Limpar seleção</Button></div></div>}
       </aside>
+      {tagsOpen && mode === "contacts" && selectedIds.length > 0 && <SelectionTagDialog ids={selectedIds} target="contacts" onClose={() => setTagsOpen(false)} />}
 
       <main className="norium-chat-directory-empty flex min-w-0 flex-1 flex-col items-center justify-center bg-[var(--background)] p-8 text-center text-[var(--text)]">
         <div className="grid h-14 w-14 place-items-center rounded-xl bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)]"><Icon size={24} /></div>

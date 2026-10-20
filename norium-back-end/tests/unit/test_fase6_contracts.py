@@ -106,7 +106,7 @@ class Phase6Contracts(unittest.IsolatedAsyncioTestCase):
 
     def test_catalogue_includes_all_specialists_and_sensitive_review(self):
         catalog = {t.name:t for t in tools.business_tools()}
-        self.assertEqual({"finance_write","tasks_shared_write","projects_create","calendar_change","automations_create","automations_run","team_send","brainstorm_create","knowledge_search","web_search"},set(catalog))
+        self.assertEqual({"finance_write","tasks_shared_write","projects_create","calendar_change","automations_create","automations_run","team_send","brainstorm_create","knowledge_search","web_search","catalog_query"},set(catalog))
         for name in ("finance_write","calendar_change","automations_create","automations_run","team_send"):
             self.assertEqual("R",catalog[name].policy)
         with self.assertRaises(Exception):
@@ -140,7 +140,7 @@ class Phase6Contracts(unittest.IsolatedAsyncioTestCase):
         from app.services import gmail_incremental
         class Service:
             user_id = "owner-test"
-            def __init__(self): self.state={"historyId":"100","knownIds":[]}; self.pages=[]
+            def __init__(self): self.state={"historyId":"100","knownIds":[],"baselineComplete":True}; self.pages=[]
             def _read_profile_section(self,*a): return self.state
             def _write_profile_section(self,name,value): self.state=value
             def _clear_mailbox_cache(self): self.pages.append("clear")

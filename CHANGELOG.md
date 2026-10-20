@@ -1,5 +1,31 @@
 # Changelog
 
+## [Não publicado] — expansão, 19/10/2026
+
+- feat(nora): diagnóstico de configuração autenticado para administradores em Consumo da Nora, sem exibir credenciais ou ativar provedores.
+- fix(gmail): base inicial de metadados paginada e retomável, replay do histórico após a varredura e coordenação a cada 60 segundos.
+- feat(documentos): catálogo de produtos e serviços com valores inteiros em centavos, duração, histórico de preço e controle de versão concorrente.
+- feat(nora): consulta do catálogo autorizado no cérebro, com preço, duração e desconto máximo exatos.
+- feat(modelos): canais permitidos no cadastro existente, atalhos de teclado no Gmail/WhatsApp e seleção por teclado no Chat da equipe.
+- feat(clientes): etiquetas compartilhadas, filtros, visões pessoais/de equipe e seleção em lote com etiquetas e exportação.
+- feat(importacao): prévia CSV/XLSX/vCard com mapeamento, fila persistente, progresso, reconhecimento de duplicados e retomada por recibos de linha.
+- fix(importacao): limites de expansão e dimensões XLSX, isolamento na troca de workspace e expiração dos temporários sem remover cadastros aplicados.
+- feat(operacoes): preparação genérica idempotente ligada aos executores exatos existentes, sem novo envio direto.
+- feat(base): vínculos explícitos entre clientes e documentos e registro de links públicos por finalidade; projeções e páginas públicas ainda pendentes.
+- fix(privacidade): exportação/exclusão abrangem os novos armazenamentos; contribuições de membro em dados compartilhados são anonimizadas.
+- feat(etiquetas): edição, arquivamento e reativação por criador/gestor; filtro e lote no WhatsApp associados à instância atual.
+- feat(clientes): vínculos de propostas/contratos na ficha e retorno à ficha pelo documento, preservando ACL e o fluxo anterior de contratos.
+- feat(catalogo): histórico de preços paginado na edição do item; visões salvas permitem editar nome e filtros com controle de versão.
+- fix(modelos): seleção por teclado inclui comandos da Nora; alterações invalidam os atalhos sem polling, com contexto de sessão/workspace e preenchimento dos nomes conhecidos no Gmail.
+- feat(clientes): seleção de responsável em até 100 cadastros, com confirmação, conferência de acesso, conflito por atualização e resultado individual; propriedade e compartilhamento são preservados.
+- feat(clientes): arquivamento/restauração individual e em até 100 selecionados; visão de arquivados salva nos filtros, indicadores da carteira em uso e preservação do histórico e dos vínculos.
+- fix(clientes): importação pede revisão para cadastros arquivados; novas sugestões da Nora e novos lembretes de acompanhamento desconsideram cadastros arquivados.
+- feat(whatsapp): seleção de até 100 contatos na agenda, etiquetas em lote sem criar conversas, filtro por etiquetas e exportação dos contatos selecionados.
+- fix(etiquetas): correspondência por identificadores locais explícitos entre contato/conversa, com escopo de usuário, workspace e instância; criação de etiquetas no gerenciador existente.
+- chore(local): Docker Compose com PostgreSQL e frontend/API na mesma origem, conta local aleatória e remoção do bootstrap após o primeiro acesso confirmado.
+- feat(whatsapp): adaptador Evolution API, dados e chave por provedor, identificação na interface, eventos e Docker privado; pareamento bloqueado após a auditoria encontrar vulnerabilidades na imagem oficial. Preparação do Shard documentada, sem instalação remota.
+- Estado: compilação e análise estática conferidas; funcionalidades ainda sem aceite funcional, sem push e sem deploy.
+
 ## Candidato de homologação — 14/10/2026
 
 - Consolida fases 6–7, novo Chat com Nora sob demanda e anexos na prévia de e-mail.

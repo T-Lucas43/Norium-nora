@@ -914,6 +914,7 @@ async def create_exact_email_approval(
     user: dict[str, Any],
     exact: dict[str, Any],
     session_id: str | None,
+    *, operation_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a digest-bound approval authorizing one exact Gmail send."""
     user_id = require_user_id(user)
@@ -959,6 +960,7 @@ async def create_exact_email_approval(
             source="email",
             payload=payload,
             metadata={
+                **{key: value for key, value in (operation_metadata or {}).items() if key in {"exactOperationKey", "exactContentDigest", "registeredKind", "executorVersion"}},
                 "requestedBy": "nora",
                 "requiresExplicitDecision": True,
                 "tool": "gmail",

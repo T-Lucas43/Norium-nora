@@ -162,6 +162,13 @@ def _build_export(user: dict[str, Any]) -> bytes:
             archive.writestr("dados/sessoes-eventos.json", data)
             manifest.append({"path": "dados/sessoes-eventos.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
         from app.services.system_logs import personal_logs
+        from app.services.evolution_data import export_account as export_evolution_account
+        evolution = export_evolution_account(user_id)
+        if evolution:
+            data = json.dumps(_redact(evolution), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            name = "dados/evolution-gateway.json"
+            archive.writestr(name, data)
+            manifest.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
         logs = personal_logs(user_id)
         if logs:
             data = json.dumps(_redact(logs), ensure_ascii=False, indent=2, default=str).encode("utf-8")
@@ -228,6 +235,9 @@ def _postgres_relational_export(user_id: str) -> dict[str, Any]:
         "wapi_ownership": ("tenant_id=%s", (user_id,)),
         "wapi_instance_lifecycle": ("tenant_id=%s", (user_id,)),
         "wapi_binding_journal": ("tenant_id=%s", (user_id,)),
+        "evolution_ownership": ("tenant_id=%s", (user_id,)),
+        "evolution_instance_lifecycle": ("tenant_id=%s", (user_id,)),
+        "evolution_binding_journal": ("tenant_id=%s", (user_id,)),
         "automation_jobs": ("user_id=%s", (user_id,)),
         "norium_system_logs": ("user_id=%s", (user_id,)),
         "usage": ("user_id=%s", (user_id,)),
@@ -278,6 +288,9 @@ def _purge_postgres_relational(user_id: str) -> None:
         ("wapi_binding_journal", "tenant_id=%s", (user_id,)),
         ("wapi_instance_lifecycle", "tenant_id=%s", (user_id,)),
         ("wapi_ownership", "tenant_id=%s", (user_id,)),
+        ("evolution_binding_journal", "tenant_id=%s", (user_id,)),
+        ("evolution_instance_lifecycle", "tenant_id=%s", (user_id,)),
+        ("evolution_ownership", "tenant_id=%s", (user_id,)),
         ("automation_jobs", "user_id=%s", (user_id,)),
         ("norium_system_logs", "user_id=%s", (user_id,)),
         ("reservations", "user_id=%s", (user_id,)),
@@ -428,6 +441,8 @@ async def run_data_lifecycle_maintenance() -> dict[str, int]:
         try:
             from app.modules.privacy.google_revocation import revoke_google_for_account
             await asyncio.to_thread(revoke_google_for_account, user_id)
+            from app.services.evolution_data import purge_account as purge_evolution_account
+            await purge_evolution_account(user_id)
             from app.modules.privacy.deletion_ledger import record_deletion
             await asyncio.to_thread(record_deletion, user_id)
             from app.modules.privacy.shared_data import personal_team_messages
@@ -447,9 +462,11 @@ async def run_data_lifecycle_maintenance() -> dict[str, int]:
                 await auth.write_user_store(store)
                 accounts += 1
     workspaces = await asyncio.to_thread(_purge_due_workspace_directories)
+    from app.services.evolution_data import maintain_gateway_retention
+    gateway_messages = await asyncio.to_thread(maintain_gateway_retention)
     from app.modules.privacy.retention import maintain_retention
     retained = await asyncio.to_thread(maintain_retention)
-    return {"accounts": accounts, "workspaces": workspaces, **retained}
+    return {"accounts": accounts, "workspaces": workspaces, "gatewayMessagesRemoved": gateway_messages, **retained}
 
 
 async def data_lifecycle_worker() -> None:

@@ -104,16 +104,16 @@ from app.services.wapi_messaging import (
 from app.services.wapi_client import WapiError, WapiClient
 from app.services import wapi_binding as wb
 from app.services import wapi_webhook
+from app.services.whatsapp_provider import PROVIDER, create_whatsapp_client, is_evolution, store_name
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 webhook_debug_logger = logging.getLogger(f"{__name__}.wapi_webhook_debug")
 
-# Backend de WhatsApp totalmente via W-API (conexão, mensagens, webhooks,
-# conversas/contatos/grupos). O serviço legado foi removido.
+# Provedor escolhido somente no backend; nomes legados preservam a interface.
 wapi_connect = WapiConnectService()
 wapi_messaging = WapiMessagingService()
-wapi_client = WapiClient()
+wapi_client = create_whatsapp_client()
 
 
 def _messaging_http_error(exc: Exception, default_detail: str) -> HTTPException:
@@ -210,7 +210,7 @@ WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS = max(
     5,
     int(os.getenv("WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS", "15")),
 )
-WHATSAPP_HISTORY_SCHEMA_VERSION = 2
+WHATSAPP_HISTORY_SCHEMA_VERSION = 3
 WHATSAPP_PROFILE_PHOTO_TTL_SECONDS = max(
     3600,
     min(47 * 60 * 60, int(os.getenv("WHATSAPP_PROFILE_PHOTO_TTL_SECONDS", str(36 * 60 * 60)))),
@@ -493,12 +493,12 @@ def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
 
 
 async def load_whatsapp_catalog_cache(user_id: str) -> Dict[str, Any]:
-    payload = await asyncio.to_thread(read_user_db, user_id, "whatsapp_catalog_cache", {})
+    payload = await asyncio.to_thread(read_user_db, user_id, store_name("whatsapp_catalog_cache"), {})
     return payload if isinstance(payload, dict) else {}
 
 
 async def save_whatsapp_catalog_cache(user_id: str, payload: Dict[str, Any]) -> None:
-    await asyncio.to_thread(write_user_db, user_id, "whatsapp_catalog_cache", payload)
+    await asyncio.to_thread(write_user_db, user_id, store_name("whatsapp_catalog_cache"), payload)
 
 
 async def mark_whatsapp_conversation_updated(user_id: str, conversation_id: str) -> int:
@@ -515,12 +515,12 @@ async def mark_whatsapp_conversation_updated(user_id: str, conversation_id: str)
 
 
 async def load_whatsapp_status_feed(user_id: str) -> Dict[str, Any]:
-    payload = await asyncio.to_thread(read_user_db, user_id, "whatsapp_status_feed", {"items": []})
+    payload = await asyncio.to_thread(read_user_db, user_id, store_name("whatsapp_status_feed"), {"items": []})
     return payload if isinstance(payload, dict) else {"items": []}
 
 
 async def save_whatsapp_status_feed(user_id: str, payload: Dict[str, Any]) -> None:
-    await asyncio.to_thread(write_user_db, user_id, "whatsapp_status_feed", payload)
+    await asyncio.to_thread(write_user_db, user_id, store_name("whatsapp_status_feed"), payload)
 
 
 def contact_sync_state(user_id: str) -> Dict[str, Any]:
@@ -567,6 +567,17 @@ def catalog_cache_is_fresh(
     if cache.get("schemaVersion") != WHATSAPP_CATALOG_SCHEMA_VERSION:
         return False
     try:
+        bootstrap_until = float(cache.get("evolutionBootstrapUntil") or 0)
+    except (TypeError, ValueError):
+        bootstrap_until = 0
+    if is_evolution():
+        # O socket abre antes de o catálogo inicial chegar. Um snapshot vazio
+        # ou ainda na janela inicial não deve congelar a lista por todo o TTL.
+        if not cache.get("contacts") and not cache.get("chats"):
+            return False
+        if bootstrap_until > time.time():
+            return False
+    try:
         cached_at = float(cache.get(key) or 0)
     except (TypeError, ValueError):
         return False
@@ -576,9 +587,13 @@ def catalog_cache_is_fresh(
 def contact_sync_retry_due(cache: Dict[str, Any]) -> bool:
     try:
         attempted_at = float(cache.get("contactSyncAttemptedAt") or 0)
+        bootstrap_until = float(cache.get("evolutionBootstrapUntil") or 0)
     except (TypeError, ValueError):
-        attempted_at = 0
-    return attempted_at <= 0 or time.time() - attempted_at >= WHATSAPP_CONTACT_SYNC_RETRY_SECONDS
+        attempted_at = bootstrap_until = 0
+    interval = WHATSAPP_CONTACT_SYNC_RETRY_SECONDS
+    if is_evolution() and bootstrap_until > time.time():
+        interval = 15
+    return attempted_at <= 0 or time.time() - attempted_at >= interval
 
 
 def _pagination_total_pages(payload: Any, page: int, received: int, per_page: int) -> int | None:
@@ -1031,7 +1046,64 @@ def _lookup_contact_index(index: Dict[str, Any], identifier: str) -> Any:
     return None
 
 
+async def _evolution_metadata_snapshot(user_id: str, cache: Dict[str, Any]) -> Dict[str, Any]:
+    if not is_evolution():
+        return {}
+    try:
+        fresh = time.time() - float(cache.get("evolutionMetadataSyncedAt") or 0) < 900
+    except (ValueError, TypeError):
+        fresh = False
+    if cache.get("evolutionMetadataVersion") == 1 and fresh:
+        return {"groups": cache.get("evolutionGroups") or [], "updates": {}, "warnings": []}
+    creds = wapi_creds(user_id)
+    if not creds:
+        return {}
+    warnings = []
+    updates = {}
+    if cache.get("evolutionWebhookVersion") != 1:
+        try:
+            from app.services.evolution_client import webhook_url
+            await wapi_client.set_webhook(creds[0], creds[1], "received", webhook_url())
+            updates["evolutionWebhookVersion"] = 1
+        except WapiError:
+            warnings.append("atualização dos metadados em tempo real indisponível")
+
+    async def profile():
+        device = await wapi_client.device(creds[0], creds[1])
+        if not isinstance(device.get("connectedPhone"), str) or not device["connectedPhone"].strip():
+            raise WapiError("Perfil indisponível nesta conexão.", code="not_connected")
+        data = {"name": device.get("name") or device.get("connectedPhone") or "WhatsApp",
+                "phone": device.get("connectedPhone"), "photoUrl": extract_photo_url(device),
+                "bio": device.get("bio") if isinstance(device.get("bio"), str) else None,
+                "connected": True, "status": "conectado"}
+        async with whatsapp_conversation_mutation_lock(user_id):
+            if wapi_creds(user_id) == creds:
+                latest = await load_whatsapp_catalog_cache(user_id)
+                await save_whatsapp_catalog_cache(user_id, {**latest, "evolutionProfile": data})
+        return data
+
+    update_contact_sync_state(user_id, phase="groups", progress=20, message="Carregando nomes e fotos dos grupos e do perfil...")
+    groups_result, profile_result = await asyncio.gather(wapi_client.get_all_groups(creds[0], creds[1]), profile(), return_exceptions=True)
+    groups = cache.get("evolutionGroups") or []
+    if isinstance(groups_result, list) and len(groups_result) <= 50000:
+        groups = [{**row, "remoteJid": row.get("id"), "name": row.get("subject") or row.get("name"),
+                   "description": row.get("desc") or row.get("description"),
+                   "profilePictureUrl": row.get("pictureUrl") or extract_photo_url(row), "isGroup": True}
+                  for row in groups_result if isinstance(row, dict) and str(row.get("id") or "").endswith("@g.us")]
+        updates["evolutionGroups"] = groups
+    else:
+        warnings.append("metadados completos dos grupos indisponíveis; dados conhecidos preservados")
+    if isinstance(profile_result, dict):
+        updates["evolutionProfile"] = profile_result
+    else:
+        warnings.append("atualização do perfil indisponível; dados conhecidos preservados")
+    if not warnings:
+        updates.update(evolutionMetadataVersion=1, evolutionMetadataSyncedAt=time.time())
+    return {"groups": groups, "updates": updates, "warnings": warnings}
+
+
 async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
+    sync_creds = wapi_creds(user_id)
     update_contact_sync_state(
         user_id,
         status="syncing",
@@ -1056,13 +1128,15 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         # Contatos e chats são catálogos independentes. Rodam juntos; se a rota
         # PRO de contatos falhar, nomes já conhecidos e nomes presentes nos
         # chats continuam disponíveis em vez de derrubar toda a sincronização.
-        contacts_result, chats_result = await asyncio.gather(
+        contacts_result, chats_result, metadata_result = await asyncio.gather(
             fetch_all_wapi_contacts(user_id),
             fetch_all_wapi_chats(user_id),
+            _evolution_metadata_snapshot(user_id, cache),
             return_exceptions=True,
         )
+        metadata_result = metadata_result if isinstance(metadata_result, dict) else {"warnings": ["metadados indisponíveis"]}
         raw_fresh_contacts = contacts_result if isinstance(contacts_result, list) else []
-        raw_fresh_chats = chats_result if isinstance(chats_result, list) else []
+        raw_fresh_chats = [*(chats_result if isinstance(chats_result, list) else []), *(metadata_result.get("groups") or [])]
         status_catalog_payloads = [
             payload
             for record in [
@@ -1104,8 +1178,8 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         chats_partial = bool(getattr(chats_result, "partial", False))
         contacts_failed = isinstance(contacts_result, Exception)
         chats_failed = isinstance(chats_result, Exception)
-        partial = contacts_partial or chats_partial or contacts_failed or chats_failed
-        warnings: list[str] = []
+        partial = contacts_partial or chats_partial or contacts_failed or chats_failed or bool(metadata_result.get("warnings"))
+        warnings: list[str] = list(metadata_result.get("warnings") or [])
         if contacts_failed:
             warnings.append("contatos em cache/chats")
         if chats_failed:
@@ -1119,6 +1193,14 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         contacts = merge_catalog_items(cached_contacts, fresh_contacts)
         chats = merge_catalog_items(cached_chats, fresh_chats)
         channels = merge_catalog_items(cached_channels, fresh_channels)
+        if is_evolution() and not contacts and not chats:
+            try:
+                bootstrap_until = float(cache.get("evolutionBootstrapUntil") or time.time() + 180)
+            except (TypeError, ValueError):
+                bootstrap_until = time.time() + 180
+            if bootstrap_until > time.time():
+                partial = True
+                warnings.append("aguardando catálogo inicial do WhatsApp")
         contacts_requires_pro = (
             isinstance(contacts_result, WapiError) and contacts_result.status == 403
         )
@@ -1159,6 +1241,8 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         # webhooks. Assim uma mensagem que chega durante o sync é gravada antes
         # deste merge ou espera o merge terminar; nunca é apagada por snapshot antigo.
         async with whatsapp_conversation_mutation_lock(user_id):
+            if is_evolution() and wapi_creds(user_id) != sync_creds:
+                return update_contact_sync_state(user_id, status="idle", phase="idle", message="Conexão alterada; atualização anterior descartada.")
             db = await load_conversations(user_id)
             local_names, local_photos, local_metadata = build_contact_indexes(
                 contact_records_from_conversations(db)
@@ -1197,6 +1281,13 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
                     conversation.get("contato"), name, conversation_id
                 )
                 conversation["esGrupo"] = is_group
+                if is_evolution() and is_group:
+                    group_meta = conversation.setdefault("metadados", {})
+                    group_meta.update({"descricaoGrupo": chat.get("description") or chat.get("desc") or group_meta.get("descricaoGrupo") or "",
+                                       "participantesCount": int(chat.get("size") or group_meta.get("participantesCount") or 0),
+                                       "criadoPor": chat.get("owner") or group_meta.get("criadoPor"),
+                                       "criadoEm": chat.get("creation") or group_meta.get("criadoEm"),
+                                       "isCommunity": bool(chat.get("isCommunity", group_meta.get("isCommunity", False)))})
                 if photo:
                     conversation["photoUrl"] = photo
                     conversation.setdefault("metadados", {})["photoUrl"] = photo
@@ -1217,6 +1308,10 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
                         int(conversation["timestampUltimaMsg"])
                     )
                 sync_catalog_messages(conversation, chat)
+                if is_evolution():
+                    # Catálogo é evidência de conversa, mesmo sem corpo ou data
+                    # de mensagem recente. Não fabricar mensagem/timestamp.
+                    conversation.setdefault("metadados", {})["evolutionCatalog"] = True
                 db[conversation_id] = normalize_conversation(conversation_id, conversation)
                 changed = True
                 if index % 50 == 0:
@@ -1261,6 +1356,8 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         # qualquer atualização ocorrida durante as chamadas remotas entra no
         # snapshot final, e uma atualização posterior parte do cache já salvo.
         async with whatsapp_conversation_mutation_lock(user_id):
+            if is_evolution() and wapi_creds(user_id) != sync_creds:
+                return update_contact_sync_state(user_id, status="idle", phase="idle", message="Conexão alterada; atualização anterior descartada.")
             latest_cache = await load_whatsapp_catalog_cache(user_id)
             latest_raw_contacts = [
                 item for item in (latest_cache.get("contacts") or []) if isinstance(item, dict)
@@ -1286,11 +1383,27 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
             chats = merge_catalog_items(latest_chats, chats)
             channels = merge_catalog_items(latest_channels, channels)
             saved_contact_names = _build_saved_contact_name_index(contacts, chats)
+            catalog_updates = {}
+            if is_evolution():
+                # O delta da interface também precisa receber chats sem mensagens.
+                # Este é o instante de atualização do catálogo, não de mensagem.
+                updates = dict(latest_cache.get("conversationUpdates") or {})
+                stamp = max(int(now), max((int(v or 0) for v in updates.values()), default=0) + 1)
+                for chat in chats:
+                    identifier = _contact_primary_id(chat)
+                    if identifier:
+                        updates[identifier] = stamp
+                catalog_updates["conversationUpdates"] = dict(
+                    sorted(updates.items(), key=lambda item: int(item[1] or 0), reverse=True)[:500])
             await save_whatsapp_catalog_cache(
                 user_id,
                 {
                     **latest_cache,
+                    **(metadata_result.get("updates") or {}),
+                    **catalog_updates,
                     "schemaVersion": WHATSAPP_CATALOG_SCHEMA_VERSION,
+                    **({"evolutionBootstrapUntil": latest_cache.get("evolutionBootstrapUntil") or now + 180}
+                       if is_evolution() else {}),
                     "authenticatedAt": (
                         latest_cache.get("authenticatedAt") or cache.get("authenticatedAt") or now
                     ),
@@ -1396,7 +1509,8 @@ def schedule_contact_sync(user_id: str, *, force: bool = False) -> Dict[str, Any
         return dict(contact_sync_state(user_id))
     state = contact_sync_state(user_id)
     if not force and state.get("status") == "complete":
-        return dict(state)
+        if not is_evolution() or time.time() - float(state.get("updatedAt") or 0) < 15:
+            return dict(state)
 
     try:
         loop = asyncio.get_running_loop()
@@ -1427,6 +1541,8 @@ def sorted_conversations(db: Dict[str, Any]) -> list[Dict[str, Any]]:
     items = [
         item for item in db.values()
         if int(item.get("timestampUltimaMsg") or 0) >= cutoff
+        or (is_evolution() and not item.get("timestampUltimaMsg")
+            and (item.get("metadados") or {}).get("evolutionCatalog") is True)
     ]
     items.sort(
         key=lambda item: (bool(item.get("fixada")), int(item.get("timestampUltimaMsg") or 0)),
@@ -1523,6 +1639,10 @@ def validate_external_media_url(url: str) -> str:
         raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.") from exc
     base_hostname = (urlparse(wapi_client.config.base_url).hostname or "").strip().casefold().rstrip(".")
     allowed_hosts = {base_hostname, *WHATSAPP_MEDIA_HOSTS}
+    if is_evolution():
+        # Fotos resolvidas pelo gateway usam este CDN; continuam exigindo
+        # registro por usuário, HTTPS, DNS público, MIME/tamanho e sem redirects.
+        allowed_hosts.add("pps.whatsapp.net")
     allowed_hosts = {host.strip().casefold().rstrip(".") for host in allowed_hosts if host.strip()}
     if (
         parsed.scheme.casefold() != "https"
@@ -1872,7 +1992,8 @@ def _whatsapp_connection_shape(
         "numero": result.get("numero"),
         "conectadoEm": result.get("conectadoEm"),
         "consentRequired": bool(result.get("consentRequired")),
-        "plano": plan if plan in {"lite", "pro"} else None,
+        "plano": plan if not is_evolution() and plan in {"lite", "pro"} else None,
+        **({"provider": PROVIDER, "providerLabel": "Evolution API", "requiresPlanSelection": False} if is_evolution() else {}),
     }
 
 
@@ -1967,6 +2088,10 @@ async def iniciar_sincronizacao_whatsapp(user: dict[str, Any] = Depends(current_
     status = wapi_connect.cached_status(resolved_user_id)
     if status.get("status") != "conectado":
         raise HTTPException(status_code=409, detail="WhatsApp nao esta conectado nesta conta.")
+    if is_evolution():
+        async with whatsapp_conversation_mutation_lock(resolved_user_id):
+            cache = await load_whatsapp_catalog_cache(resolved_user_id)
+            await save_whatsapp_catalog_cache(resolved_user_id, {**cache, "evolutionMetadataSyncedAt": 0})
     return schedule_contact_sync(resolved_user_id, force=True)
 
 
@@ -2095,6 +2220,14 @@ async def obter_perfil_whatsapp(
     if connection.get("status") != "conectado":
         return {"connected": False, "status": connection.get("status")}
     if not live:
+        if is_evolution():
+            cache = await load_whatsapp_catalog_cache(resolved_user_id)
+            profile = cache.get("evolutionProfile")
+            if not isinstance(profile, dict) or contact_sync_retry_due(cache) and not catalog_cache_is_fresh(cache):
+                schedule_contact_sync(resolved_user_id, force=True)
+            if isinstance(profile, dict):
+                remember_remote_media_references(resolved_user_id, profile)
+                return {**profile, "connectedAt": connection.get("conectadoEm"), "cached": True}
         return {
             "connected": True,
             "status": "conectado",
@@ -2178,7 +2311,8 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
         return {
             "status": status,
             "qrcode": None if status == "conectado" else resultado.qr_code,
-            "plano": resultado.plan,
+            "plano": None if is_evolution() else resultado.plan,
+            **({"provider": PROVIDER, "providerLabel": "Evolution API", "requiresPlanSelection": False} if is_evolution() else {}),
             "sincronizacao": dict(contact_sync_state(resolved_user_id)),
         }
     raise HTTPException(status_code=503, detail="API do WhatsApp ainda nao esta disponivel.")
@@ -2210,7 +2344,10 @@ async def _whatsapp_connection_established(
 
 
 async def _whatsapp_disconnect_local(resolved_user_id: str) -> None:
-    """Remove binding e caches locais sem deslogar a instancia remota."""
+    """Remove caches locais; Evolution também encerra e elimina a sessão remota."""
+    if is_evolution():
+        from app.services.evolution_data import purge_account
+        await purge_account(resolved_user_id)
     sync_task = whatsapp_contact_sync_tasks.pop(resolved_user_id, None)
     if sync_task and not sync_task.done():
         sync_task.cancel()
@@ -2246,6 +2383,13 @@ async def webhook_whatsapp(
         if not supplied_secret and os.getenv("WAPI_WEBHOOK_QUERY_SECRET_COMPAT", "0").strip() == "1":
             supplied_secret = str(request.query_params.get("secret") or "")
     try:
+        if is_evolution():
+            if not wapi_client.configured:
+                raise HTTPException(status_code=503, detail="Integração Evolution desativada pelo administrador.")
+            # A autenticação permanece no pipeline; o envelope minimizado não
+            # conserva apikey, destino, URL do servidor nem campos de terceiros.
+            from app.services.evolution_client import normalize_webhook
+            data = normalize_webhook(data)
         result = await whatsapp_integration.handle_webhook(
             {"x-wapi-webhook-secret": supplied_secret},
             data,
@@ -2264,6 +2408,8 @@ async def _whatsapp_dispatch_webhook(
     kind: str,
 ) -> Dict[str, Any]:
     data = dict(payload)
+    if is_evolution() and data.get("event") == "catalog":
+        return await _apply_evolution_catalog_event(owner_user_id, data)
     if WHATSAPP_WEBHOOK_DEBUG:
         try:
             webhook_debug_logger.info(
@@ -2316,26 +2462,66 @@ async def _whatsapp_dispatch_webhook(
         return await _wapi_handle_connection_event(owner_user_id, kind, data)
     return {"status": "ignored", "event": kind}
 
+async def _apply_evolution_catalog_event(user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    key = data.get("catalogType")
+    if key not in {"contacts", "chats"} or not isinstance(data.get("catalogItems"), list):
+        return {"status": "ignored", "event": "catalog"}
+    items = [row for row in data["catalogItems"] if isinstance(row, dict)
+             and re.fullmatch(r"[A-Za-z0-9_-]+@(s\.whatsapp\.net|lid|g\.us)", str(row.get("id") or ""))]
+    async with whatsapp_conversation_mutation_lock(user_id):
+        if not _webhook_binding_is_current(user_id, data):
+            return {"status": "ignored", "event": "stale_binding"}
+        cache = await load_whatsapp_catalog_cache(user_id)
+        cache[key] = merge_catalog_items(cache.get(key) or [], items)
+        groups = [row for row in items if str(row.get("id") or "").endswith("@g.us")]
+        if groups:
+            cache["evolutionGroups"] = merge_catalog_items(cache.get("evolutionGroups") or [], groups)
+        names, photos, _ = build_contact_indexes([*(cache.get("contacts") or []), *(cache.get("chats") or [])])
+        saved_names = _build_saved_contact_name_index(cache.get("contacts") or [], cache.get("chats") or [])
+        group_ids = {row["id"] for row in groups}
+        db = await load_conversations(user_id)
+        if key == "chats":
+            for row in groups:
+                identifier = row["id"]
+                if identifier not in db:
+                    db[identifier] = new_conversation(identifier, channel="whatsapp", is_group=True)
+                    db[identifier].setdefault("metadados", {})["evolutionCatalog"] = True
+        updates = dict(cache.get("conversationUpdates") or {})
+        stamp = max(int(time.time()), max((int(value or 0) for value in updates.values()), default=0) + 1)
+        for identifier, conversation in db.items():
+            old_name, old_photo = conversation.get("contato"), conversation.get("photoUrl")
+            name = _lookup_contact_index(names, identifier)
+            photo = _lookup_contact_index(photos, identifier)
+            if name:
+                conversation["contato"] = melhor_nome_contato(old_name, name, identifier)
+            if photo:
+                conversation["photoUrl"] = photo
+                conversation.setdefault("metadados", {})["photoUrl"] = photo
+            if old_name != conversation.get("contato") or old_photo != conversation.get("photoUrl") or identifier in group_ids:
+                updates[identifier] = stamp
+            if hydrate_group_message_names(conversation, saved_names):
+                updates[identifier] = stamp
+        cache["conversationUpdates"] = dict(sorted(updates.items(), key=lambda item: int(item[1] or 0), reverse=True)[:500])
+        await save_conversations(db, user_id)
+        await save_whatsapp_catalog_cache(user_id, cache)
+    return {"status": "success", "event": "catalog"}
+
+
 async def _wapi_apply_reaction(user_id: str, msg: Dict[str, Any]) -> Dict[str, Any]:
     """Reação recebida: atualiza a mensagem alvo em vez de criar uma mensagem."""
     target_id = str(msg.get("reactionTargetId") or "")
     if not target_id:
         return {"status": "ignored", "event": "reaction"}
-    emoji = msg.get("texto") or ""
     db = await load_conversations(user_id)
     conversation = db.get(msg["chatId"])
-    candidates = [conversation] if isinstance(conversation, dict) else list(db.values())
+    candidates = [conversation] if isinstance(conversation, dict) else []
     for conv in candidates:
         if not isinstance(conv, dict):
             continue
         for stored in conv.get("mensagens") or []:
             if str(stored.get("id") or "") != target_id:
                 continue
-            # Preserva a reação do próprio usuário (fromMe); substitui a do contato.
-            reactions = [r for r in (stored.get("reacoes") or []) if isinstance(r, dict) and r.get("fromMe")]
-            if emoji:
-                reactions.append({"emoji": emoji, "count": 1, "fromMe": False, "senders": []})
-            stored["reacoes"] = reactions
+            stored["reacoes"] = wapi_webhook.updated_reactions(stored.get("reacoes"), msg)
             await save_conversations(db, user_id)
             await mark_whatsapp_conversation_updated(user_id, str(conv.get("id") or msg["chatId"]))
             return {"status": "success", "event": "reaction"}
@@ -3383,7 +3569,7 @@ async def _whatsapp_stream_media_legacy(
     media_key = str(media_meta.get("mediaKey") or "")
     direct_path = str(media_meta.get("directPath") or "")
     payload: Dict[str, Any] = {}
-    if creds and media_key and direct_path:
+    if creds and (is_evolution() or (media_key and direct_path)):
         try:
             payload = await wapi_client.download_media(
                 creds[0], creds[1],
@@ -3391,12 +3577,14 @@ async def _whatsapp_stream_media_legacy(
                 direct_path=direct_path,
                 media_type=str(media_meta.get("type") or ""),
                 mimetype=str(media_meta.get("mimetype") or ""),
+                **({"phone": resolved_conversation_id, "message_id": message_id} if is_evolution() else {}),
             )
         except WapiError:
             # Miniatura/link de catálogo ainda pode manter o Status visível.
             payload = {}
     inline, link = unpack_wapi_media_response(payload)
-    fallback_mime = str(media_meta.get("mimetype") or "application/octet-stream")
+    provider_mime = payload.get("mimetype") if is_evolution() else None
+    fallback_mime = str(provider_mime if isinstance(provider_mime, str) and provider_mime else media_meta.get("mimetype") or "application/octet-stream")
     file_bytes: bytes | None = None
     mime_type = fallback_mime
     if isinstance(inline, str) and inline:
@@ -4959,6 +5147,7 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         "document": "[Documento]",
         "sticker": "[Figurinha]",
     }
+    reaction_events = []
     for raw_message in sorted(
         (item for item in raw_messages if isinstance(item, dict)),
         key=lambda item: normalize_whatsapp_timestamp(
@@ -4982,6 +5171,9 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
             }
         )
         if not adapted:
+            continue
+        if adapted.get("tipo") == "reaction":
+            reaction_events.append(adapted)
             continue
         raw_type = str(raw_message.get("type") or raw_message.get("messageType") or "chat").lower()
         message_type = str(adapted.get("tipo") or type_map.get(raw_type) or "texto")
@@ -5074,6 +5266,16 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         existing_ids.add(message_id)
         changed = True
 
+    # Remove bolhas de reação importadas por versões antigas, sem perder a mensagem alvo.
+    without_reactions = [item for item in existing_messages if item.get("tipo") != "reaction"]
+    if len(without_reactions) != len(existing_messages):
+        changed = True
+    existing_messages[:] = without_reactions
+    for event in reaction_events:
+        target = next((item for item in existing_messages if item.get("id") == event.get("reactionTargetId")), None)
+        if target is not None:
+            target["reacoes"] = wapi_webhook.updated_reactions(target.get("reacoes"), event)
+            changed = True
     existing_messages.sort(key=lambda item: int(item.get("timestamp") or 0))
     conversation["mensagens"] = existing_messages[-250:]
     latest_timestamp = normalize_whatsapp_timestamp(chat.get("timestamp"))
@@ -5185,6 +5387,8 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
             "isBlocked": bool(contato.get("isBlocked")),
             "photoFetchedAt": contato.get("photoFetchedAt"),
         }
+        if is_evolution() and jid.endswith("@g.us") and "participants" not in contato and "participantes" not in contato:
+            contact_meta.pop("participantes", None)
         for key in alt_keys:
             metadata[key] = contact_meta
 

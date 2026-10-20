@@ -15,7 +15,7 @@ interface WhatsAppRailProps {
 }
 
 function ProfileButton({ profile, active, online, onClick }: { profile?: WhatsAppProfile | null; active: boolean; online: boolean; onClick: () => void }) {
-  const [failed, setFailed] = useState(false);
+  const [failedSource, setFailedSource] = useState("");
   const photoUrl = useAuthenticatedMedia(profile?.photoUrl);
   const initials = profile?.name
     ?.split(/\s+/)
@@ -33,8 +33,8 @@ function ProfileButton({ profile, active, online, onClick }: { profile?: WhatsAp
       title="Meu perfil"
     >
       <span className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-[var(--nx-hover)]">
-        {photoUrl && !failed ? (
-          <img src={photoUrl} alt={profile?.name || "Meu perfil"} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+        {photoUrl && photoUrl !== failedSource ? (
+          <img src={photoUrl} alt={profile?.name || "Meu perfil"} className="h-full w-full object-cover" onError={() => setFailedSource(photoUrl)} />
         ) : (
           <span className="text-[11px] font-semibold text-[var(--nx-text)]">{initials}</span>
         )}

@@ -2,6 +2,9 @@ import { apiRequest } from "../../core/api/client";
 import type { ChatConversa, MsgConteudo } from "./types";
 
 export type WhatsAppConnection = {
+  provider?: "wapi" | "evolution";
+  providerLabel?: string;
+  requiresPlanSelection?: boolean;
   conectado: boolean;
   qrcode?: string | null;
   status?: "conectado" | "desconectado" | "iniciando" | "aguardando_qrcode" | "erro" | "indisponivel";
@@ -199,6 +202,7 @@ export type HistoryPage = {
 };
 
 export type ConsentInfo = {
+  provider?: "wapi" | "evolution";
   termVersion: string;
   accepted: boolean;
   acceptedVersion?: string | null;
@@ -309,7 +313,7 @@ export function normalizeWhatsAppMessage(value: unknown, index = 0): MsgConteudo
     horario: timeLabel(timestamp, raw.horario),
     timestamp,
     status: raw.status,
-    reacoes: Array.isArray(raw.reacoes) ? raw.reacoes : Array.isArray(raw.reactions) ? raw.reactions : [],
+    reacoes: Array.isArray(raw.reacoes) ? raw.reacoes : Array.isArray(raw.reactions) ? raw.reactions : undefined,
     citada: raw.citada || raw.quoted || null,
     midiaMeta: raw.midiaMeta && typeof raw.midiaMeta === "object" ? raw.midiaMeta : null,
     edited: booleanFlag(raw.edited ?? raw.editada ?? raw.isEdited),
@@ -413,7 +417,7 @@ export const whatsappApi = {
   },
 
   async start(signal?: AbortSignal, plan?: "lite" | "pro" | null) {
-    return apiRequest<{ status: string; qrcode?: string | null; plano?: "lite" | "pro" | null }>("/api/chat/inicializar-login", {
+    return apiRequest<Pick<WhatsAppConnection, "status" | "qrcode" | "plano" | "provider" | "providerLabel" | "requiresPlanSelection">>("/api/chat/inicializar-login", {
       method: "POST",
       body: JSON.stringify({ canal: "whatsapp", plano: plan ?? null }),
       timeoutMs: 20_000,
@@ -439,6 +443,17 @@ export const whatsappApi = {
       { timeoutMs: refresh ? 12_000 : 8_000 },
     );
     const normalizeItems = (items: unknown[]) => items.map(normalizeWhatsAppConversation).filter((item): item is ChatConversa => Boolean(item));
+    if (!Array.isArray(payload) && payload.hasMore) {
+      // Um lote de metadados pode atualizar centenas de grupos no mesmo segundo.
+      // O snapshot completo evita avançar o cursor além dos itens não entregues.
+      const [full, groupPayload] = await Promise.all([
+        apiRequest<unknown[]>("/api/chat/conversas", { timeoutMs: 12_000 }),
+        apiRequest<{ items: unknown[] }>("/api/chat/grupos", { timeoutMs: 12_000 }),
+      ]);
+      const items = new Map(normalizeItems(groupPayload.items || []).map(item => [item.id, item]));
+      normalizeItems(full).forEach(item => items.set(item.id, item));
+      return { items: [...items.values()], cursor: payload.cursor, hasMore: false };
+    }
     return Array.isArray(payload) ? normalizeItems(payload) : { ...payload, items: normalizeItems(payload.items || []) };
   },
 

@@ -51,7 +51,11 @@ describe("Client workspace", () => {
     );
     api.apiRequest.mockImplementation(
       async (path: string, options?: { method?: string; body?: string }) => {
-        if (path === "/api/clientes") return { items: [client] };
+        if (path === "/api/clientes?archived=all") return { items: [client] };
+        if (path === "/api/business/client-views") return { items: [], canShare: false };
+        if (path === "/api/business/tags?scope=client") return { items: [] };
+        if (path === "/api/business/tags/client/client-1") return { items: [] };
+        if (path === "/api/business/clients/client-1/relations?offset=0&limit=25") return { items: [], total: 0, nextOffset: null };
         if (path === "/api/team-chat/members")
           return {
             members: [
@@ -115,7 +119,8 @@ describe("Client workspace", () => {
     expect(
       screen.getByRole("link", { name: /Abrir WhatsApp/ }),
     ).toHaveAttribute("href", "https://wa.me/5511999990000");
-    expect(api.apiRequest).toHaveBeenCalledTimes(1);
+    expect(api.apiRequest.mock.calls.filter(([path]) => path === "/api/clientes?archived=all")).toHaveLength(1);
+    expect(api.apiRequest.mock.calls.some(([path]) => /\/(files|contracts|360)$/.test(path))).toBe(false);
     await user.click(screen.getByRole("button", { name: "Clientes" }));
     expect(
       screen.getByRole("region", { name: "Lista de clientes" }),

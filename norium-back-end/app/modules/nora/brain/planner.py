@@ -71,6 +71,7 @@ def catalogue_for_request(context, catalogue):
         "brainstorm": r"\b(brainstorm\w*|estudio|mapa mental|swot)\b",
         "automations": r"\b(automac\w*|automatiz\w*)\b",
         "knowledge": r"\b(conhecimento|base de conhecimento)\b",
+        "catalog": r"\b(catalogo|produtos?|precos?|quanto custa|ofertar)\b",
         "web": r"\b(web|internet|sites?|brave|fontes publicas)\b",
         "memory": r"\b(preferencias?|lembre|guarde|memorize)\b",
         "history": r"\b(historico|conversas? anteriores)\b",

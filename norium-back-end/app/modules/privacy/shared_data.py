@@ -10,12 +10,49 @@ from app.infrastructure.storage_limits import upload_candidates
 from app.modules.privacy.storage_catalog import personal_documents
 
 
+def business_contributions(payload: dict, user_id: str, *, purge: bool = False, personal_views: bool = False) -> list[dict]:
+    result = []
+    retained = []
+    for row in payload.get("items", []):
+        if not isinstance(row, dict):
+            continue
+        fields = [key for key in ("createdBy", "updatedBy") if row.get(key) == user_id]
+        history = [{"until": entry.get("until")} for entry in row.get("priceHistory", [])
+                   if isinstance(entry, dict) and entry.get("changedBy") == user_id]
+        owns_relation = any(row.get(key) == user_id for key in ("clientOwnerId", "resourceOwnerId", "conversationOwnerId"))
+        if fields or history or owns_relation:
+            result.append({"kind": "business_contribution", "recordId": row.get("id"),
+                           "fields": fields, "createdAt": row.get("createdAt"), "priceHistory": history,
+                           "ownsRelation": owns_relation})
+        if purge:
+            if owns_relation or (personal_views and row.get("createdBy") == user_id):
+                continue
+            for key in fields:
+                row[key] = "deleted"
+            for entry in row.get("priceHistory", []):
+                if isinstance(entry, dict) and entry.get("changedBy") == user_id:
+                    entry["changedBy"] = "deleted"
+        retained.append(row)
+    if purge:
+        payload["items"] = retained
+    return result
+
+
 def personal_team_messages(user: dict[str, Any], *, purge: bool = False) -> tuple[list[dict], list]:
     user_id, owner_id = str(user["id"]), str(user.get("teamOwnerId") or "")
     if not owner_id or owner_id == user_id:
         return [], []
     result, attachments = [], []
     for key, payload in personal_documents(owner_id):
+        if "/business_" in key and isinstance(payload, dict):
+            from app.modules.business.store import mutate_path
+            personal_views = key.endswith("/business_team_views_db.json")
+            if purge:
+                contributions = mutate_path(get_data_root() / key, lambda document: business_contributions(document, user_id, purge=True, personal_views=personal_views))
+            else:
+                contributions = business_contributions(payload, user_id)
+            result.extend(contributions)
+            continue
         if not key.endswith("/team_chat_db.json") or not isinstance(payload, dict):
             continue
         changed = False

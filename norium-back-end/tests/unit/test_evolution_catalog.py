@@ -34,6 +34,30 @@ class EvolutionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("catalog", result["event"])
         self.assertEqual("chats", result["catalogType"])
 
+    def test_evolution_profile_cdn_is_scoped_and_requires_server_registration(self):
+        url = "https://pps.whatsapp.net/synthetic-profile.jpg"
+        user_id = "synthetic-profile-cdn"
+        with patch.object(router, "is_evolution", return_value=True), patch.object(router, "WHATSAPP_MEDIA_HOSTS", set()):
+            self.assertEqual(url, router.validate_external_media_url(url))
+            self.assertIsNone(router.registered_remote_media_id(user_id, url))
+            try:
+                router.remember_remote_media_references(user_id, {"photoUrl": url})
+                self.assertTrue(router.registered_remote_media_id(user_id, url))
+                self.assertIsNone(router.registered_remote_media_id("synthetic-other-user", url))
+            finally:
+                router.remote_media_registry.pop(user_id, None)
+        with patch.object(router, "is_evolution", return_value=False), patch.object(router, "WHATSAPP_MEDIA_HOSTS", set()):
+            with self.assertRaises(router.HTTPException):
+                router.validate_external_media_url(url)
+
+    def test_evolution_profile_cdn_does_not_allow_arbitrary_origins(self):
+        with patch.object(router, "is_evolution", return_value=True), patch.object(router, "WHATSAPP_MEDIA_HOSTS", set()):
+            for url in ("http://pps.whatsapp.net/photo", "https://pps.whatsapp.net:444/photo",
+                        "https://user@pps.whatsapp.net/photo", "https://pps.whatsapp.net.evil.test/photo",
+                        "https://other.example.test/photo", "https://127.0.0.1/photo"):
+                with self.subTest(url=url), self.assertRaises(router.HTTPException):
+                    router.validate_external_media_url(url)
+
     async def test_catalog_prefers_saved_name_and_preserves_explicit_lid_alias(self):
         with patch("app.services.evolution_client._origin", return_value="http://evolution-api:8080"):
             client = EvolutionClient()

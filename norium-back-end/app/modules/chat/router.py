@@ -1639,6 +1639,10 @@ def validate_external_media_url(url: str) -> str:
         raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.") from exc
     base_hostname = (urlparse(wapi_client.config.base_url).hostname or "").strip().casefold().rstrip(".")
     allowed_hosts = {base_hostname, *WHATSAPP_MEDIA_HOSTS}
+    if is_evolution():
+        # Fotos resolvidas pelo gateway usam este CDN; continuam exigindo
+        # registro por usuário, HTTPS, DNS público, MIME/tamanho e sem redirects.
+        allowed_hosts.add("pps.whatsapp.net")
     allowed_hosts = {host.strip().casefold().rstrip(".") for host in allowed_hosts if host.strip()}
     if (
         parsed.scheme.casefold() != "https"

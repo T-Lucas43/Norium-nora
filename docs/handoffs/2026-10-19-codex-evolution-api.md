@@ -282,3 +282,23 @@ Validação desta correção: 277 testes backend (19 módulos), 135 testes front
 recebido excedia o limite vigente e foi corretamente bloqueado com 413; não
 ampliar esse limite para tornar o recibo verde. A conferência operacional após
 o rebuild da revisão final deve identificar seu SHA e o resultado de sincronização.
+
+Na execução local `d3acec4`, a sincronização terminou em 100%: 1.252 contatos
+(1.227 com nome disponível), 237 grupos distintos (236 com assunto), perfil próprio
+com nome, telefone e URL de foto. As cinco modalidades de mídia permitida recebida
+baixaram com 200; o ZIP permaneceu bloqueado por tamanho. A presença da URL não
+comprovou o carregamento da foto: o proxy rejeitou `pps.whatsapp.net` com 400.
+Corrigido para aceitar somente esse host exato adicional quando Evolution está
+ativo. Registro prévio por usuário, HTTPS, DNS público, bloqueio de redirects,
+MIME e limite de tamanho continuam obrigatórios. W-API não ganha esse host por
+padrão. Casos sintéticos cobrem isolamento do registro e rejeição de outras origens.
+Também corrigida a recuperação visual quando a URL de uma foto que falhou é trocada.
+
+Rodada final: 279 testes backend passaram; 135 frontend afetados passaram e os
+cinco casos de catálogo/perfil/foto passaram após o complemento visual. Lint,
+TypeScript e Bandit passaram. A confirmação HTTP das fotos na versão com o host
+corrigido ainda deve constar do recibo operacional antes de declarar esse item validado.
+O CI de `d3acec4` completou os 1.717 testes backend e os 160 arquivos frontend,
+mas o wrapper Gitleaks consultou o head novo `62404f1` depois do checkout antigo
+e falhou por intervalo Git inexistente. Essa falha não é aprovação de segurança;
+a candidata final deve ficar congelada e passar em todos os gates normalmente.

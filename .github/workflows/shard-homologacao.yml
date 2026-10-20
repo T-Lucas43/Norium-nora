@@ -64,7 +64,7 @@ jobs:
 
       - name: Preserve isolated backend validation diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: backend-validation-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
@@ -85,7 +85,7 @@ jobs:
 
       - name: Preserve revision-bound backend SBOM
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-sbom-${{ github.event.pull_request.head.sha || github.sha }}
           path: output/backend-sbom.cdx.json
@@ -124,7 +124,7 @@ jobs:
           /tmp/gitleaks-8.24.3/gitleaks git . --config .gitleaks.toml --log-opts=HEAD --redact=100 --no-banner --no-color --report-format=sarif --report-path output/gitleaks-history.sarif
 
       - name: Preserve redacted candidate history scan
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: secret-history-${{ github.event.pull_request.head.sha || github.sha }}
           path: output/gitleaks-history.sarif
@@ -225,7 +225,7 @@ jobs:
 
       - name: Preserve focused aggregate diagnostics
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: team-call-diagnostics-${{ github.run_id }}
           path: output/team-call-diagnostics/**
@@ -251,7 +251,7 @@ jobs:
 
       - name: Preserve aggregate team-call quality evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: team-call-quality-${{ github.run_id }}-${{ github.run_attempt }}
           path: output/team-call-quality/**
@@ -416,7 +416,7 @@ jobs:
 
       - name: Preserve image SBOM vulnerability reports and browser inventory
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shard-image-audit-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/shard-image-audit/*
@@ -437,7 +437,7 @@ jobs:
 
       - name: Preserve the exact audited image without rebuilding on the VPS
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.deploy_homologacao || inputs.export_image)))
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shard-deploy-image-${{ github.sha }}
           path: ${{ runner.temp }}/shard-deploy-image/*
@@ -496,7 +496,7 @@ jobs:
           PY
       - name: Preserve Evolution security evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: evolution-audit-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/evolution-audit/*
@@ -516,7 +516,7 @@ jobs:
           sha256sum image.tar.gz > image.tar.gz.sha256
       - name: Preserve audited Evolution image for Shard
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.deploy_homologacao || inputs.export_image)))
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: evolution-deploy-image-${{ github.sha }}
           path: ${{ runner.temp }}/evolution-image/*
@@ -537,7 +537,7 @@ jobs:
       - name: Package reviewed source without contacting the hosting provider
         run: python scripts/build_shard_release.py --repo . --commit "$(git rev-parse HEAD)" --output-dir output/shard-release
       - name: Preserve source ZIP and integrity receipt
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shard-source-${{ github.event.pull_request.head.sha || github.sha }}
           path: output/shard-release/*
@@ -578,7 +578,7 @@ jobs:
             --receipt output/shard-deploy/receipt.json
       - name: Preserve deployment evidence without credentials or customer data
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shard-deploy-receipt-${{ github.sha }}-${{ github.run_attempt }}
           path: output/shard-deploy/receipt.json

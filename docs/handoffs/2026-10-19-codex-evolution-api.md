@@ -262,3 +262,23 @@ O resultado operacional da candidata fica em `output/evolution-audit/local-final
 conferir a revisão desse recibo e `/api/system/release` antes de afirmar qual versão
 está em execução. A promoção remota continua condicionada ao CI completo e ao aceite
 humano da candidata atual; não reaproveitar o aceite específico de 9ce7525.
+
+### Fechamento de nomes, grupos e perfil — 20/10
+
+A configuração do webhook retornava 400 porque o enum publicado pelo gateway
+usa `GROUP_UPDATE`, embora a constante de origem se chame `GROUPS_UPDATE`.
+Corrigido o literal e coberto por regressão; nenhuma permissão foi ampliada.
+O catálogo da interface agora incorpora todos os grupos do endpoint em cache,
+além das 50 conversas recentes. O fallback de um delta maior que 100 recupera
+também esse catálogo; o limite legado de histórico recente foi preservado.
+Respostas antigas de contatos, grupos e conversas são descartadas após troca
+de conta. O teste sintético confirma que um grupo da conta anterior não reaparece.
+
+Validação desta correção: 277 testes backend (19 módulos), 135 testes frontend
+(28 arquivos), lint, TypeScript e Bandit passaram. Recibos em
+`output/pos-correcao/whatsapp-metadata-final.json` e
+`output/evolution-audit/frontend-catalog-final.log`. Na revisão local anterior,
+áudio, imagem, vídeo, figurinha e PDF recebidos baixaram com HTTP 200. O ZIP
+recebido excedia o limite vigente e foi corretamente bloqueado com 413; não
+ampliar esse limite para tornar o recibo verde. A conferência operacional após
+o rebuild da revisão final deve identificar seu SHA e o resultado de sincronização.

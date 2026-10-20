@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from app.modules.chat import router
-from app.services.evolution_client import EvolutionClient, normalize_webhook
+from app.services.evolution_client import EVENTS, EvolutionClient, normalize_webhook
 from app.services.wapi_client import WapiError
 from app.services.conversation_store import new_conversation
 
@@ -26,6 +26,13 @@ class EvolutionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(REMOTE, result["catalogItems"][0]["id"])
         self.assertNotIn("do-not-forward", str(result))
         self.assertNotIn("private", str(result))
+
+    def test_webhook_uses_the_literal_accepted_by_the_pinned_gateway_schema(self):
+        self.assertIn("GROUP_UPDATE", EVENTS)
+        self.assertNotIn("GROUPS_UPDATE", EVENTS)
+        result = normalize_webhook({"instance": "synthetic", "event": "GROUP_UPDATE", "data": [{"id": GROUP, "subject": "Equipe sintética"}]})
+        self.assertEqual("catalog", result["event"])
+        self.assertEqual("chats", result["catalogType"])
 
     async def test_catalog_prefers_saved_name_and_preserves_explicit_lid_alias(self):
         with patch("app.services.evolution_client._origin", return_value="http://evolution-api:8080"):

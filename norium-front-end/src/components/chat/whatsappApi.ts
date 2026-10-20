@@ -446,8 +446,13 @@ export const whatsappApi = {
     if (!Array.isArray(payload) && payload.hasMore) {
       // Um lote de metadados pode atualizar centenas de grupos no mesmo segundo.
       // O snapshot completo evita avançar o cursor além dos itens não entregues.
-      const full = await apiRequest<unknown[]>("/api/chat/conversas", { timeoutMs: 12_000 });
-      return { items: normalizeItems(full), cursor: payload.cursor, hasMore: false };
+      const [full, groupPayload] = await Promise.all([
+        apiRequest<unknown[]>("/api/chat/conversas", { timeoutMs: 12_000 }),
+        apiRequest<{ items: unknown[] }>("/api/chat/grupos", { timeoutMs: 12_000 }),
+      ]);
+      const items = new Map(normalizeItems(groupPayload.items || []).map(item => [item.id, item]));
+      normalizeItems(full).forEach(item => items.set(item.id, item));
+      return { items: [...items.values()], cursor: payload.cursor, hasMore: false };
     }
     return Array.isArray(payload) ? normalizeItems(payload) : { ...payload, items: normalizeItems(payload.items || []) };
   },

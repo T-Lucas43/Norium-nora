@@ -265,6 +265,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     refresh = false,
     mostrarErro = true,
   ) => {
+    const generation = connectionStatusRequestGenerationRef.current;
     if (carregandoConversasRef.current) return null;
     carregandoConversasRef.current = true;
     try {
@@ -274,6 +275,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         ? Math.max(0, cursorConversasRef.current - 1)
         : undefined;
       const payload = await whatsappApi.conversations(since, refresh);
+      if (generation !== connectionStatusRequestGenerationRef.current) return null;
       const data = Array.isArray(payload) ? payload : payload.items;
       const nextCursor = Array.isArray(payload)
         ? Math.max(0, ...data.map((item) => Number(item.timestampUltimaMsg || 0)))
@@ -286,46 +288,56 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       });
       return data;
     } catch (err) {
+      if (generation !== connectionStatusRequestGenerationRef.current) return null;
       if (mostrarErro) {
         mostrarAviso("error", err instanceof Error ? err.message : "Falha ao carregar conversas.");
       }
       return null;
     } finally {
-      carregandoConversasRef.current = false;
+      if (generation === connectionStatusRequestGenerationRef.current) carregandoConversasRef.current = false;
     }
   }, [mostrarAviso]);
 
   const carregarContatosDoBackend = useCallback(async (mostrarErro = true) => {
+    const generation = connectionStatusRequestGenerationRef.current;
     setCarregandoContatos(true);
     setErroContatos(null);
     try {
       const contacts = await whatsappApi.contacts();
+      if (generation !== connectionStatusRequestGenerationRef.current) return null;
       const mergedContacts = mergeContactCatalog(contatosRef.current, contacts, conversasRef.current);
       contatosRef.current = mergedContacts;
       setListaContatos(mergedContacts);
       setConversas((current) => enrichConversationsWithContacts(current, mergedContacts));
       return mergedContacts;
     } catch (error) {
+      if (generation !== connectionStatusRequestGenerationRef.current) return null;
       const message = error instanceof Error ? error.message : "Falha ao carregar contatos.";
       setErroContatos(message);
       if (mostrarErro) mostrarAviso("error", message);
       return null;
     } finally {
-      setContatosCarregados(true);
-      setCarregandoContatos(false);
+      if (generation === connectionStatusRequestGenerationRef.current) {
+        setContatosCarregados(true);
+        setCarregandoContatos(false);
+      }
     }
   }, [mostrarAviso]);
 
   const carregarGruposDoBackend = useCallback(async (mostrarErro = true) => {
+    const generation = connectionStatusRequestGenerationRef.current;
     setCarregandoGrupos(true);
     setErroGrupos(null);
     try {
       const payload = await whatsappApi.groups();
+      if (generation !== connectionStatusRequestGenerationRef.current) return null;
       const rawItems = Array.isArray(payload) ? payload : payload.items;
       const items = (rawItems || []).map(normalizarGrupoWhatsApp).filter((item): item is ChatConversa => Boolean(item));
       setGrupos(items);
+      setConversas(current => mergeConversationCatalog(current, items, contatosRef.current));
       return items;
     } catch (error) {
+      if (generation !== connectionStatusRequestGenerationRef.current) return null;
       const cachedGroups = conversasRef.current.filter((conversation) => conversation.esGrupo);
       setGrupos(cachedGroups);
       if (cachedGroups.length === 0) {
@@ -335,8 +347,10 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       }
       return cachedGroups;
     } finally {
-      setGruposCarregados(true);
-      setCarregandoGrupos(false);
+      if (generation === connectionStatusRequestGenerationRef.current) {
+        setGruposCarregados(true);
+        setCarregandoGrupos(false);
+      }
     }
   }, [mostrarAviso]);
 
@@ -584,6 +598,11 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
 
   useEffect(() => {
     whatsappConectadoRef.current = false;
+    carregandoConversasRef.current = false;
+    setCarregandoContatos(false);
+    setCarregandoGrupos(false);
+    setErroContatos(null);
+    setErroGrupos(null);
     catalogoInicialTentadoRef.current = false;
     syncStatusRef.current = "idle";
     syncCompletionHandledRef.current = false;

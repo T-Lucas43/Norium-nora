@@ -20,7 +20,7 @@ import httpx
 from app.services.wapi_client import WapiClient, WapiConfig, WapiError
 
 EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "PRESENCE_UPDATE", "SEND_MESSAGE",
-          "CONTACTS_UPSERT", "CONTACTS_UPDATE", "CHATS_UPSERT", "CHATS_UPDATE", "GROUPS_UPSERT", "GROUPS_UPDATE"]
+          "CONTACTS_UPSERT", "CONTACTS_UPDATE", "CHATS_UPSERT", "CHATS_UPDATE", "GROUPS_UPSERT", "GROUP_UPDATE"]
 _INSTANCE = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 
 
@@ -416,7 +416,7 @@ def normalize_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     if not _INSTANCE.fullmatch(instance):
         return {"event": "unknown"}
     event = str(payload.get("event") or "").lower().replace("_", ".")
-    if event in {"contacts.upsert", "contacts.update", "chats.upsert", "chats.update", "groups.upsert", "groups.update"}:
+    if event in {"contacts.upsert", "contacts.update", "chats.upsert", "chats.update", "groups.upsert", "groups.update", "group.update"}:
         raw = payload.get("data")
         rows = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else []
         if len(rows) > 50000:

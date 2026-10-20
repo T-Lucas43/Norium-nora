@@ -47,7 +47,7 @@ Publicação e ativação remota dependem do CI e da revisão técnica humana do
 - View-once, GIF e publicação de Status sem contrato verificado são recusados.
 
 Estes itens são implementação de contrato, não aceite funcional com conta pareada.
-Sincronização retroativa completa e armazenamento histórico automático ficam desligados.
+A sincronização retroativa completa fica desligada (`syncFullHistory=false`). O lote inicial recente disponibilizado pelo WhatsApp passa a ser persistido, sujeito à retenção de 30 dias. Isso não garante todo o histórico do telefone.
 Nenhuma autorização desta implantação permite enviar mensagens em nome do usuário.
 
 ## Dados pessoais
@@ -112,3 +112,18 @@ ignorados `output/docker-local`. O titular aceita os termos no Norium e escaneia
    volumes e dados do Norium. Backup e rollback antes da promoção.
 7. Conferir release/readiness; titular aceita termos e escaneia QR. Somente depois
    um teste autorizado de envio/recebimento pode comprovar o fluxo WhatsApp completo.
+
+
+## Carga inicial e sessões já pareadas
+
+O socket pode conectar antes de o catálogo chegar. Nos primeiros três minutos o
+Norium atualiza o catálogo em intervalos limitados de 15 segundos, quando a tela
+solicita dados. Um resultado inicial vazio não recebe o TTL longo de um catálogo
+completo. Conversas confirmadas pelo catálogo aparecem mesmo sem mensagem/data
+recente, sem inventar conteúdo nem horário. A política W-API anterior é preservada.
+
+Em uma sessão pareada quando `DATABASE_SAVE_DATA_HISTORIC` estava desativado, o
+lote histórico já descartado pelo gateway não pode ser fabricado ou recuperado do
+banco vazio. A atualização preserva a sessão e todos os dados atuais; não força
+logout nem apaga vínculos. Se o WhatsApp não reenviar o lote ao reconectar, somente
+um novo pareamento feito pelo titular poderá solicitar outra carga inicial.

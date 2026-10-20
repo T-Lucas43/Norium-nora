@@ -567,6 +567,17 @@ def catalog_cache_is_fresh(
     if cache.get("schemaVersion") != WHATSAPP_CATALOG_SCHEMA_VERSION:
         return False
     try:
+        bootstrap_until = float(cache.get("evolutionBootstrapUntil") or 0)
+    except (TypeError, ValueError):
+        bootstrap_until = 0
+    if is_evolution():
+        # O socket abre antes de o catálogo inicial chegar. Um snapshot vazio
+        # ou ainda na janela inicial não deve congelar a lista por todo o TTL.
+        if not cache.get("contacts") and not cache.get("chats"):
+            return False
+        if bootstrap_until > time.time():
+            return False
+    try:
         cached_at = float(cache.get(key) or 0)
     except (TypeError, ValueError):
         return False
@@ -576,9 +587,13 @@ def catalog_cache_is_fresh(
 def contact_sync_retry_due(cache: Dict[str, Any]) -> bool:
     try:
         attempted_at = float(cache.get("contactSyncAttemptedAt") or 0)
+        bootstrap_until = float(cache.get("evolutionBootstrapUntil") or 0)
     except (TypeError, ValueError):
-        attempted_at = 0
-    return attempted_at <= 0 or time.time() - attempted_at >= WHATSAPP_CONTACT_SYNC_RETRY_SECONDS
+        attempted_at = bootstrap_until = 0
+    interval = WHATSAPP_CONTACT_SYNC_RETRY_SECONDS
+    if is_evolution() and bootstrap_until > time.time():
+        interval = 15
+    return attempted_at <= 0 or time.time() - attempted_at >= interval
 
 
 def _pagination_total_pages(payload: Any, page: int, received: int, per_page: int) -> int | None:
@@ -1119,6 +1134,14 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         contacts = merge_catalog_items(cached_contacts, fresh_contacts)
         chats = merge_catalog_items(cached_chats, fresh_chats)
         channels = merge_catalog_items(cached_channels, fresh_channels)
+        if is_evolution() and not contacts and not chats:
+            try:
+                bootstrap_until = float(cache.get("evolutionBootstrapUntil") or time.time() + 180)
+            except (TypeError, ValueError):
+                bootstrap_until = time.time() + 180
+            if bootstrap_until > time.time():
+                partial = True
+                warnings.append("aguardando catálogo inicial do WhatsApp")
         contacts_requires_pro = (
             isinstance(contacts_result, WapiError) and contacts_result.status == 403
         )
@@ -1217,6 +1240,10 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
                         int(conversation["timestampUltimaMsg"])
                     )
                 sync_catalog_messages(conversation, chat)
+                if is_evolution():
+                    # Catálogo é evidência de conversa, mesmo sem corpo ou data
+                    # de mensagem recente. Não fabricar mensagem/timestamp.
+                    conversation.setdefault("metadados", {})["evolutionCatalog"] = True
                 db[conversation_id] = normalize_conversation(conversation_id, conversation)
                 changed = True
                 if index % 50 == 0:
@@ -1291,6 +1318,8 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
                 {
                     **latest_cache,
                     "schemaVersion": WHATSAPP_CATALOG_SCHEMA_VERSION,
+                    **({"evolutionBootstrapUntil": latest_cache.get("evolutionBootstrapUntil") or now + 180}
+                       if is_evolution() else {}),
                     "authenticatedAt": (
                         latest_cache.get("authenticatedAt") or cache.get("authenticatedAt") or now
                     ),
@@ -1396,7 +1425,8 @@ def schedule_contact_sync(user_id: str, *, force: bool = False) -> Dict[str, Any
         return dict(contact_sync_state(user_id))
     state = contact_sync_state(user_id)
     if not force and state.get("status") == "complete":
-        return dict(state)
+        if not is_evolution() or time.time() - float(state.get("updatedAt") or 0) < 15:
+            return dict(state)
 
     try:
         loop = asyncio.get_running_loop()
@@ -1427,6 +1457,8 @@ def sorted_conversations(db: Dict[str, Any]) -> list[Dict[str, Any]]:
     items = [
         item for item in db.values()
         if int(item.get("timestampUltimaMsg") or 0) >= cutoff
+        or (is_evolution() and not item.get("timestampUltimaMsg")
+            and (item.get("metadados") or {}).get("evolutionCatalog") is True)
     ]
     items.sort(
         key=lambda item: (bool(item.get("fixada")), int(item.get("timestampUltimaMsg") or 0)),

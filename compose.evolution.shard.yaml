@@ -75,7 +75,7 @@ services:
       DATABASE_SAVE_MESSAGE_UPDATE: 'true'
       DATABASE_SAVE_DATA_CONTACTS: 'true'
       DATABASE_SAVE_DATA_CHATS: 'true'
-      DATABASE_SAVE_DATA_HISTORIC: 'false'
+      DATABASE_SAVE_DATA_HISTORIC: 'true'
       DATABASE_SAVE_DATA_LABELS: 'false'
       CACHE_REDIS_ENABLED: 'true'
       CACHE_REDIS_URI: redis://evolution-redis:6379/0

@@ -142,3 +142,26 @@ SQL fixo por variantes literais; parâmetros e locks/fencing são preservados.
 Sem exceções novas ou redução de severidade. O CI completo precisa passar de novo
 na revisão que contém essas correções antes da promoção. O pedido de revisão
 anterior mencionava 5f43d5d; o aceite deve identificar a revisão atualizada.
+
+
+## Relato após pareamento e correção da carga inicial
+
+O usuário aprovou tecnicamente 9ce7525 e a limpeza exclusiva do cache Docker de
+build. A limpeza foi executada pelo painel Shard; imagens, containers e volumes
+não foram removidos. A revisão 9ce falhou ao resolver dependências: aiohttp 3.14.4
+exige yarl>=1.25.1. Alinhado yarl para 1.25.1; resolução completa e auditoria local
+passaram. Essa é a dependência transitiva necessária à atualização já solicitada.
+
+O usuário informou que, após conectar, nada apareceu. Diagnóstico minimizado no
+ambiente local: gateway conectado, 1.188 contatos, 23 chats e três mensagens;
+Norium mantinha sucesso com zero itens. Uma atualização explícita do catálogo
+recuperou 1.188 contatos (1.187 expostos após normalização); duas conversas passaram
+pelo filtro de recência. Não foram lidos nomes, telefones nem corpos nesta análise.
+
+Correção: janela inicial limitada de atualização, snapshot vazio sem TTL longo,
+conversas do catálogo sem mensagem recente visíveis sem timestamps fabricados;
+armazenamento do lote inicial recente habilitado no gateway. syncFullHistory segue
+false e a retenção por conta segue 30 dias. Nenhum logout/repareamento automático.
+Uma sessão cujo lote anterior não foi armazenado pode precisar de novo pareamento
+pelo titular; não declarar retroimportação completa. Rebuild local e CI da revisão
+com essas alterações ainda precisam terminar antes de promover ao Shard.

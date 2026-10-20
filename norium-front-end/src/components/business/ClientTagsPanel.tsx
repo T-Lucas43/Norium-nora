@@ -19,6 +19,7 @@ export default function ClientTagsPanel({ clientId, conversationId, canEdit }: {
   const [manageOpen, setManageOpen] = useState(false);
   const load = useCallback(async (signal?: AbortSignal) => {
     try { const [all, linked] = await Promise.all([apiRequest<{ items: Label[] }>(`/api/business/tags?scope=${tagScope}`, { signal }), apiRequest<{ items: Label[] }>(`/api/business/tags/${conversationId ? "conversation" : "client"}/${encodeURIComponent(resourceId)}`, { signal })]);
+      if (!Array.isArray(all.items) || !Array.isArray(linked.items)) throw new Error("Resposta inválida ao consultar etiquetas.");
       if (!signal?.aborted && requestScope() === scope) { setAvailable(all.items); setLabels(linked.items); }
     } catch (err) { if (!signal?.aborted && requestScope() === scope) setError(err instanceof Error ? err.message : "Não foi possível consultar as etiquetas."); }
   }, [resourceId, tagScope, conversationId, scope]);

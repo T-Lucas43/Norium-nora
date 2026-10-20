@@ -210,7 +210,7 @@ WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS = max(
     5,
     int(os.getenv("WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS", "15")),
 )
-WHATSAPP_HISTORY_SCHEMA_VERSION = 2
+WHATSAPP_HISTORY_SCHEMA_VERSION = 3
 WHATSAPP_PROFILE_PHOTO_TTL_SECONDS = max(
     3600,
     min(47 * 60 * 60, int(os.getenv("WHATSAPP_PROFILE_PHOTO_TTL_SECONDS", str(36 * 60 * 60)))),
@@ -2378,21 +2378,16 @@ async def _wapi_apply_reaction(user_id: str, msg: Dict[str, Any]) -> Dict[str, A
     target_id = str(msg.get("reactionTargetId") or "")
     if not target_id:
         return {"status": "ignored", "event": "reaction"}
-    emoji = msg.get("texto") or ""
     db = await load_conversations(user_id)
     conversation = db.get(msg["chatId"])
-    candidates = [conversation] if isinstance(conversation, dict) else list(db.values())
+    candidates = [conversation] if isinstance(conversation, dict) else []
     for conv in candidates:
         if not isinstance(conv, dict):
             continue
         for stored in conv.get("mensagens") or []:
             if str(stored.get("id") or "") != target_id:
                 continue
-            # Preserva a reação do próprio usuário (fromMe); substitui a do contato.
-            reactions = [r for r in (stored.get("reacoes") or []) if isinstance(r, dict) and r.get("fromMe")]
-            if emoji:
-                reactions.append({"emoji": emoji, "count": 1, "fromMe": False, "senders": []})
-            stored["reacoes"] = reactions
+            stored["reacoes"] = wapi_webhook.updated_reactions(stored.get("reacoes"), msg)
             await save_conversations(db, user_id)
             await mark_whatsapp_conversation_updated(user_id, str(conv.get("id") or msg["chatId"]))
             return {"status": "success", "event": "reaction"}
@@ -3440,7 +3435,7 @@ async def _whatsapp_stream_media_legacy(
     media_key = str(media_meta.get("mediaKey") or "")
     direct_path = str(media_meta.get("directPath") or "")
     payload: Dict[str, Any] = {}
-    if creds and media_key and direct_path:
+    if creds and (is_evolution() or (media_key and direct_path)):
         try:
             payload = await wapi_client.download_media(
                 creds[0], creds[1],
@@ -3448,12 +3443,14 @@ async def _whatsapp_stream_media_legacy(
                 direct_path=direct_path,
                 media_type=str(media_meta.get("type") or ""),
                 mimetype=str(media_meta.get("mimetype") or ""),
+                **({"phone": resolved_conversation_id, "message_id": message_id} if is_evolution() else {}),
             )
         except WapiError:
             # Miniatura/link de catálogo ainda pode manter o Status visível.
             payload = {}
     inline, link = unpack_wapi_media_response(payload)
-    fallback_mime = str(media_meta.get("mimetype") or "application/octet-stream")
+    provider_mime = payload.get("mimetype") if is_evolution() else None
+    fallback_mime = str(provider_mime if isinstance(provider_mime, str) and provider_mime else media_meta.get("mimetype") or "application/octet-stream")
     file_bytes: bytes | None = None
     mime_type = fallback_mime
     if isinstance(inline, str) and inline:
@@ -5016,6 +5013,7 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         "document": "[Documento]",
         "sticker": "[Figurinha]",
     }
+    reaction_events = []
     for raw_message in sorted(
         (item for item in raw_messages if isinstance(item, dict)),
         key=lambda item: normalize_whatsapp_timestamp(
@@ -5039,6 +5037,9 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
             }
         )
         if not adapted:
+            continue
+        if adapted.get("tipo") == "reaction":
+            reaction_events.append(adapted)
             continue
         raw_type = str(raw_message.get("type") or raw_message.get("messageType") or "chat").lower()
         message_type = str(adapted.get("tipo") or type_map.get(raw_type) or "texto")
@@ -5131,6 +5132,16 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         existing_ids.add(message_id)
         changed = True
 
+    # Remove bolhas de reação importadas por versões antigas, sem perder a mensagem alvo.
+    without_reactions = [item for item in existing_messages if item.get("tipo") != "reaction"]
+    if len(without_reactions) != len(existing_messages):
+        changed = True
+    existing_messages[:] = without_reactions
+    for event in reaction_events:
+        target = next((item for item in existing_messages if item.get("id") == event.get("reactionTargetId")), None)
+        if target is not None:
+            target["reacoes"] = wapi_webhook.updated_reactions(target.get("reacoes"), event)
+            changed = True
     existing_messages.sort(key=lambda item: int(item.get("timestamp") or 0))
     conversation["mensagens"] = existing_messages[-250:]
     latest_timestamp = normalize_whatsapp_timestamp(chat.get("timestamp"))

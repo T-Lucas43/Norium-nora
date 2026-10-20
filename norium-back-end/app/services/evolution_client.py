@@ -58,6 +58,8 @@ def webhook_url() -> str:
 
 def jid(value: str) -> str:
     value = str(value or "").strip()
+    if value.endswith("@c.us"):
+        value = value[:-5] + "@s.whatsapp.net"
     return value if "@" in value else value + "@s.whatsapp.net"
 
 
@@ -191,7 +193,7 @@ class EvolutionClient(WapiClient):
         if not identifier:
             raise WapiError("Mensagem de referência ausente.", status=422, code="invalid_message")
         result = await self._call("POST", f"/chat/findMessages/{name}", token=token, read_only=True,
-                                  body={"where": {"key": {"id": identifier, "remoteJid": remote}}, "offset": 5, "page": 1})
+                                  body={"where": {"key": {"id": identifier}}, "offset": 5, "page": 1})
         rows = result.get("messages", {}).get("records", []) if isinstance(result, dict) else []
         for row in rows:
             key = row.get("key") if isinstance(row, dict) else None
@@ -199,6 +201,13 @@ class EvolutionClient(WapiClient):
                 return {"key": {field: key[field] for field in ("id", "remoteJid", "fromMe", "participant") if field in key},
                         "message": row.get("message") or {}}
         raise WapiError("Mensagem de referência não disponível nesta conta/conversa.", status=422, code="invalid_message")
+
+    async def download_media(self, instance_id: str, token: str, *, media_key: str, direct_path: str,
+                             media_type: str, mimetype: str, phone: str = "", message_id: str = "") -> dict[str, Any]:
+        # A rota autenticada fornece a conversa/mensagem comprovadas no store local.
+        # O gateway resolve o envelope completo, inclusive chave para renovar mídia expirada.
+        return await self._request("POST", "/message/download-media", token=token, instance_id=instance_id,
+                                   json_body={"phone": phone, "messageId": message_id, "type": media_type}, timeout=60)
 
     async def _request(self, method: str, path: str, *, token: str | None = None, instance_id: str | None = None,
                        params: Mapping[str, Any] | None = None, json_body: Mapping[str, Any] | None = None,
@@ -247,15 +256,14 @@ class EvolutionClient(WapiClient):
                     timestamp = last.get("timestamp") or last.get("messageTimestamp")
                     last = {**last, "timestamp": timestamp}
                     normalized["lastMessageTime"] = timestamp
-                    normalized["lastMessage"] = {**last, "message": _media_bytes(last["message"])} if isinstance(last.get("message"), dict) else last
+                    normalized["lastMessage"] = _message_record(last)
                 items.append(normalized)
             return {"data": items, "totalPages": 1}
         if path == "/chats/chat":
             remote = jid(str(query.get("phoneNumber") or ""))
             result = await call("chat/findMessages", {"where": {"key": {"remoteJid": remote}}, "page": 1, "offset": 100}, read=True)
             messages = result.get("messages", {}) if isinstance(result, dict) else {}
-            records = [dict(row, timestamp=row.get("timestamp") or row.get("messageTimestamp"),
-                            **({"message": _media_bytes(row["message"])} if isinstance(row.get("message"), dict) else {}))
+            records = [_message_record(row)
                        for row in messages.get("records", []) if isinstance(row, dict)]
             return {"id": remote, "messages": records, "hasMore": messages.get("pages", 1) > 1}
         if path == "/contacts/phone-exists":
@@ -282,13 +290,17 @@ class EvolutionClient(WapiClient):
             return await call("chat/deleteMessageForEveryone", referenced["key"], verb="DELETE")
         if path in {"/message/send-reaction", "/message/remove-reaction"}:
             referenced = await self._referenced_message(name, token or "", body)
-            return await call("message/sendReaction", {"key": referenced["key"], "reaction": body.get("reaction", "")})
+            result = await call("message/sendReaction", {"key": referenced["key"], "reaction": body.get("reaction", "")})
+            identifier = (result.get("key") or {}).get("id") if isinstance(result, dict) else None
+            if not isinstance(identifier, str) or not identifier.strip():
+                raise WapiError("O provedor não confirmou a reação; não repita automaticamente.", code="remote_outcome_unknown")
+            return {"messageId": identifier}
         if path == "/message/download-media":
             kind = str(body.get("type") or "").removesuffix("Message")
             if kind not in {"image", "video", "audio", "document", "sticker"}:
                 raise WapiError("Mídia Evolution inválida.", status=422, code="invalid_media")
-            media = {key: body[key] for key in ("mediaKey", "directPath", "mimetype") if key in body}
-            return await call("chat/getBase64FromMediaMessage", {"message": {"key": {}, "message": {kind + "Message": media}}}, read=True)
+            referenced = await self._referenced_message(name, token or "", body)
+            return await call("chat/getBase64FromMediaMessage", {"message": referenced, "convertToMp4": False}, read=True)
         if path.startswith("/message/send-"):
             kind = path.removeprefix("/message/send-")
             outgoing: dict[str, Any] = {"number": body.get("phone"), "delay": body.get("delayMessage", 0)}
@@ -332,14 +344,36 @@ class EvolutionClient(WapiClient):
         raise WapiError("Recurso indisponível na integração Evolution.", status=422, code="feature_unavailable")
 
 
+def _message_record(row: dict[str, Any]) -> dict[str, Any]:
+    result = {**row, "timestamp": row.get("timestamp") or row.get("messageTimestamp")}
+    if isinstance(row.get("message"), dict):
+        result["message"] = content = _media_bytes(row["message"])
+        for field in ("audioMessage", "videoMessage", "documentMessage", "imageMessage", "stickerMessage"):
+            media = content.get(field)
+            if not isinstance(media, dict):
+                continue
+            if isinstance(media.get("seconds"), (int, float)) and not isinstance(media["seconds"], bool):
+                result["duration"] = max(0, media["seconds"])
+            if isinstance(media.get("fileName"), str):
+                result["filename"] = media["fileName"][:255]
+            break
+    return result
+
+
 def _media_bytes(message: dict[str, Any], depth: int = 0) -> dict[str, Any]:
     if depth > 8:
         return {}
+    for wrapper in ("deviceSentMessage", "documentWithCaptionMessage"):
+        node = message.get(wrapper)
+        if isinstance(node, dict) and isinstance(node.get("message"), dict):
+            return _media_bytes(node["message"], depth + 1)
     result = dict(message)
     for key, value in message.items():
         if key in {"mediaKey", "jpegThumbnail", "fileSha256", "fileEncSha256"}:
             if isinstance(value, dict) and value.get("type") == "Buffer":
                 value = value.get("data")
+            elif isinstance(value, dict) and value and len(value) <= 200000 and set(value) == {str(i) for i in range(len(value))}:
+                value = [value[str(i)] for i in range(len(value))]
             if isinstance(value, list) and len(value) <= 200000 and all(type(item) is int and 0 <= item <= 255 for item in value):
                 result[key] = base64.b64encode(bytes(value)).decode("ascii")
         elif isinstance(value, dict) and (key.endswith("Message") or key == "message"):

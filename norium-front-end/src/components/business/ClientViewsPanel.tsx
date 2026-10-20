@@ -23,7 +23,8 @@ export default function ClientViewsPanel({ value, onChange, clients }: { value: 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const current = requestScope();
     try { const [data, tags] = await Promise.all([apiRequest<{ items: View[]; canShare: boolean }>("/api/business/client-views", { signal }), apiRequest<{ items: Label[] }>("/api/business/tags?scope=client", { signal })]);
-      if (!signal?.aborted && requestScope() === current && current === scope) { setViews(data.items); setCanShare(data.canShare); setLabels(tags.items); }
+      if (!Array.isArray(data.items) || !Array.isArray(tags.items)) throw new Error("Resposta inválida ao consultar visões e etiquetas.");
+      if (!signal?.aborted && requestScope() === current && current === scope) { setViews(data.items); setCanShare(data.canShare === true); setLabels(tags.items); }
     } catch (err) { if (!signal?.aborted && requestScope() === current && current === scope) setError(err instanceof Error ? err.message : "Falha ao consultar visões salvas."); }
   }, [scope]);
   useEffect(() => { const controller = new AbortController(); setViews([]); setLabels([]); setOpen(false); setEditing(null); setBusy(false); void refresh(controller.signal); return () => controller.abort(); }, [refresh]);

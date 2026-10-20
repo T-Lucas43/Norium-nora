@@ -97,7 +97,8 @@ ignorados `output/docker-local`. O titular aceita os termos no Norium e escaneia
 
 1. Publicar/revisar o diff e aguardar todos os gates do CI do SHA exato.
 2. Liberar espaço com ação específica aprovada: somente cache Docker de build sem uso.
-   A leitura da VPS mostrou 685 MB livres e 8,69 GB recuperáveis desse cache; nada foi removido.
+   Limpeza aprovada e executada em 19/10/2026; última conferência mostrou 17 GB livres.
+   Imagens, containers, volumes e backups foram preservados. Conferir espaço novamente antes da promoção.
 3. Importar os artefatos imutáveis Norium e `evolution-deploy-image-SHA` do GitHub,
    conferir checksums e recibos. Não reconstruir a aplicação na VPS.
 4. Em diretório dedicado, copiar o Compose e executar
@@ -127,3 +128,22 @@ lote histórico já descartado pelo gateway não pode ser fabricado ou recuperad
 banco vazio. A atualização preserva a sessão e todos os dados atuais; não força
 logout nem apaga vínculos. Se o WhatsApp não reenviar o lote ao reconectar, somente
 um novo pareamento feito pelo titular poderá solicitar outra carga inicial.
+
+## Mídias e reações
+
+O download autenticado resolve a mensagem na instância e conversa do titular e
+encaminha a chave e o conteúdo completos ao endpoint oficial. Essa referência
+permite ao gateway renovar mídia expirada; a chave vazia anterior não permitia
+essa renovação. Não há redirecionamento de credenciais nem envio de anexos à IA.
+O histórico preserva duração de áudio/vídeo e nome de documento. Envelopes
+`deviceSentMessage` e `documentWithCaptionMessage` são normalizados; mensagens de
+visualização única e temporárias não são expandidas por essa compatibilidade.
+
+Reações do histórico atualizam a mensagem alvo, sem criar bolha separada. Reações
+do próprio celular e de participantes são preservadas por autor; remover uma não
+remove as dos outros. O lookup aceita o alias de privacidade somente após provar
+que pertence à conversa solicitada, na instância autenticada. Uma escrita sem
+confirmação não aparece como sucesso e não é repetida automaticamente.
+
+O ambiente local usa `restart: unless-stopped` nos serviços e continua disponível
+em `http://localhost:8765/` com Docker ativo. Rebuild preserva volumes e pareamento.

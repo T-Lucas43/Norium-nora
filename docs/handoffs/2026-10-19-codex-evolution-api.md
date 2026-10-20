@@ -172,3 +172,32 @@ booleana de origem do catálogo; timestamps reais messageTimestamp são mapeados
 contrato legado, e o índice de atualização em lote permite entregar metadados sem
 mensagem também pelo delta. O horário da última mensagem não é inventado. Nova
 conferência das contagens locais será feita depois do rebuild desta candidata.
+
+## 20/10/2026 — mídia, reações e continuidade local
+
+O usuário pediu verificar áudio, mídia e reações e manter o projeto local ativo.
+Finalidade: corrigir os contratos Evolution usando fixtures sintéticas; leituras
+da sessão local retornam somente contagens, status HTTP, tamanho e MIME, sem
+nomes, telefones, corpos ou bytes de mídia expostos à IA. Nenhuma mensagem ou
+reação real foi enviada. Sessão, credenciais e volumes preservados.
+
+Confirmado no gateway: áudios, imagens, vídeos, documentos, figurinhas e reações
+recebidos. Antes da correção, a conferência local mostrou reações como bolhas no
+histórico e downloads de imagem/figurinha/documento rejeitados; um áudio baixou
+17.129 bytes `audio/ogg`. Corrigido: referência completa de mídia e renovação pelo
+gateway; alias LID validado na conversa/instância; resposta de reação exige ID
+confirmado sem repetição automática; atualização por autor e sem bolha separada;
+metadados de duração/nome e cache de histórico versão 3.
+
+Os novos casos sintéticos reproduziram as falhas. A rodada final selecionada
+passou 174 testes backend sem erros, falhas ou skips, em ambiente descartável sem
+dotenv ou sockets externos. Bandit dos arquivos alterados sem alertas médios/altos;
+lint/tipos frontend passaram. A suíte frontend completa detectou fixtures antigas
+das novas consultas de visões/etiquetas/clientes arquivados e um caso assíncrono de
+relatórios; ajustes e nova execução estão em andamento. Resultados em
+`output/pos-correcao/evolution-candidate.json` e `output/evolution-audit/`.
+
+Docker local estava saudável em `http://localhost:8765/`, com reinicialização
+`unless-stopped`. O próximo rebuild e a conferência dos downloads ainda precisam
+concluir. A candidata não foi promovida ao Shard; o aceite anterior identifica
+9ce7525 e os gates da nova revisão precisam passar antes da promoção.

@@ -38,7 +38,8 @@ describe("status do WhatsApp", () => {
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:status-photo") });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
     mediaApi.apiBlobRequest.mockResolvedValue(new Blob(["photo"], { type: "image/jpeg" }));
-    mediaApi.apiRequest.mockResolvedValue({});
+    mediaApi.apiRequest.mockImplementation(async (path: string) =>
+      path === "/api/business/tags?scope=contact" ? { items: [] } : {});
     api.status.mockResolvedValue({ conectado: true, status: "conectado", numero: "5511999999999" });
     api.conversations.mockResolvedValue([]);
     api.contacts.mockResolvedValue([]);

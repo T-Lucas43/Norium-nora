@@ -20,7 +20,7 @@ export function useConversationLabels(target: "conversations" | "contacts" = "co
     const controller = new AbortController(); setLabels([]);
     if (!enabled) return () => controller.abort();
     void apiRequest<{ items: BusinessTag[] }>("/api/business/tags?scope=contact", { signal: controller.signal })
-      .then(data => { if (!controller.signal.aborted && requestScope() === scope) setLabels(data.items); })
+      .then(data => { if (!Array.isArray(data.items)) throw new Error("Resposta inválida ao consultar etiquetas."); if (!controller.signal.aborted && requestScope() === scope) setLabels(data.items); })
       .catch(err => { if (!controller.signal.aborted && requestScope() === scope) setError(err instanceof Error ? err.message : "Não foi possível carregar as etiquetas."); });
     return () => controller.abort();
   }, [scope, revision, enabled]);

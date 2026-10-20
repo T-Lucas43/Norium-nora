@@ -165,3 +165,10 @@ false e a retenção por conta segue 30 dias. Nenhum logout/repareamento automá
 Uma sessão cujo lote anterior não foi armazenado pode precisar de novo pareamento
 pelo titular; não declarar retroimportação completa. Rebuild local e CI da revisão
 com essas alterações ainda precisam terminar antes de promover ao Shard.
+
+
+Complemento da carga inicial: o normalizador de conversas preserva a marcação
+booleana de origem do catálogo; timestamps reais messageTimestamp são mapeados ao
+contrato legado, e o índice de atualização em lote permite entregar metadados sem
+mensagem também pelo delta. O horário da última mensagem não é inventado. Nova
+conferência das contagens locais será feita depois do rebuild desta candidata.

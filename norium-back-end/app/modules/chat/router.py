@@ -1313,10 +1313,23 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
             chats = merge_catalog_items(latest_chats, chats)
             channels = merge_catalog_items(latest_channels, channels)
             saved_contact_names = _build_saved_contact_name_index(contacts, chats)
+            catalog_updates = {}
+            if is_evolution():
+                # O delta da interface também precisa receber chats sem mensagens.
+                # Este é o instante de atualização do catálogo, não de mensagem.
+                updates = dict(latest_cache.get("conversationUpdates") or {})
+                stamp = max(int(now), max((int(v or 0) for v in updates.values()), default=0) + 1)
+                for chat in chats:
+                    identifier = _contact_primary_id(chat)
+                    if identifier:
+                        updates[identifier] = stamp
+                catalog_updates["conversationUpdates"] = dict(
+                    sorted(updates.items(), key=lambda item: int(item[1] or 0), reverse=True)[:500])
             await save_whatsapp_catalog_cache(
                 user_id,
                 {
                     **latest_cache,
+                    **catalog_updates,
                     "schemaVersion": WHATSAPP_CATALOG_SCHEMA_VERSION,
                     **({"evolutionBootstrapUntil": latest_cache.get("evolutionBootstrapUntil") or now + 180}
                        if is_evolution() else {}),

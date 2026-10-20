@@ -13,6 +13,8 @@ import {
   mergeConversationCatalog,
   mergeConversationDetails,
   mergeMessages,
+  conversationDisplayName,
+  whatsappIdentifierKeys,
 } from "./contactPicker";
 
 const contact: Contact = {
@@ -94,7 +96,7 @@ describe("contact picker", () => {
       id: "54855339126828@lid",
       phone: "54855339126828@lid",
       name: ".",
-    }).contato).toBe("+54855339126828");
+    }).contato).toBe("Contato do WhatsApp");
   });
 
   it("exibe Kaio K quando agenda e perfil LID chegam no mesmo lote", () => {
@@ -140,7 +142,7 @@ describe("contact picker", () => {
     const contacts = mergeContactCatalog([], [savedContact, lidProfile], [conversation]);
     const [enriched] = enrichConversationsWithContacts([conversation], contacts);
 
-    expect(formatWhatsAppPhone(enriched.metadados.numeroCompleto)).toBe("+54855339126828");
+    expect(formatWhatsAppPhone(enriched.metadados.numeroCompleto)).toBe("+55 (85) 9912-6828");
     expect(enriched.contato).toBe("Kaio K");
     expect(enriched.photoUrl).toBe("https://example.test/kaio.jpg");
   });
@@ -230,7 +232,7 @@ describe("contact picker", () => {
     const sparse: MsgConteudo = {
       ...previous,
       status: "enviado",
-      reacoes: [],
+      reacoes: undefined,
       citada: null,
       midiaMeta: null,
     };
@@ -242,5 +244,29 @@ describe("contact picker", () => {
       midiaMeta: previous.midiaMeta,
       arquivoUrl: previous.arquivoUrl,
     });
+  });
+
+  it("não mistura um grupo, um LID e um telefone com os mesmos dígitos", () => {
+    expect(whatsappIdentifierKeys("5511999999999@lid")).toEqual(["5511999999999@lid"]);
+    expect(whatsappIdentifierKeys("5511999999999@g.us")).toEqual(["5511999999999@g.us"]);
+    const contacts = mergeContactCatalog([], [
+      { id: "5511999999999@s.whatsapp.net", phone: "5511999999999", name: "Agenda sintética" },
+      { id: "5511999999999@lid", phone: "5511999999999@lid", name: "Outra identidade" },
+    ]);
+    expect(contacts.map(item => item.name)).toEqual(["Agenda sintética", "Outra identidade"]);
+    const group = { ...contactToConversation(contact), id: "5511999999999@g.us", esGrupo: true, contato: "Grupo sintético" };
+    expect(enrichConversationsWithContacts([group], contacts)[0].contato).toBe("Grupo sintético");
+  });
+
+  it("não apresenta identificadores privados e de grupo como telefones", () => {
+    expect(formatWhatsAppPhone("120363400000000000@g.us")).toBe("");
+    expect(formatWhatsAppPhone("120363400000000000@lid")).toBe("");
+    const group = { ...contactToConversation(contact), id: "120363400000000000@g.us", esGrupo: true, contato: "120363400000000000@g.us" };
+    expect(conversationDisplayName(group)).toBe("Grupo do WhatsApp");
+  });
+
+  it("remove uma reação quando o snapshot informa uma lista vazia explicitamente", () => {
+    const msg: MsgConteudo = { id: "synthetic", remetente: "contato", texto: "Exemplo", tipo: "texto", horario: "10:00", reacoes: [{ emoji: "👍", count: 1 }] };
+    expect(mergeMessages([msg], [{ ...msg, reacoes: [] }])[0].reacoes).toEqual([]);
   });
 });

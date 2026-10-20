@@ -20,6 +20,8 @@ export function isTechnicalWhatsAppLabel(value?: string | null) {
 export function whatsappIdentifierKeys(value?: string | null) {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return [];
+  // LID, grupo e canal são identidades distintas de um número de telefone.
+  if (/@(?:lid|g\.us|newsletter|broadcast)$/.test(raw)) return [raw];
   const local = raw.split("@")[0];
   const digits = local.replace(/\D/g, "");
   return [...new Set([raw, local, digits].filter(Boolean))];
@@ -28,6 +30,7 @@ export function whatsappIdentifierKeys(value?: string | null) {
 export function formatWhatsAppPhone(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "";
+  if (/@(?:lid|g\.us|newsletter|broadcast)$/i.test(raw)) return "";
   const digits = raw.split("@")[0].replace(/\D/g, "");
   if (!digits) return raw.includes("@") ? "" : raw;
 
@@ -51,11 +54,12 @@ export function contactDisplayName(contact: Contact) {
 }
 
 export function conversationDisplayName(conversation: ChatConversa) {
-  return bestHumanName([
+  const name = bestHumanName([
     conversation.contato,
     conversation.metadados?.notify,
     conversation.metadados?.verifiedName,
-  ]) || formatWhatsAppPhone(conversation.metadados?.numeroCompleto || conversation.id) || (conversation.esGrupo ? "Grupo do WhatsApp" : "Contato do WhatsApp");
+  ]);
+  return name || (conversation.esGrupo ? "Grupo do WhatsApp" : formatWhatsAppPhone(conversation.metadados?.numeroCompleto || conversation.id) || "Contato do WhatsApp");
 }
 
 export function contactConversationId(contact: Contact) {
@@ -158,7 +162,7 @@ export function mergeMessages(current: MsgConteudo[] = [], incoming: MsgConteudo
       arquivoUrl: message.arquivoUrl || previous.arquivoUrl,
       remetenteNome: message.remetenteNome || previous.remetenteNome,
       status: richerMessageStatus(previous.status, message.status),
-      reacoes: message.reacoes?.length ? message.reacoes : previous.reacoes,
+      reacoes: Array.isArray(message.reacoes) ? message.reacoes : previous.reacoes,
       citada: hasRecordContent(message.citada) ? message.citada : previous.citada,
       midiaMeta: hasRecordContent(message.midiaMeta) ? message.midiaMeta : previous.midiaMeta,
     } : message);
@@ -230,6 +234,7 @@ function consolidateContactAliases(contacts: Contact[]) {
     const sharedVerifiedName = bestHumanName(members.map((member) => member.verifiedName));
     const sharedPhotoUrl = members.map((member) => member.photoUrl).find(Boolean);
     const sharedBio = members.map((member) => member.bio).find((value) => Boolean(value?.trim()));
+    const sharedPhone = members.map(contactGroupPhone).find(Boolean);
     const sharedIsBusiness = members.some((member) => member.isBusiness === true)
       ? true
       : members.some((member) => member.isBusiness === false) ? false : undefined;
@@ -246,6 +251,7 @@ function consolidateContactAliases(contacts: Contact[]) {
 
     return {
       ...contact,
+      phone: contactGroupPhone(contact) || sharedPhone || contact.phone,
       ...(agendaName ? { savedName: agendaName } : {}),
       ...(sharedName ? { name: sharedName } : {}),
       notify: bestHumanName([contact.notify, sharedNotify]),
@@ -311,6 +317,7 @@ export function enrichConversationsWithContacts(conversations: ChatConversa[], c
   const contactByKey = new Map<string, Contact>();
   contacts.forEach((contact) => contactKeys(contact).forEach((key) => contactByKey.set(key, contact)));
   return conversations.map((conversation) => {
+    if (conversation.esGrupo || conversation.id.endsWith("@g.us")) return conversation;
     const matched = conversationKeys(conversation).map((key) => contactByKey.get(key)).find(Boolean);
     if (!matched) return conversation;
     const matchedName = contactDisplayName(matched);

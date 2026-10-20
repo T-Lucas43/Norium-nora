@@ -341,12 +341,15 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
   }, [mostrarAviso]);
 
   const carregarPerfilWhatsApp = useCallback(async () => {
+    const generation = connectionStatusRequestGenerationRef.current;
     try {
       const payload = await whatsappApi.profile();
+      if (generation !== connectionStatusRequestGenerationRef.current) return null;
       const profile = "profile" in payload ? payload.profile : payload;
       setPerfilWhatsApp(profile);
       return profile;
     } catch {
+      if (generation !== connectionStatusRequestGenerationRef.current) return null;
       const phone = canaisStatus.whatsapp?.numero || undefined;
       const fallback = { name: phone || "Meu WhatsApp", phone };
       setPerfilWhatsApp((current) => current || fallback);
@@ -846,7 +849,6 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     if (secaoWhatsApp === "groups" && !gruposCarregados && !carregandoGrupos && !erroGrupos) void carregarGruposDoBackend(false);
     if (secaoWhatsApp === "status" && !statusWhatsAppCarregados && !carregandoStatusWhatsApp && !erroStatusWhatsApp) void carregarStatusDoBackend(false);
     if (secaoWhatsApp === "channels" && !canaisWhatsAppCarregados && !carregandoCanaisWhatsApp && !erroCanaisWhatsApp) void carregarCanaisDoBackend(false);
-    if (secaoWhatsApp === "profile" && !perfilWhatsApp) void carregarPerfilWhatsApp();
   }, [
     isActive,
     canaisStatus.whatsapp?.conectado,
@@ -873,6 +875,13 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     erroCanaisWhatsApp,
     statusWhatsApp.length,
   ]);
+
+  useEffect(() => {
+    if (!isActive || !canaisStatus.whatsapp?.conectado || secaoWhatsApp !== "profile") return;
+    void carregarPerfilWhatsApp();
+    const timer = window.setInterval(() => { if (!document.hidden) void carregarPerfilWhatsApp(); }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [isActive, canaisStatus.whatsapp?.conectado, secaoWhatsApp, carregarPerfilWhatsApp]);
 
   const abrirAgendaContatos = async () => {
     setModalContatosAberto(true);

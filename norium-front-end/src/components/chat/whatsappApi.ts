@@ -313,7 +313,7 @@ export function normalizeWhatsAppMessage(value: unknown, index = 0): MsgConteudo
     horario: timeLabel(timestamp, raw.horario),
     timestamp,
     status: raw.status,
-    reacoes: Array.isArray(raw.reacoes) ? raw.reacoes : Array.isArray(raw.reactions) ? raw.reactions : [],
+    reacoes: Array.isArray(raw.reacoes) ? raw.reacoes : Array.isArray(raw.reactions) ? raw.reactions : undefined,
     citada: raw.citada || raw.quoted || null,
     midiaMeta: raw.midiaMeta && typeof raw.midiaMeta === "object" ? raw.midiaMeta : null,
     edited: booleanFlag(raw.edited ?? raw.editada ?? raw.isEdited),
@@ -443,6 +443,12 @@ export const whatsappApi = {
       { timeoutMs: refresh ? 12_000 : 8_000 },
     );
     const normalizeItems = (items: unknown[]) => items.map(normalizeWhatsAppConversation).filter((item): item is ChatConversa => Boolean(item));
+    if (!Array.isArray(payload) && payload.hasMore) {
+      // Um lote de metadados pode atualizar centenas de grupos no mesmo segundo.
+      // O snapshot completo evita avançar o cursor além dos itens não entregues.
+      const full = await apiRequest<unknown[]>("/api/chat/conversas", { timeoutMs: 12_000 });
+      return { items: normalizeItems(full), cursor: payload.cursor, hasMore: false };
+    }
     return Array.isArray(payload) ? normalizeItems(payload) : { ...payload, items: normalizeItems(payload.items || []) };
   },
 

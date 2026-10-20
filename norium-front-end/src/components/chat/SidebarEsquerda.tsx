@@ -104,7 +104,8 @@ export default function SidebarEsquerda({
 
   const sorted = useMemo(() => [...conversas].sort((a, b) => {
     if (Boolean(a.fixada) !== Boolean(b.fixada)) return a.fixada ? -1 : 1;
-    return Number(b.timestampUltimaMsg || 0) - Number(a.timestampUltimaMsg || 0);
+    return Number(b.timestampUltimaMsg || 0) - Number(a.timestampUltimaMsg || 0)
+      || a.contato.localeCompare(b.contato, "pt-BR", { sensitivity: "base" }) || a.id.localeCompare(b.id);
   }), [conversas]);
 
   const filtradas = useMemo(() => {

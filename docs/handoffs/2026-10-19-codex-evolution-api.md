@@ -208,3 +208,57 @@ incluindo WhatsApp, mídias, clientes, etiquetas e relatórios. A falha anterior
 relatórios não se reproduziu isoladamente nem nessa execução; seu log foi mantido.
 A suíte completa anterior registrou 951 sucessos e sete falhas antes desses ajustes;
 o CI completo da candidata ainda é obrigatório. Nenhum limite de teste foi reduzido.
+
+Conferência de mídia recebida na revisão local 7a61d92: 23 conversas, sem bolhas
+separadas de reação; áudio Ogg, imagem JPEG, vídeo MP4 e figurinha WebP baixaram
+com sucesso. O documento inicialmente rejeitado foi identificado somente por
+MIME como APK, já bloqueado pela política existente. PDFs e ZIPs serão conferidos
+separadamente; o alias ZIP `application/x-zip-compressed` passa a usar o tipo
+canônico já permitido. A lista de formatos permitidos não foi ampliada.
+
+A referência completa enviada ao downloader conserva a chave real e limita sua
+URL a `https://mmg.whatsapp.net` com directPath validado, impedindo origem
+arbitrária indicada no conteúdo da mensagem. Novo teste sintético cobre esse caso.
+O Compose vigente é `compose.local.yaml`; o arquivo antigo em
+`output/docker-local/compose.yaml` não deve ser usado. A aplicação foi reconectada
+ao Compose vigente após identificar esse arquivo histórico; volumes e gateway
+foram preservados. Não usar `--remove-orphans`.
+
+### Complemento solicitado: nomes, grupos e perfil
+
+Leituras minimizadas em 20/10: 1.229 contatos no Norium, dos quais 1.202 com
+nome disponível e 472 com foto; cache com apenas 12 grupos. O endpoint do gateway
+retornou 237 grupos, 236 com assunto e 131 com foto, mas levou 90,2 segundos.
+O timeout curto anterior impedia essa hidratação. O perfil ao vivo tinha nome,
+número e foto, enquanto a rota de cache usada pela interface devolvia só o número.
+Não foram expostos nomes, telefones, fotos ou conteúdo das conversas nesta leitura.
+
+Correções: grupos completos carregados em segundo plano, limite de 150 segundos
+e uma única tentativa para essa consulta longa; cache por 15 minutos, renovado
+pela ação explícita de atualizar. O perfil é gravado assim que chega, antes dos
+grupos, e consultado em cache enquanto sua tela estiver aberta. Eventos autenticados
+de contatos/chats/grupos mantêm nomes e fotos, com vínculo atual comprovado antes
+da escrita; nenhuma ação externa é acionada por conteúdo recebido.
+
+IDs LID/grupo não são telefones nem se associam somente por dígitos iguais. Um
+número real só é compartilhado por aliases explicitamente vinculados. Grupos não
+herdam o nome/foto de uma pessoa; itens sem atividade têm ordenação estável por
+nome. Lotes de delta incompletos recuperam o snapshot completo para não perder
+grupos ao avançar o cursor. Reação removida é distinta de campo ausente.
+
+Os 164 testes backend da rodada de metadados passaram; os 133 testes frontend
+afetados passaram após corrigir também as expectativas antigas que apresentavam
+LID como telefone. Lint/tipos passaram. A bateria abrangente WhatsApp/W-API/Evolution,
+o rebuild local da candidata e a conferência final estão em andamento. Não declarar
+nomes que o WhatsApp não forneceu nem envio/reação real validado por testes sintéticos.
+
+Consolidação da validação: todos os 276 testes dos 19 módulos WhatsApp/W-API/
+Evolution passaram, sem falhas, erros ou skips. Os 133 testes frontend afetados
+passaram, e o teste adicional de troca de conta confirmou que uma resposta antiga
+de perfil não sobrescreve o perfil atual. Bandit sem alertas médios/altos; lint e
+tipos passaram. Recibos: `output/pos-correcao/whatsapp-all.json`,
+`output/evolution-audit/frontend-metadata-final.log` e `frontend-profile-final.log`.
+O resultado operacional da candidata fica em `output/evolution-audit/local-final-evidence.json`;
+conferir a revisão desse recibo e `/api/system/release` antes de afirmar qual versão
+está em execução. A promoção remota continua condicionada ao CI completo e ao aceite
+humano da candidata atual; não reaproveitar o aceite específico de 9ce7525.

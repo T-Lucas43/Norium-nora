@@ -35,7 +35,18 @@ class EvolutionContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("T2dnUw==", result["base64"])
         sent = self.client._call.call_args.kwargs["body"]
         self.assertEqual(KEY, sent["message"]["key"])
-        self.assertEqual(media, sent["message"]["message"])
+        self.assertEqual({**media["audioMessage"], "url": "https://mmg.whatsapp.net/synthetic"}, sent["message"]["message"]["audioMessage"])
+
+    async def test_media_cannot_redirect_gateway_to_an_arbitrary_origin(self):
+        for direct in ("@127.0.0.1/private", "//internal/private", "/synthetic\r\nHeader:value"):
+            with self.subTest(direct=direct):
+                self.client._call = AsyncMock(return_value={"messages": {"records": [{"key": KEY,
+                    "message": {"audioMessage": {"directPath": direct, "url": "http://internal/private"}}}]}})
+                with self.assertRaises(WapiError) as error:
+                    await self.client.download_media("synthetic", "token", media_key="", direct_path="",
+                        media_type="audio", mimetype="audio/ogg", phone=REMOTE, message_id=KEY["id"])
+                self.assertEqual("invalid_media", error.exception.code)
+                self.assertEqual(1, self.client._call.await_count)
 
     async def test_reaction_accepts_privacy_alias_after_scoped_lookup(self):
         key = {**KEY, "remoteJid": "123456789@lid", "remoteJidAlt": REMOTE}
@@ -61,6 +72,17 @@ class EvolutionContractTests(unittest.IsolatedAsyncioTestCase):
             await self.client.download_media("synthetic", "token", media_key="", direct_path="",
                 media_type="audio", mimetype="audio/ogg", phone=REMOTE, message_id=KEY["id"])
         self.assertEqual(1, self.client._call.await_count)
+
+    async def test_zip_mime_alias_is_normalized_without_allowing_new_formats(self):
+        for supplied, expected in (("application/x-zip-compressed", "application/zip"),
+                                   ("application/pdf", "application/pdf"),
+                                   ("application/vnd.android.package-archive", "application/vnd.android.package-archive")):
+            self.client._call = AsyncMock(side_effect=[{"messages": {"records": [{"key": KEY,
+                "message": {"documentMessage": {"directPath": "/synthetic", "mimetype": supplied}}}]}},
+                {"base64": "c3ludGhldGlj", "mimetype": supplied}])
+            result = await self.client.download_media("synthetic", "token", media_key="", direct_path="",
+                media_type="document", mimetype=supplied, phone=REMOTE, message_id=KEY["id"])
+            self.assertEqual(expected, result["mimetype"])
 
     async def test_reaction_without_confirmation_is_not_reported_as_sent(self):
         self.client._call = AsyncMock(side_effect=[{"messages": {"records": [{"key": KEY}]}}, {}])

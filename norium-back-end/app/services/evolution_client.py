@@ -19,7 +19,8 @@ import httpx
 
 from app.services.wapi_client import WapiClient, WapiConfig, WapiError
 
-EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "PRESENCE_UPDATE", "SEND_MESSAGE"]
+EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "PRESENCE_UPDATE", "SEND_MESSAGE",
+          "CONTACTS_UPSERT", "CONTACTS_UPDATE", "CHATS_UPSERT", "CHATS_UPDATE", "GROUPS_UPSERT", "GROUPS_UPDATE"]
 _INSTANCE = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 
 
@@ -93,7 +94,7 @@ class EvolutionClient(WapiClient):
         # Cada rota é construída neste arquivo; nunca aceitar URL do usuário/provedor.
         if not re.fullmatch(r"/[A-Za-z0-9_/-]+", route) or ".." in route or "//" in route:
             raise WapiError("Destino Evolution inválido.", code="invalid_destination")
-        attempts = 3 if read_only else 1
+        attempts = 3 if read_only and not route.startswith("/group/fetchAllGroups/") else 1
         for attempt in range(attempts):
             try:
                 async with httpx.AsyncClient(follow_redirects=False, trust_env=False) as client:
@@ -206,8 +207,13 @@ class EvolutionClient(WapiClient):
                              media_type: str, mimetype: str, phone: str = "", message_id: str = "") -> dict[str, Any]:
         # A rota autenticada fornece a conversa/mensagem comprovadas no store local.
         # O gateway resolve o envelope completo, inclusive chave para renovar mídia expirada.
-        return await self._request("POST", "/message/download-media", token=token, instance_id=instance_id,
-                                   json_body={"phone": phone, "messageId": message_id, "type": media_type}, timeout=60)
+        result = await self._request("POST", "/message/download-media", token=token, instance_id=instance_id,
+                                     json_body={"phone": phone, "messageId": message_id, "type": media_type}, timeout=60)
+        if not isinstance(result, dict):
+            raise WapiError("Resposta de mídia inválida.", code="invalid_response")
+        if str(result.get("mimetype") or "").split(";", 1)[0].strip().lower() == "application/x-zip-compressed":
+            result = {**result, "mimetype": "application/zip"}
+        return result
 
     async def _request(self, method: str, path: str, *, token: str | None = None, instance_id: str | None = None,
                        params: Mapping[str, Any] | None = None, json_body: Mapping[str, Any] | None = None,
@@ -229,8 +235,17 @@ class EvolutionClient(WapiClient):
             result = await self._call(
                 "GET", "/instance/fetchInstances", token=token or "", params={"instanceName": name}, read_only=True)
             row = next((item for item in result if isinstance(item, dict) and item.get("name") == name), {}) if isinstance(result, list) else {}
-            return {"connectedPhone": str(row.get("ownerJid") or "").split("@", 1)[0] if row.get("connectionStatus") == "open" else None,
-                    "name": row.get("profileName"), "profilePictureUrl": row.get("profilePicUrl")}
+            phone = str(row.get("ownerJid") or "").split("@", 1)[0].split(":", 1)[0] if row.get("connectionStatus") == "open" else ""
+            profile = {}
+            if phone:
+                try:
+                    found = await call("chat/fetchProfile", {"number": phone}, read=True)
+                    profile = found if isinstance(found, dict) else {}
+                except WapiError:
+                    pass
+            return {"connectedPhone": phone or None, "name": row.get("profileName") or profile.get("name"),
+                    "profilePictureUrl": profile.get("picture") or row.get("profilePicUrl"),
+                    "bio": profile.get("status"), "isBusiness": profile.get("isBusiness") is True}
         if path in {"/instance/disconnect", "/instance/restart"}:
             return await call("instance/logout" if path.endswith("disconnect") else "instance/restart", verb="DELETE" if path.endswith("disconnect") else "POST")
 
@@ -248,7 +263,7 @@ class EvolutionClient(WapiClient):
                 identity = row.get("remoteJid")
                 if not identity:
                     continue
-                normalized = {**row, "id": identity, "name": row.get("pushName") or row.get("name"),
+                normalized = {**row, "id": identity, "name": row.get("subject") or row.get("savedName") or row.get("name") or row.get("pushName"),
                               "profilePictureUrl": row.get("profilePicUrl"), "isGroup": str(identity).endswith("@g.us"),
                               "unreadCount": row.get("unreadMessages", row.get("unreadCount", 0))}
                 if isinstance(normalized.get("lastMessage"), dict):
@@ -257,6 +272,9 @@ class EvolutionClient(WapiClient):
                     last = {**last, "timestamp": timestamp}
                     normalized["lastMessageTime"] = timestamp
                     normalized["lastMessage"] = _message_record(last)
+                    key = last.get("key") if isinstance(last.get("key"), dict) else {}
+                    if key.get("remoteJid") == identity and isinstance(key.get("remoteJidAlt"), str):
+                        normalized["remoteJidAlt"] = key["remoteJidAlt"]
                 items.append(normalized)
             return {"data": items, "totalPages": 1}
         if path == "/chats/chat":
@@ -300,6 +318,14 @@ class EvolutionClient(WapiClient):
             if kind not in {"image", "video", "audio", "document", "sticker"}:
                 raise WapiError("Mídia Evolution inválida.", status=422, code="invalid_media")
             referenced = await self._referenced_message(name, token or "", body)
+            content = referenced["message"]
+            media = content.get(kind + "Message")
+            direct = media.get("directPath") if isinstance(media, dict) else None
+            if not isinstance(direct, str) or not direct.startswith("/") or direct.startswith("//") or len(direct) > 16384 or any(ord(c) < 32 or ord(c) == 127 for c in direct):
+                raise WapiError("Referência de mídia inválida.", status=422, code="invalid_media")
+            # Mensagens são dados não confiáveis. Não encaminhar uma URL arbitrária
+            # ao downloader do gateway; conservar somente o CDN oficial e a chave real.
+            referenced["message"] = {**content, kind + "Message": {**media, "url": "https://mmg.whatsapp.net" + direct}}
             return await call("chat/getBase64FromMediaMessage", {"message": referenced, "convertToMp4": False}, read=True)
         if path.startswith("/message/send-"):
             kind = path.removeprefix("/message/send-")
@@ -333,7 +359,10 @@ class EvolutionClient(WapiClient):
                 raise WapiError("O provedor não confirmou o identificador do envio; não repita automaticamente.", code="remote_outcome_unknown")
             return {"messageId": identifier}
         if path == "/group/get-all-groups":
-            return await call("group/fetchAllGroups", verb="GET", read=True, query_params={"getParticipants": "false"})
+            # O fornecedor consulta fotos em série. Não repetir essa leitura longa
+            # nem prendê-la ao timeout curto das consultas interativas.
+            return await self._call("GET", f"/group/fetchAllGroups/{name}", token=token or "",
+                                    params={"getParticipants": "false"}, timeout=150, read_only=True)
         if path in {"/group/group-metadata", "/group/get-Participants"}:
             result = await call("group/findGroupInfos", verb="GET", read=True, query_params={"groupJid": query.get("groupId")})
             return {"participants": result.get("participants", [])} if path.endswith("get-Participants") else result
@@ -387,6 +416,24 @@ def normalize_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     if not _INSTANCE.fullmatch(instance):
         return {"event": "unknown"}
     event = str(payload.get("event") or "").lower().replace("_", ".")
+    if event in {"contacts.upsert", "contacts.update", "chats.upsert", "chats.update", "groups.upsert", "groups.update"}:
+        raw = payload.get("data")
+        rows = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else []
+        if len(rows) > 50000:
+            return {"instanceId": instance, "event": "unknown"}
+        fields = {"id", "remoteJid", "remoteJidAlt", "lid", "name", "savedName", "pushName", "subject",
+                  "profilePicUrl", "pictureUrl", "desc", "owner", "creation", "size", "isCommunity", "linkedParent"}
+        records = [{key: value for key, value in row.items() if key in fields and
+                    ((isinstance(value, str) and len(value) <= 4096) or type(value) in (int, bool))}
+                   for row in rows if isinstance(row, dict)]
+        for row in records:
+            row["id"] = row.get("remoteJid") or row.get("id")
+            if isinstance(row.get("desc"), str):
+                row["description"] = row["desc"]
+            if row.get("pictureUrl"):
+                row["profilePictureUrl"] = row["pictureUrl"]
+        return {"instanceId": instance, "event": "catalog", "catalogType": "contacts" if event.startswith("contacts.") else "chats",
+                "catalogItems": records}
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     fields = {key: data[key] for key in ("key", "message", "messageTimestamp", "pushName", "messageType", "status", "presences", "id", "state", "remoteJid", "fromMe", "participant") if key in data}
     if isinstance(fields.get("message"), dict):

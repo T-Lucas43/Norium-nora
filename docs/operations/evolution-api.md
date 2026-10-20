@@ -147,3 +147,19 @@ confirmação não aparece como sucesso e não é repetida automaticamente.
 
 O ambiente local usa `restart: unless-stopped` nos serviços e continua disponível
 em `http://localhost:8765/` com Docker ativo. Rebuild preserva volumes e pareamento.
+
+## Contatos, grupos e perfil
+
+Metadados de todos os grupos são hidratados no worker de catálogo, com limite
+de 150 segundos e sem repetir automaticamente essa leitura longa. Na sessão local
+de 20/10, o fornecedor levou 90,2 segundos para retornar 237 grupos com fotos.
+A interface continua usando o snapshot disponível durante essa operação.
+O cache de metadados dura 15 minutos; a ação explícita de sincronizar o renova.
+Nome, número, foto e recado do próprio perfil ficam disponíveis assim que a consulta
+termina, antes da listagem dos grupos. Eventos de catálogo usam a mesma autenticação,
+resolução de proprietário e verificação de vínculo atual dos demais webhooks.
+
+LID, grupo e telefone conservam namespaces distintos. Somente aliases fornecidos
+juntos ligam um LID ao número real. Não fabricar nomes ou números indisponíveis.
+Um lote incremental com mais itens que o limite solicita o snapshot completo,
+evitando perda de grupos com o mesmo instante de atualização.

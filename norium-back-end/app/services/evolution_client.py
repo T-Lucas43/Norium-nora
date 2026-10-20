@@ -244,6 +244,9 @@ class EvolutionClient(WapiClient):
                               "unreadCount": row.get("unreadMessages", row.get("unreadCount", 0))}
                 if isinstance(normalized.get("lastMessage"), dict):
                     last = normalized["lastMessage"]
+                    timestamp = last.get("timestamp") or last.get("messageTimestamp")
+                    last = {**last, "timestamp": timestamp}
+                    normalized["lastMessageTime"] = timestamp
                     normalized["lastMessage"] = {**last, "message": _media_bytes(last["message"])} if isinstance(last.get("message"), dict) else last
                 items.append(normalized)
             return {"data": items, "totalPages": 1}
@@ -251,7 +254,8 @@ class EvolutionClient(WapiClient):
             remote = jid(str(query.get("phoneNumber") or ""))
             result = await call("chat/findMessages", {"where": {"key": {"remoteJid": remote}}, "page": 1, "offset": 100}, read=True)
             messages = result.get("messages", {}) if isinstance(result, dict) else {}
-            records = [dict(row, message=_media_bytes(row["message"])) if isinstance(row.get("message"), dict) else row
+            records = [dict(row, timestamp=row.get("timestamp") or row.get("messageTimestamp"),
+                            **({"message": _media_bytes(row["message"])} if isinstance(row.get("message"), dict) else {}))
                        for row in messages.get("records", []) if isinstance(row, dict)]
             return {"id": remote, "messages": records, "hasMore": messages.get("pages", 1) > 1}
         if path == "/contacts/phone-exists":

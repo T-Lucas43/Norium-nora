@@ -402,3 +402,16 @@ Não declarar fase concluída com botões sem ação ou fixtures como produto.
 - Verificação de visibilidade: exclusão em um alias antigo permanece oculta após a consolidação, inclusive Nora e mídia antiga. Override de reação mais recente prevalece. `whatsapp-identity-visibility`: 49/49 aprovados. A revisão 8d7c109 foi instalada localmente e a Nora respondeu ao marcador sintético pelo Groq, com franquia do admin local; zero mensagens WhatsApp enviadas. Volumes idênticos e PostgreSQL pronto. Acrescentado ajuste final de visibilidade à candidata subsequente.
 
 - Compatibilidade da caixa de equipe: aliases entram no grant e na revalidação de todas as ações/etiquetas; atribuições são sincronizadas sob o lock existente ao reatribuir, preservando versões e notas. Resposta nova reabre o atendimento antigo sem trocar o responsável; notas/eventos anteriores continuam acessíveis por paginação autorizada. Mesmo um chat somente no catálogo mantém a ACL do identificador antigo. `whatsapp-identity-complete-final`: 227/227 aprovados. Não foi ativado compartilhamento de nenhuma instância real.
+
+### Recibo local final do hotfix
+
+- Imagem ativa `norium-expansao:whatsapp-identity-697d252`, revisão `697d252ec5d9a6b4f699cb822bc4a32766a9ebbb`, URL http://localhost:8765. Banco PostgreSQL pronto, volumes idênticos ao C, 13 arquivos JS/CSS referenciados retornaram 200, WhatsApp sem autenticação retorna 401. Recibo `output/whatsapp-20261021/local-release-identity-final.json`; inicialização permanece com os dois arquivos Compose registrados em `output/docker-local/active-release.json`.
+- Backup privado anterior: `output/whatsapp-20261021/backups/before-whatsapp-identity.dump`, SHA256 FD6160CAF9BFF96013E73EC15049BF5B173FD2636107E62FFF91194F5488A21B. Rollback `norium-expansao:before-whatsapp-identity-20261021`, sem restauração/exclusão de dados.
+- Bateria da revisão exata `whatsapp-identity-697d252-final`: 227 testes backend aprovados, zero falhas/erros/skips. Bandit recursivo dos módulos novos/equipe/histórico/estados: zero achados/erros. Compilação da interface e orçamento aprovados dentro da imagem.
+- Groq configurado no runtime; a chamada real sintética anterior confirmou resposta NORIUM_OK, contabilizada no admin local. Não se enviou conteúdo de chat ao provedor nesta verificação, nem mensagem ao WhatsApp. A conferência autenticada das três correções na conta real ainda depende do usuário. Nenhum push/PR/deploy remoto deste hotfix.
+
+### Aceite local e pedido de publicação — 21/10/2026
+
+- Após atualizar a sessão local, o usuário confirmou: “Sim, tudo certo” para conversa única por contato, nome dos grupos e sugestão da Nora. Em seguida solicitou “faça o deploy agora”.
+- Candidata de código validada: 697d252ec5d9a6b4f699cb822bc4a32766a9ebbb. Este registro só acrescenta documentação; não altera a árvore da aplicação aceita. Publicação solicitada via GitHub e ShardCloud, preservando volumes, segredos do servidor, sessões e rollback. A caixa de equipe segue opt-in, desligada por padrão; o WIP de Cliente/Funil está preservado fora desta candidata.
+- Não confundir aceite local com aceite autenticado da homologação. Os gates e recibos remotos serão vinculados ao SHA efetivamente promovido.

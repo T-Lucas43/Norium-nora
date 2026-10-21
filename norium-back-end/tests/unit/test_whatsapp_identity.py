@@ -19,6 +19,14 @@ def row(cid, mid="one", at=100):
 
 
 class IdentityTests(unittest.TestCase):
+    def test_existing_catalog_last_message_attests_the_reverse_lid_phone_pair(self):
+        result = coalesce({PN: row(PN), LID: row(LID, "two")}, [{"id": PN, "lastMessage": {"key": {"remoteJid": LID, "remoteJidAlt": PN}}}])
+        self.assertEqual(1, len(result))
+        self.assertEqual(PN, result[LID]["id"])
+
+    def test_unrelated_last_message_cannot_attach_a_third_recipient(self):
+        result = coalesce({PN: row(PN), LID: row(LID)}, [{"id": PN, "lastMessage": {"key": {"remoteJid": LID, "remoteJidAlt": "5511888880000@s.whatsapp.net"}}}])
+        self.assertEqual(2, len(result))
     def test_explicit_aliases_join_sent_received_but_keep_distinct_ids(self):
         database = {PN: row(PN), LID: row(LID, "two", 101)}
         snapshot = copy.deepcopy(database)

@@ -75,6 +75,16 @@ class EvolutionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(150, client._call.call_args.kwargs["timeout"])
         self.assertEqual({"getParticipants": "false"}, client._call.call_args.kwargs["params"])
 
+    async def test_catalog_attests_reverse_remote_jid_alt_without_confusing_an_unrelated_message(self):
+        with patch("app.services.evolution_client._origin", return_value="http://evolution-api:8080"):
+            client = EvolutionClient()
+        client._call = AsyncMock(return_value=[{"remoteJid": REMOTE, "lastMessage": {"key": {"remoteJid": "123456789@lid", "remoteJidAlt": REMOTE}}},
+                                              {"remoteJid": GROUP, "pushName": "Último participante", "lastMessage": {"key": {"remoteJid": "123456789@lid", "remoteJidAlt": REMOTE}}}])
+        result = await client.fetch_chats("synthetic", "token")
+        self.assertEqual("123456789@lid", result["data"][0]["remoteJidAlt"])
+        self.assertNotIn("remoteJidAlt", result["data"][1])
+        self.assertIsNone(result["data"][1]["name"])
+
     async def test_device_profile_includes_own_name_photo_and_bio(self):
         with patch("app.services.evolution_client._origin", return_value="http://evolution-api:8080"):
             client = EvolutionClient()

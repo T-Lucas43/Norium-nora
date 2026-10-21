@@ -312,8 +312,10 @@ class EvolutionClient(WapiClient):
                     normalized["lastMessageTime"] = timestamp
                     normalized["lastMessage"] = _message_record(last)
                     key = last.get("key") if isinstance(last.get("key"), dict) else {}
-                    if key.get("remoteJid") == identity and isinstance(key.get("remoteJidAlt"), str):
-                        normalized["remoteJidAlt"] = key["remoteJidAlt"]
+                    if identity in (key.get("remoteJid"), key.get("remoteJidAlt")):
+                        alternate = key.get("remoteJidAlt") if key.get("remoteJid") == identity else key.get("remoteJid")
+                        if isinstance(alternate, str):
+                            normalized["remoteJidAlt"] = alternate
                 items.append(normalized)
             return {"data": items, "totalPages": 1}
         if path == "/chats/chat":

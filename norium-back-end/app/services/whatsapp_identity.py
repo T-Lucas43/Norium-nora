@@ -26,6 +26,11 @@ def record_aliases(record):
     metadata = record.get("metadados") or {}
     values += [metadata.get("numeroCompleto"), *(metadata.get("identityAliases") or [])]
     aliases = {token(value) for value in values if token(value)}
+    last = record.get("lastMessage")
+    key = last.get("key") if isinstance(last, dict) and isinstance(last.get("key"), dict) else {}
+    pair = {token(key.get("remoteJid")), token(key.get("remoteJidAlt"))} - {""}
+    if aliases.intersection(pair):
+        aliases.update(pair)
     # A group/channel is a resource, never an alias of its sender/owner.
     special = {value for value in aliases if value.endswith(("@g.us", "@newsletter", "@broadcast"))}
     return {token(record.get("id") or record.get("remoteJid"))} & special if special else aliases

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from dataclasses import replace
 from fastapi import HTTPException
 from . import access, repository
 
@@ -12,25 +13,45 @@ def runtime():
     return router
 
 
+def identity_index(database):
+    identities = {}
+    components = {}
+    for alias, canonical in getattr(database, "aliases", {}).items():
+        components.setdefault(canonical, set()).update({alias, canonical})
+    for aliases in components.values():
+        group = tuple(sorted(aliases))
+        for alias in group:
+            identities[alias] = group
+    for identifier, row in database.items():
+        aliases = tuple(sorted({identifier, *identities.get(identifier, ()), *(row.get("metadados", {}).get("identityAliases") or [])}))
+        for alias in aliases:
+            identities[alias] = aliases
+    return identities
+
+
 async def authorized(user: dict, inbox_id: str, conversation_id: str | None = None):
     chat = runtime()
     grant = await access.resolve(chat, user, inbox_id)
     value = await asyncio.to_thread(repository.snapshot, grant.scope)
     access.assert_enabled(value)
+    database = await chat.load_conversations(grant.scope.owner_id)
+    identities = identity_index(database)
+    grant = replace(grant, identity_aliases=identities)
     conversation = None
     if conversation_id is not None:
         access.assert_conversation(grant, value, conversation_id)
-        database = await chat.load_conversations(grant.scope.owner_id)
         conversation = database.get(conversation_id)
         if conversation is None:
             catalog = await chat.load_whatsapp_catalog_cache(grant.scope.owner_id)
-            known = any(isinstance(row, dict) and chat._contact_primary_id(row) == conversation_id for row in catalog.get("chats", []))
+            canonical = getattr(database, "canonical", lambda identifier: identifier)
+            known = any(isinstance(row, dict) and canonical(chat._contact_primary_id(row)) == canonical(conversation_id) for row in catalog.get("chats", []))
             if not known:
                 raise HTTPException(404, "Conversa indisponível.")
         # A binding may have changed while the document was being read.
-        grant = await access.resolve(chat, user, inbox_id)
+        grant = replace(await access.resolve(chat, user, inbox_id), identity_aliases=identities)
         value = await asyncio.to_thread(repository.snapshot, grant.scope)
         access.assert_conversation(grant, value, conversation_id, (conversation or {}).get("metadados", {}).get("identityAliases", []))
+    value["_identityAliases"] = identities
     return grant, value, conversation
 
 

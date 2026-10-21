@@ -98,7 +98,7 @@ async def attendance_context(inbox_id: str, conversation_id: str, user: dict = D
     members = await roster(grant)
     active_viewers = await viewers(grant, conversation_id, value)
     await context.authorized(user, inbox_id, conversation_id)
-    return {"assignment": {**service.default_assignment(conversation_id), **value["assignments"].get(conversation_id, {})},
+    return {"assignment": {**service.default_assignment(conversation_id), **access.assert_conversation(grant, value, conversation_id)},
             "members": members, "canManage": grant.manager, "viewers": active_viewers,
             "notes": service.page(value, conversation_id, "notes"), "events": service.page(value, conversation_id, "events")}
 

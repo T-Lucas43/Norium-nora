@@ -64,7 +64,7 @@ async def details(inbox_id: str, conversation_id: str, user: dict = Depends(curr
     metadata = {**(result.get("metadados") or {}), "photoUrl": context.resource_url(inbox_id, conversation_id, "foto")}
     metadata["participantes"] = [{**row, "photoUrl": None} for row in metadata.get("participantes", [])]
     return {**result, "mensagens": [], "metadados": metadata, "photoUrl": metadata["photoUrl"],
-            "assignee": {**service.default_assignment(conversation_id), **value["assignments"].get(conversation_id, {})}}
+            "assignee": {**service.default_assignment(conversation_id), **access.assert_conversation(grant, value, conversation_id)}}
 
 
 @router.get("/contatos-disponiveis")

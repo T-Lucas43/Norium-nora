@@ -1,10 +1,12 @@
 import copy
+import time
+from dataclasses import replace
 import unittest
 from unittest.mock import AsyncMock, patch
 from app.services.whatsapp_identity import coalesce
 from app.services.conversation_store import new_conversation, normalize_database
 from app.modules.chat import router, private_history, message_state
-from app.modules.whatsapp_team import access
+from app.modules.whatsapp_team import access, repository, service, context
 from tests.unit.test_whatsapp_team import Fixture
 
 PN = "5511999990000@s.whatsapp.net"
@@ -95,6 +97,42 @@ class IdentityTests(unittest.TestCase):
 
 
 class AssignmentIdentityTests(Fixture, unittest.TestCase):
+    def linked(self, grant):
+        return replace(grant, identity_aliases={PN: (PN, LID), LID: (PN, LID)})
+
+    def test_grant_carries_alias_acl_for_labels_bulk_notes_and_fresh_mutations(self):
+        value = {"inbox": {"enabled": True}, "assignments": {LID: {"assigneeKind": "user", "assigneeUserId": "bob"}}}
+        with self.assertRaises(router.HTTPException):
+            access.assert_conversation(self.linked(self.alice_access), value, PN)
+
+    def test_catalog_only_identity_still_protects_old_assignment_after_snapshot_expiration(self):
+        database = coalesce({}, [{"id": PN, "remoteJidAlt": LID}])
+        grant = replace(self.alice_access, identity_aliases=context.identity_index(database))
+        value = {"inbox": {"enabled": True}, "assignments": {LID: {"assigneeKind": "user", "assigneeUserId": "bob"}}}
+        with self.assertRaises(router.HTTPException):
+            access.assert_conversation(grant, value, PN)
+
+    def test_reassignment_updates_legacy_assignment_and_preserves_notes(self):
+        self.enable()
+        original = service.update_assignment(self.owner_access, LID, expected_version=0, changes={"assigneeUserId": "bob"})
+        note = service.create_note(self.owner_access, LID, body="Nota sintética", mentions=[])
+        grant = self.linked(self.owner_access)
+        changed = service.update_assignment(grant, PN, expected_version=original["version"], changes={"assigneeUserId": "alice"})
+        value = repository.snapshot(self.scope)
+        self.assertEqual("alice", value["assignments"][LID]["assigneeUserId"])
+        self.assertEqual(changed["version"], value["assignments"][LID]["version"])
+        value["_identityAliases"] = grant.identity_aliases
+        self.assertEqual(note["id"], service.page(value, PN, "notes")["items"][0]["id"])
+        edited = service.change_note(grant, PN, note["id"], expected_version=note["version"], body="Nota editada")
+        self.assertEqual("Nota editada", edited["body"])
+
+    def test_new_reply_reopens_legacy_assignment_without_changing_assignee(self):
+        self.enable()
+        original = service.update_assignment(self.owner_access, LID, expected_version=0, changes={"assigneeUserId": "bob"})
+        service.update_assignment(self.owner_access, LID, expected_version=original["version"], changes={"status": "resolved"})
+        result = service.received(self.scope, PN, message_id="new-inbound", timestamp=int(time.time()) + 2, aliases=(LID,), online_assignees=("alice",))
+        self.assertEqual("open", result["status"]); self.assertEqual("bob", result["assigneeUserId"])
+
     def test_alias_does_not_bypass_assignment_to_another_member(self):
         value = {"inbox": {"enabled": True}, "assignments": {LID: {"assigneeKind": "member", "assigneeUserId": "bob"}}}
         with self.assertRaises(router.HTTPException):

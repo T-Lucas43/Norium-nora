@@ -66,11 +66,11 @@ def record_outgoing(access: Access, conversation_id: str) -> dict | None:
         if value["inbox"].get("enabled") is not True:
             return None
         try:
-            assert_conversation(access, value, conversation_id)
+            previous = assert_conversation(access, value, conversation_id)
         except HTTPException:
             # An authorized send may already have completed when reassigned.
             return None
-        row = {**default_assignment(conversation_id), **value["assignments"].get(conversation_id, {})}
+        row = {**default_assignment(conversation_id), **previous}
         if row["assigneeKind"] == "none" and value["inbox"].get("autoAssignOnSend", True):
             row.update({"assigneeKind": "user", "assigneeUserId": access.actor_id,
                         "generation": row.get("generation", 0) + 1})
@@ -80,20 +80,22 @@ def record_outgoing(access: Access, conversation_id: str) -> dict | None:
     return repository.mutate(access.scope, operation)
 
 
-def received(scope: repository.Scope, conversation_id: str, *, message_id: str, timestamp: int, online_assignees: tuple[str, ...] = ()) -> dict | None:
+def received(scope: repository.Scope, conversation_id: str, *, message_id: str, timestamp: int, online_assignees: tuple[str, ...] = (), aliases=()) -> dict | None:
     if not message_id or type(timestamp) is not int or timestamp < 1:
         raise ValueError("Incoming attendance requires a real message boundary")
     def operation(value):
         if value["inbox"].get("enabled") is not True:
             return None
-        row = {**default_assignment(conversation_id), **value["assignments"].get(conversation_id, {})}
+        candidates = [value["assignments"][alias] for alias in dict.fromkeys([conversation_id, *aliases]) if alias in value["assignments"]]
+        prior = next((row for row in candidates if row.get("assigneeKind", "none") != "none"), candidates[0] if candidates else {})
+        row = {**default_assignment(conversation_id), **prior}
         if row.get("lastInboundId") == message_id or timestamp < row.get("lastInboundAt", 0):
             return None
         row.update({"lastInboundId": message_id, "lastInboundAt": timestamp})
         row["generation"] = row.get("generation", 0) + 1
         # History imports must never distribute an old conversation as new.
         candidates = sorted(set(online_assignees))
-        if (conversation_id not in value["assignments"] and value["inbox"].get("autoDistribute") is True
+        if (not prior and value["inbox"].get("autoDistribute") is True
                 and candidates and abs(time.time() - timestamp) <= 180):
             previous = value["inbox"].get("lastDistributedTo", "")
             target = next((identifier for identifier in candidates if identifier > previous), candidates[0])
@@ -111,8 +113,8 @@ def received(scope: repository.Scope, conversation_id: str, *, message_id: str, 
 def apply_assignment(value: dict, access: Access, conversation_id: str, *, expected_version: int, changes: dict) -> dict:
     if not changes or set(changes) - {"assigneeKind", "assigneeUserId", "status"}:
         raise HTTPException(422, "Alteração de atendimento inválida.")
-    assert_conversation(access, value, conversation_id)
-    row = {**default_assignment(conversation_id), **value["assignments"].get(conversation_id, {})}
+    previous = assert_conversation(access, value, conversation_id)
+    row = {**default_assignment(conversation_id), **previous, "conversationId": conversation_id}
     _version(row, expected_version)
     before = dict(row)
     if "assigneeUserId" in changes or "assigneeKind" in changes:
@@ -139,7 +141,13 @@ def apply_assignment(value: dict, access: Access, conversation_id: str, *, expec
     if (row["assigneeKind"], row["assigneeUserId"]) != (before["assigneeKind"], before["assigneeUserId"]):
         _event(value, conversation_id, access.actor_id, "assigned" if row["assigneeKind"] == "user" else "unassigned",
                {"assigneeUserId": row["assigneeUserId"], "assigneeKind": row["assigneeKind"]})
-    return _save_assignment(value, row, access.actor_id)
+    result = _save_assignment(value, row, access.actor_id)
+    # One human decision applies to every attested identity of the same chat.
+    # Notes/events remain on their original IDs; no contribution is erased.
+    for alias in (access.identity_aliases or {}).get(conversation_id, ()):
+        if alias != conversation_id and alias in value["assignments"]:
+            value["assignments"][alias] = {**result, "conversationId": alias}
+    return result
 
 
 def update_assignment(access: Access, conversation_id: str, *, expected_version: int, changes: dict) -> dict:
@@ -182,7 +190,8 @@ def change_note(access: Access, conversation_id: str, note_id: str, *, expected_
     def operation(value):
         assert_conversation(access, value, conversation_id)
         row = value["notes"].get(note_id)
-        if not row or row.get("conversationId") != conversation_id or row.get("deletedAt") is not None:
+        identities = {conversation_id, *((access.identity_aliases or {}).get(conversation_id) or ())}
+        if not row or row.get("conversationId") not in identities or row.get("deletedAt") is not None:
             raise HTTPException(404, "Nota indisponível.")
         if row["authorUserId"] != access.actor_id and not access.manager:
             raise HTTPException(403, "Somente o autor ou gestor pode alterar a nota.")
@@ -199,7 +208,8 @@ def change_note(access: Access, conversation_id: str, note_id: str, *, expected_
 def page(value: dict, conversation_id: str, kind: str, *, before: tuple[float, str] | None = None, limit: int = 50) -> dict:
     if kind not in {"events", "notes"} or not 1 <= limit <= 100:
         raise HTTPException(422, "Página inválida.")
-    rows = [row for row in value[kind].values() if row.get("conversationId") == conversation_id
+    identities = {conversation_id, *(value.get("_identityAliases", {}).get(conversation_id) or ())}
+    rows = [row for row in value[kind].values() if row.get("conversationId") in identities
             and (kind != "notes" or row.get("deletedAt") is None)
             and (before is None or (row["createdAt"], row["id"]) < before)]
     rows.sort(key=lambda row: (row["createdAt"], row["id"]), reverse=True)

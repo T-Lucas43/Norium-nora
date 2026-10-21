@@ -17,6 +17,7 @@ class Access:
     owner: dict
     scope: Scope
     roster: tuple[dict, ...]
+    identity_aliases: dict | None = None
 
     @property
     def actor_id(self) -> str:
@@ -70,18 +71,20 @@ def assert_enabled(value: dict) -> None:
 def assert_conversation(access: Access, value: dict, conversation_id: str, aliases=()) -> dict:
     assert_enabled(value)
     from app.services.whatsapp_identity import token
-    keys = {conversation_id, *aliases}
+    identities = access.identity_aliases or value.get("_identityAliases") or {}
+    keys = {conversation_id, *aliases, *(identities.get(conversation_id) or ())}
     for key in list(keys):
         normalized = token(key)
         if normalized.endswith("@s.whatsapp.net"):
             phone = normalized.split("@", 1)[0]
             keys.update({normalized, phone, phone + "@c.us"})
-    rows = [value["assignments"][key] for key in keys if key in value["assignments"]]
+    rows = [value["assignments"][key] for key in sorted(keys) if key in value["assignments"]]
     for row in rows:
         kind = row.get("assigneeKind", "none")
         if not access.manager and (kind != "none" and row.get("assigneeUserId") != access.actor_id):
             raise HTTPException(404, "Conversa indisponível.")
-    return value["assignments"].get(conversation_id) or next((row for row in rows if row.get("assigneeKind") != "none"), {})
+    primary = value["assignments"].get(conversation_id) or {}
+    return primary if primary.get("assigneeKind", "none") != "none" else next((row for row in rows if row.get("assigneeKind", "none") != "none"), primary)
 
 
 def public_member(row: dict) -> dict:

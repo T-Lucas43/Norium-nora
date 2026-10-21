@@ -28,6 +28,10 @@ async def outgoing(runtime, owner_user: dict, conversation_id: str) -> None:
             return
         if (await asyncio.to_thread(repository.snapshot, grant.scope))["inbox"].get("enabled") is not True:
             return
+        from dataclasses import replace
+        from .context import identity_index
+        identities = identity_index(await runtime.load_conversations(grant.scope.owner_id))
+        grant = replace(grant, identity_aliases=identities)
         result = await asyncio.to_thread(service.record_outgoing, grant, conversation_id)
         if result is not None:
             from .notifications import changed
@@ -52,6 +56,8 @@ async def incoming(runtime, owner_id: str, conversation_id: str, message_id: str
         platform = await asyncio.to_thread(read_account_db, owner_id, "plataforma", {}) if any(row.workspace_id != "primary" for row in scopes) else {}
         active_workspaces = {"primary", *(str(row.get("id")) for row in platform.get("workspaces", []) if row.get("active", True))}
         roster = tuple(row for row in directory if row.get("id") and require_team_id(row) == owner_id and access.can_attend(row))
+        from .context import identity_index
+        identities = identity_index(await runtime.load_conversations(owner_id)) if scopes else {}
         for scope in scopes:
             if scope.workspace_id not in active_workspaces:
                 continue
@@ -68,10 +74,12 @@ async def incoming(runtime, owner_id: str, conversation_id: str, message_id: str
                         online = await available_assignees(access.Access(owner, owner, scope, roster))
                     except Exception:
                         logger.warning("Presença indisponível; nova conversa ficará sem responsável.")
-                result = await asyncio.to_thread(service.received, scope, conversation_id, message_id=message_id, timestamp=timestamp, online_assignees=online)
+                result = await asyncio.to_thread(service.received, scope, conversation_id, message_id=message_id, timestamp=timestamp, online_assignees=online,
+                                                 aliases=identities.get(conversation_id, ()))
                 if result is not None:
                     from .notifications import emit
                     value = await asyncio.to_thread(repository.snapshot, scope)
+                    value["_identityAliases"] = identities
                     await emit(access.Access(owner, owner, scope, roster), value, conversation_id)
                     if result.get("assigneeUserId") and result["version"] == 1:
                         from .notifications import changed

@@ -1010,6 +1010,8 @@ def _contact_aliases(contact: Dict[str, Any]) -> set[str]:
         digits = re.sub(r"\D", "", local)
         if digits:
             aliases.update({digits, f"{digits}@c.us", f"{digits}@s.whatsapp.net"})
+    from app.services.whatsapp_identity import record_aliases
+    aliases.update(record_aliases(contact))
     return aliases
 
 

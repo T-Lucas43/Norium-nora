@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 from app.services.whatsapp_identity import coalesce
 from app.services.conversation_store import new_conversation, normalize_database
-from app.modules.chat import router, private_history
+from app.modules.chat import router, private_history, message_state
 from app.modules.whatsapp_team import access
 from tests.unit.test_whatsapp_team import Fixture
 
@@ -19,6 +19,15 @@ def row(cid, mid="one", at=100):
 
 
 class IdentityTests(unittest.TestCase):
+    def test_hidden_message_from_the_old_lid_stays_hidden_after_merging(self):
+        state = {"items": [{"id": message_state._id(LID, "one"), "hidden": True}]}
+        self.assertEqual([], message_state.apply(state, PN, [{"id": "one"}], [LID, PN]))
+        self.assertEqual([{"id": "two"}], message_state.apply(state, PN, [{"id": "two"}], [LID, PN]))
+
+    def test_latest_reaction_override_across_aliases_wins_without_duplicate_bubbles(self):
+        state = {"items": [{"id": message_state._id(LID, "one"), "reacoes": [{"emoji": "👍"}], "updatedAt": 2},
+                           {"id": message_state._id(PN, "one"), "reacoes": [], "updatedAt": 3}]}
+        self.assertEqual([], message_state.apply(state, PN, [{"id": "one"}], [LID])[0]["reacoes"])
     def test_existing_catalog_last_message_attests_the_reverse_lid_phone_pair(self):
         result = coalesce({PN: row(PN), LID: row(LID, "two")}, [{"id": PN, "lastMessage": {"key": {"remoteJid": LID, "remoteJidAlt": PN}}}])
         self.assertEqual(1, len(result))

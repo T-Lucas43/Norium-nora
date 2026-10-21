@@ -30,12 +30,13 @@ def snapshot(runtime, owner: str) -> dict:
     return read_json_file(path, {"items": []}) if path else {"items": []}
 
 
-def apply(value: dict, conversation_id: str, messages: list[dict]) -> list[dict]:
+def apply(value: dict, conversation_id: str, messages: list[dict], aliases=()) -> list[dict]:
     rows = {row["id"]: row for row in value.get("items", [])}
     result = []
     for message in messages:
-        state = rows.get(_id(conversation_id, str(message.get("id") or "")), {})
-        if not state.get("hidden"):
+        states = [rows.get(_id(alias, str(message.get("id") or "")), {}) for alias in dict.fromkeys([conversation_id, *aliases])]
+        state = max(states, key=lambda row: float(row.get("updatedAt") or 0), default={})
+        if not any(row.get("hidden") for row in states):
             result.append({**message, **({"reacoes": state["reacoes"]} if "reacoes" in state else {})})
     return result
 

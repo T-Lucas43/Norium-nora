@@ -398,3 +398,5 @@ Não declarar fase concluída com botões sem ação ou fixtures como produto.
 - Não houve uso de conversas reais em testes nem envio/reação/pareamento externo. Publicação GitHub/ShardCloud deste hotfix não executada. A atualização local e seu recibo serão registrados após verificar a imagem.
 
 - Caso adicional reproduzido: o chat usa PN e a última mensagem chega com `remoteJid=LID`, `remoteJidAlt=PN`. O adaptador anterior só guardava o alias na ordem direta. Agora aceita ambas, recupera a evidência do cache existente e rejeita mensagens de terceiros. Regressões `whatsapp-identity-reverse-alias`: 42/42 aprovadas.
+
+- Verificação de visibilidade: exclusão em um alias antigo permanece oculta após a consolidação, inclusive Nora e mídia antiga. Override de reação mais recente prevalece. `whatsapp-identity-visibility`: 49/49 aprovados. A revisão 8d7c109 foi instalada localmente e a Nora respondeu ao marcador sintético pelo Groq, com franquia do admin local; zero mensagens WhatsApp enviadas. Volumes idênticos e PostgreSQL pronto. Acrescentado ajuste final de visibilidade à candidata subsequente.

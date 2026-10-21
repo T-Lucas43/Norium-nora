@@ -360,7 +360,8 @@ async def build_conversation_history(conversa_id: str, limit: int = 25, user_id:
     conversa = db.get(conversa_id)
     mensagens = conversa.get("mensagens", []) if conversa else []
     if state is not None:
-        mensagens = message_state.apply(state, str((conversa or {}).get("id") or conversa_id), mensagens)
+        mensagens = message_state.apply(state, str((conversa or {}).get("id") or conversa_id), mensagens,
+                                       (conversa or {}).get("metadados", {}).get("identityAliases", []))
     mensagens = [row for row in mensagens if not row.get("visualizacaoUnica")]
     if not conversa or not mensagens:
         return EMPTY_HISTORY_MARKER

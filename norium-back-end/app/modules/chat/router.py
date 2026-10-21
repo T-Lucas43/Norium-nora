@@ -3347,7 +3347,7 @@ async def obter_historico_conversa(
     from app.modules.chat import message_state
     local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
     if isinstance(conversation, dict):
-        conversation["mensagens"] = message_state.apply(local_state, conversa_id, conversation.get("mensagens", []))
+        conversation["mensagens"] = message_state.apply(local_state, conversa_id, conversation.get("mensagens", []), conversation.get("metadados", {}).get("identityAliases", []))
     history_available_at = 0
     if is_evolution():
         history_catalog = await load_whatsapp_catalog_cache(resolved_user_id)
@@ -3359,7 +3359,7 @@ async def obter_historico_conversa(
         if isinstance(conversation, dict):
             hydrate_group_message_names(conversation, saved_contact_names)
             local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
-            conversation["mensagens"] = message_state.apply(local_state, conversa_id, conversation.get("mensagens", []))
+            conversation["mensagens"] = message_state.apply(local_state, conversa_id, conversation.get("mensagens", []), conversation.get("metadados", {}).get("identityAliases", []))
 
     # Páginas antigas sempre vêm do snapshot já persistido. A W-API não
     # oferece cursor de mensagens; repetir uma chamada remota para cada página
@@ -3456,7 +3456,7 @@ async def obter_historico_conversa(
                     provider_chat = {**provider_chat, "id": conversa_id}
                 sync_catalog_messages(latest, provider_chat)
                 local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
-                latest["mensagens"] = message_state.apply(local_state, conversa_id, latest.get("mensagens", []))
+                latest["mensagens"] = message_state.apply(local_state, conversa_id, latest.get("mensagens", []), latest.get("metadados", {}).get("identityAliases", []))
                 hydrate_group_message_names(latest, saved_contact_names)
                 metadata = latest.setdefault("metadados", {})
                 metadata["historicoSincronizadoEm"] = time.time()

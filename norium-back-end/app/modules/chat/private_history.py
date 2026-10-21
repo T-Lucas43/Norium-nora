@@ -66,7 +66,7 @@ async def page(runtime, owner: str, conversation_id: str, conversation: dict | N
     response["hasMore"] = response["hasMore"] or result["hasMore"]
     state = await asyncio.to_thread(message_state.snapshot, runtime, owner)
     _same_binding(runtime, owner, binding)
-    response["items"] = message_state.apply(state, conversation_id, response["items"])
+    response["items"] = message_state.apply(state, conversation_id, response["items"], _aliases(conversation_id, conversation))
     return response
 
 
@@ -74,8 +74,14 @@ async def reference(runtime, owner: str, message_id: str, conversation_id: str |
     binding = _binding(runtime, owner)
     if binding is None:
         return None
+    known = (await runtime.load_conversations(owner)).get(conversation_id) if conversation_id else None
+    aliases = _aliases(conversation_id, known) if conversation_id else [None]
     try:
-        raw = await asyncio.to_thread(evolution_history.reference, owner, binding.instance_id, message_id, conversation_id)
+        raw = None
+        for alias in aliases:
+            raw = await asyncio.to_thread(evolution_history.reference, owner, binding.instance_id, message_id, alias)
+            if raw is not None:
+                break
     except RuntimeError:
         raise HTTPException(503, "A mensagem antiga está temporariamente indisponível. Tente novamente.") from None
     _same_binding(runtime, owner, binding)
@@ -85,11 +91,14 @@ async def reference(runtime, owner: str, message_id: str, conversation_id: str |
         return None
     key = raw.get("key") or {}
     cid = conversation_id or key.get("remoteJid") or key.get("remoteJidAlt")
-    if not isinstance(cid, str) or not cid or (conversation_id and conversation_id not in {key.get("remoteJid"), key.get("remoteJidAlt")}):
+    if not isinstance(cid, str) or not cid or (conversation_id and not set(aliases).intersection({key.get("remoteJid"), key.get("remoteJidAlt")})):
         return None
+    if not conversation_id:
+        known = (await runtime.load_conversations(owner)).get(cid)
+        aliases = _aliases(cid, known)
     normalized = _conversation(runtime, cid, [raw])
     message = next((row for row in normalized.get("mensagens", []) if row.get("id") == message_id), None)
     state = await asyncio.to_thread(message_state.snapshot, runtime, owner)
     _same_binding(runtime, owner, binding)
-    visible = message_state.apply(state, cid, [message]) if message is not None else []
+    visible = message_state.apply(state, cid, [message], aliases) if message is not None else []
     return (cid, visible[0]) if visible else None

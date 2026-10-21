@@ -14,7 +14,6 @@ import StatusBanner from "../shared/StatusBanner";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import Button from "../shared/Button";
 import {
-  whatsappApi,
   type Contact,
   type ConsentInfo,
   type WhatsAppConnection,
@@ -23,8 +22,9 @@ import {
   type WhatsAppStatusItem,
   type WhatsAppSyncProgress,
   normalizeWhatsAppStatusItem,
+  normalizeWhatsAppConversation,
 } from "./whatsappApi";
-import { apiBlobRequest } from "../../core/api/client";
+import { ApiError, apiRequest, apiBlobRequest } from "../../core/api/client";
 import {
   contactConversationId,
   contactDisplayName,
@@ -45,6 +45,9 @@ import { requestScope } from "../../core/api/sessionScope";
 import { useWhatsAppLiveRefresh, WHATSAPP_FALLBACK_MS } from "./useWhatsAppLiveRefresh";
 import { ContactLabelsProvider } from "./ContactLabels";
 import { useRememberedPanel } from "./useRememberedPanel";
+import { useWhatsAppScope } from "./WhatsAppScope";
+import WhatsAppInboxShell from "./WhatsAppInboxShell";
+import { useTeamAttendance, TeamAttendanceHeader, TeamAttendanceFilters } from "./TeamAttendance";
 import "../../styles/screens/conversas.css";
 
 const BACKEND_URL = apiBaseUrl();
@@ -157,8 +160,13 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
   };
 }
 
-export default function ChatCentral({ active: isActive = true, userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
-  const currentScope = requestScope();
+export default function ChatCentral(props: ChatCentralProps) {
+  return <WhatsAppInboxShell>{key => <ChatCentralContent key={key} {...props} />}</WhatsAppInboxShell>;
+}
+
+function ChatCentralContent({ active: isActive = true, userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
+  const { api: whatsappApi, inboxId } = useWhatsAppScope();
+  const currentScope = requestScope() + (inboxId ? `:${inboxId}` : "");
   const chatWallpaper = useChatWallpaper(userId);
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [canaisStatus, setCanaisStatus] = useState<{ whatsapp?: WhatsAppConnection }>({});
@@ -247,6 +255,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
   const cursorConversasRef = useRef(0);
   const whatsappConectadoRef = useRef(false);
   const conversasRef = useRef<ChatConversa[]>([]);
+  const selectedConversationRef = useRef(conversaSelecionada); selectedConversationRef.current = conversaSelecionada;
   const contatosRef = useRef<Contact[]>([]);
   const syncStatusRef = useRef<WhatsAppSyncProgress["status"]>("idle");
   const syncCompletionHandledRef = useRef(false);
@@ -287,16 +296,27 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       const since = incremental && cursorConversasRef.current > 0
         ? Math.max(0, cursorConversasRef.current - 1)
         : undefined;
-      const payload = await whatsappApi.conversations(since, refresh);
+      const payload = await whatsappApi.conversations(inboxId ? undefined : since, refresh);
       if (generation !== connectionStatusRequestGenerationRef.current) return null;
-      const data = Array.isArray(payload) ? payload : payload.items;
-      if (!incremental) setConversationNextOffset(!Array.isArray(payload) && "nextOffset" in payload && typeof payload.nextOffset === "number" ? payload.nextOffset : null);
+      const data = [...(Array.isArray(payload) ? payload : payload.items)];
+      if (inboxId && selectedConversationRef.current && !data.some(row => row.id === selectedConversationRef.current)) {
+        const selectedId = selectedConversationRef.current;
+        try {
+          const selected = await whatsappApi.details(selectedId);
+          if (generation !== connectionStatusRequestGenerationRef.current) return null;
+          data.push(selected);
+        } catch (error) {
+          if (!(error instanceof ApiError) || ![403, 404].includes(error.status)) throw error;
+          if (selectedConversationRef.current === selectedId) setConversaSelecionada(null);
+        }
+      }
+      if (!incremental || inboxId) setConversationNextOffset(!Array.isArray(payload) && "nextOffset" in payload && typeof payload.nextOffset === "number" ? payload.nextOffset : null);
       const nextCursor = Array.isArray(payload)
         ? Math.max(0, ...data.map((item) => Number(item.timestampUltimaMsg || 0)))
         : Number(payload.cursor || cursorConversasRef.current);
       cursorConversasRef.current = Math.max(cursorConversasRef.current, nextCursor);
       setConversas((current) => {
-        return mergeConversationCatalog(current, data, contatosRef.current).sort(
+        return mergeConversationCatalog(inboxId ? current.filter(row => data.some(item => item.id === row.id)) : current, data, contatosRef.current).sort(
           (left, right) => Number(right.timestampUltimaMsg || 0) - Number(left.timestampUltimaMsg || 0),
         );
       });
@@ -310,7 +330,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     } finally {
       if (generation === connectionStatusRequestGenerationRef.current) carregandoConversasRef.current = false;
     }
-  }, [mostrarAviso]);
+  }, [mostrarAviso, whatsappApi, inboxId]);
 
   const loadMoreConversations = useCallback(async () => {
     if (conversationNextOffset == null || moreConversationsRef.current || typeof whatsappApi.conversationPage !== "function") return;
@@ -326,7 +346,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       moreConversationsRef.current = false;
       if (requestScope() === scope) setLoadingMoreConversations(false);
     }
-  }, [conversationNextOffset, mostrarAviso]);
+  }, [conversationNextOffset, mostrarAviso, whatsappApi]);
 
   const carregarContatosDoBackend = useCallback(async (mostrarErro = true) => {
     const generation = connectionStatusRequestGenerationRef.current;
@@ -352,7 +372,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         setCarregandoContatos(false);
       }
     }
-  }, [mostrarAviso]);
+  }, [mostrarAviso, whatsappApi]);
 
   const carregarGruposDoBackend = useCallback(async (mostrarErro = true) => {
     const generation = connectionStatusRequestGenerationRef.current;
@@ -382,7 +402,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         setCarregandoGrupos(false);
       }
     }
-  }, [mostrarAviso]);
+  }, [mostrarAviso, whatsappApi]);
 
   const carregarPerfilWhatsApp = useCallback(async () => {
     const generation = connectionStatusRequestGenerationRef.current;
@@ -399,7 +419,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       setPerfilWhatsApp((current) => current || fallback);
       return fallback;
     }
-  }, [canaisStatus.whatsapp?.numero]);
+  }, [canaisStatus.whatsapp?.numero, whatsappApi]);
 
   const carregarStatusDoBackend = useCallback(async (mostrarErro = true, background = false) => {
     const requestGeneration = statusRequestGenerationRef.current;
@@ -427,7 +447,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         carregandoStatusRef.current = false;
       }
     }
-  }, [mostrarAviso]);
+  }, [mostrarAviso, whatsappApi]);
 
 
   const carregarCanaisDoBackend = useCallback(async (mostrarErro = true) => {
@@ -452,15 +472,15 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         setCarregandoCanaisWhatsApp(false);
       }
     }
-  }, [mostrarAviso]);
+  }, [mostrarAviso, whatsappApi]);
   const recarregarCatalogosAposSync = useCallback(async (refreshConversations = true) => {
     const [loadedConversations, contacts, loadedGroups] = await Promise.all([
       carregarConversasDoBackend(false, refreshConversations),
       carregarContatosDoBackend(false),
       carregarGruposDoBackend(false),
-      carregarPerfilWhatsApp(),
-      carregarStatusDoBackend(false, true),
-      canaisWhatsAppCarregados ? carregarCanaisDoBackend(false) : Promise.resolve(null),
+      inboxId ? Promise.resolve(null) : carregarPerfilWhatsApp(),
+      inboxId ? Promise.resolve(null) : carregarStatusDoBackend(false, true),
+      !inboxId && canaisWhatsAppCarregados ? carregarCanaisDoBackend(false) : Promise.resolve(null),
     ]);
     const currentConversations = loadedConversations?.length ? loadedConversations : conversasRef.current;
     const mergedContacts = mergeContactCatalog(contatosRef.current, contacts || [], currentConversations);
@@ -468,7 +488,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     setListaContatos(mergedContacts);
     setConversas((current) => enrichConversationsWithContacts(current, mergedContacts));
     return { contacts: contacts || [], groups: loadedGroups || [] };
-  }, [canaisWhatsAppCarregados, carregarCanaisDoBackend, carregarContatosDoBackend, carregarConversasDoBackend, carregarGruposDoBackend, carregarPerfilWhatsApp, carregarStatusDoBackend]);
+  }, [inboxId, canaisWhatsAppCarregados, carregarCanaisDoBackend, carregarContatosDoBackend, carregarConversasDoBackend, carregarGruposDoBackend, carregarPerfilWhatsApp, carregarStatusDoBackend]);
 
   const forcarSincronizacaoCatalogo = useCallback(async (mostrarSucesso = false) => {
     setSincronizandoCatalogo(true);
@@ -522,7 +542,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       mostrarAviso("error", message);
       return false;
     }
-  }, [mostrarAviso, recarregarCatalogosAposSync]);
+  }, [mostrarAviso, recarregarCatalogosAposSync, whatsappApi]);
 
   const carregarHistorico = useCallback(async (
     conversationId: string,
@@ -559,16 +579,16 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       historicoInFlightRef.current.delete(requestKey);
       if (requestScope() === scope) setHistoricoCarregandoId((current) => current === conversationId ? null : current);
     }
-  }, [mostrarAviso]);
+  }, [mostrarAviso, whatsappApi]);
 
-  useWhatsAppLiveRefresh({ active: isActive, ownerId: userId, onChange: (areas) => {
+  useWhatsAppLiveRefresh({ active: isActive, ownerId: userId, inboxId, onChange: (areas) => {
     if (areas.has("connection")) window.dispatchEvent(new Event("norium:whatsapp-check-connection"));
     if (!whatsappConectadoRef.current) return;
     void carregarConversasDoBackend(true, false, false);
     if (areas.has("catalog")) {
-      void carregarContatosDoBackend(false); void carregarGruposDoBackend(false); void carregarPerfilWhatsApp();
+      void carregarContatosDoBackend(false); void carregarGruposDoBackend(false); if (!inboxId) void carregarPerfilWhatsApp();
     }
-    if (areas.has("status")) void carregarStatusDoBackend(false, true);
+    if (!inboxId && areas.has("status")) void carregarStatusDoBackend(false, true);
     if (conversaSelecionada && !areas.has("labels")) void carregarHistorico(conversaSelecionada, false, false);
   } });
 
@@ -688,7 +708,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     setConversaSelecionada(null);
     setQrCodeString(null);
     setCanalSelecionadoLogin(null);
-  }, [userId, currentScope]);
+  }, [userId, currentScope, whatsappApi]);
 
   useEffect(() => {
     const escutarEsc = (e: KeyboardEvent) => {
@@ -761,7 +781,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       window.clearInterval(intervalo);
       window.removeEventListener("norium:whatsapp-check-connection", checkConnection);
     };
-  }, [isActive, recarregarCatalogosAposSync, userId, currentScope]);
+  }, [isActive, recarregarCatalogosAposSync, userId, currentScope, whatsappApi]);
 
   useEffect(() => {
     if (!isActive || canalSelecionadoLogin !== "whatsapp") return;
@@ -810,7 +830,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       active = false;
       window.clearInterval(interval);
     };
-  }, [isActive, canalSelecionadoLogin, recarregarCatalogosAposSync, userId, currentScope]);
+  }, [isActive, canalSelecionadoLogin, recarregarCatalogosAposSync, userId, currentScope, whatsappApi]);
 
   useEffect(() => {
     if (!isActive || secaoWhatsApp !== "status" || !canaisStatus.whatsapp?.conectado) return;
@@ -885,7 +905,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       controller.abort();
       stopPolling();
     };
-  }, [isActive, canaisStatus.whatsapp?.conectado, mostrarAviso, recarregarCatalogosAposSync, syncPollVersion]);
+  }, [isActive, canaisStatus.whatsapp?.conectado, mostrarAviso, recarregarCatalogosAposSync, syncPollVersion, whatsappApi, whatsappApi.syncStatus]);
 
   useEffect(() => {
     if (!isActive || !canaisStatus.whatsapp?.conectado) return;
@@ -990,7 +1010,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     } catch (error) {
       if (requestScope() === scope) mostrarAviso("error", error instanceof Error ? error.message : "Falha ao carregar os dados do contato.");
     }
-  }, [mostrarAviso]);
+  }, [mostrarAviso, whatsappApi]);
 
   const selecionarConversa = async (id: string, abrirPerfil = false) => {
     const scope = requestScope();
@@ -1627,7 +1647,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     }
     setEncaminhando(true);
     try {
-      await whatsappApi.forwardMessages(destino.id, mensagensParaEncaminhar);
+      await whatsappApi.forwardMessages(destino.id, mensagensParaEncaminhar, conversaSelecionada || undefined);
       await carregarConversasDoBackend();
       mostrarAviso("success", `${mensagensParaEncaminhar.length} mensagem(ns) encaminhada(s) para ${destino.contato}.`);
     } catch (err) {
@@ -1653,7 +1673,23 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       .slice(0, 48);
   }, [conversas]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search), reference = params.get("attendance");
+    if (!inboxId || !reference || !/^[a-f0-9]{64}$/.test(reference) || params.get("inbox") !== inboxId) return;
+    const controller = new AbortController();
+    void apiRequest<unknown>(`/api/chat/caixas/${encodeURIComponent(inboxId)}/referencias/${reference}`, { signal: controller.signal }).then(raw => {
+      if (controller.signal.aborted) return;
+      const row = normalizeWhatsAppConversation(raw);
+      if (!row) return;
+      setConversas(current => mergeConversationCatalog(current, [row], contatosRef.current));
+      selecionarConversa(row.id);
+      params.delete("attendance"); params.delete("inbox");
+      window.history.replaceState(window.history.state, "", window.location.pathname + (params.size ? `?${params}` : ""));
+    }).catch(error => { if (!controller.signal.aborted) mostrarAviso("error", error instanceof Error ? error.message : "Atendimento indisponível."); });
+    return () => controller.abort();
+  }, [inboxId]); // eslint-disable-line react-hooks/exhaustive-deps
   const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
+  const attendance = useTeamAttendance(inboxId, conversaAtiva, userId, () => { setConversaSelecionada(null); setConversas([]); void carregarConversasDoBackend(false, false, false); });
   const gruposDisponiveis = grupos.length > 0 ? grupos : conversas.filter((conversation) => conversation.esGrupo);
   const destinosEncaminhamento = [...new Map([...conversas, ...gruposDisponiveis].map((conversation) => [conversation.id, conversation])).values()];
   const totalNaoLidas = conversas.reduce((total, conversation) => total + Number(conversation.naoLidasCount || 0), 0);
@@ -1672,15 +1708,15 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       <div className={connectScreenClass}>
         <div className="nx-card w-full max-w-[480px] p-6 sm:p-8">
           <span className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--nx-success-soft)] text-[var(--nx-success)]"><MessageCircle size={20} /></span>
-          <h2 className="mt-4 text-[22px] font-semibold">Conectar o WhatsApp</h2>
-          <p className="mt-1.5 text-sm leading-6 text-[var(--nx-text-2)]">Conecte o WhatsApp da empresa para ver e responder as conversas aqui no Norium.</p>
+          <h2 className="mt-4 text-[22px] font-semibold">{inboxId ? "WhatsApp da equipe desconectado" : "Conectar o WhatsApp"}</h2>
+          <p className="mt-1.5 text-sm leading-6 text-[var(--nx-text-2)]">{inboxId ? "Peça ao dono da instância para conferir a conexão em Meu WhatsApp." : "Conecte o WhatsApp da empresa para ver e responder as conversas aqui no Norium."}</p>
           {canaisStatus.whatsapp?.detail && (
             <p className={`mt-4 ${connectErrorClass}`}>
               {canaisStatus.whatsapp.detail}
             </p>
           )}
           {evolutionProvider && <p className="mt-3 text-xs text-[var(--nx-text-3)]">Integração por <a href="https://docs.evolutionfoundation.com.br/evolution-api" target="_blank" rel="noreferrer" className="underline">Evolution API</a></p>}
-          <button type="button" disabled={canaisStatus.whatsapp?.status === "indisponivel"} onClick={() => handleIniciarLogin("whatsapp")} className="nx-btn is-primary mt-6 w-full">Conectar WhatsApp</button>
+          {!inboxId && <button type="button" disabled={canaisStatus.whatsapp?.status === "indisponivel"} onClick={() => handleIniciarLogin("whatsapp")} className="nx-btn is-primary mt-6 w-full">Conectar WhatsApp</button>}
         </div>
       </div>
     );
@@ -1863,7 +1899,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
   }
 
   return (
-    <ContactLabelsProvider key={requestScope()}><div className={`norium-chat nx-conv ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} ${conversaSelecionada ? "has-active-conversation" : ""} relative flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)] font-sans`}>
+    <ContactLabelsProvider key={requestScope()}><div className={`norium-chat nx-conv ${inboxId ? "is-team-inbox" : ""} ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} ${conversaSelecionada ? "has-active-conversation" : ""} relative flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)] font-sans`}>
       <button
         type="button"
         className="mobile-sidebar-toggle mobile-screen-fab"
@@ -1895,7 +1931,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         className="hidden"
         onChange={handleFigurinhaSelecionada}
       />
-      <WhatsAppRail
+      {!inboxId && <WhatsAppRail
         section={secaoWhatsApp}
         unreadCount={totalNaoLidas}
         statusUnreadCount={totalStatusNaoVisualizados}
@@ -1903,14 +1939,15 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         profile={perfilWhatsApp}
         onSelect={selecionarSecaoWhatsApp}
         onSettings={() => setModalConfigAberto(true)}
-      />
+      />}
 
       {secaoWhatsApp === "conversations" && (
         <>
           <SidebarEsquerda
+            attendanceFilters={inboxId ? <TeamAttendanceFilters /> : undefined}
             conversas={conversas} conversaSelecionada={conversaSelecionada}
             onSelecionar={selecionarConversa} onAcao={handleAcaoChat} onExcluir={handleExcluirChat}
-            onAbrirConfigPropria={() => setModalConfigAberto(true)}
+            onAbrirConfigPropria={() => inboxId ? mostrarAviso("info", "A conexão desta caixa é gerenciada pelo dono em Meu WhatsApp.") : setModalConfigAberto(true)}
             onAbrirModalContatos={abrirAgendaContatos}
             onAbrirModalCriarGrupo={abrirModalGrupo}
             onAtualizar={() => void atualizarCatalogo()}
@@ -1925,6 +1962,8 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
 
           <AreaCentralChat
             key={conversaAtiva?.id || "vazio"}
+            attendance={attendance}
+            attendanceHeader={attendance ? <TeamAttendanceHeader attendance={attendance} /> : undefined}
             conversaAtiva={conversaAtiva} onEnviar={handleEnviarMensagem}
             onAbrirDadosPerfil={() => { if (painelPerfilAberto) setPainelPerfilAberto(false); else void abrirDadosPerfil(); }}
             painelAberto={painelPerfilAberto}
@@ -2230,7 +2269,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
             </div>
 
             <div className="p-4 bg-[var(--background)] border-t border-[var(--border)] flex gap-2">
-              <Button variant="danger" className="flex-1" onClick={() => setConfirmarDesconexaoAberta(true)}>Desconectar WhatsApp</Button>
+              {!inboxId && <Button variant="danger" className="flex-1" onClick={() => setConfirmarDesconexaoAberta(true)}>Desconectar WhatsApp</Button>}
               <Button className="flex-1" onClick={() => setModalConfigAberto(false)}>Fechar</Button>
             </div>
           </div>

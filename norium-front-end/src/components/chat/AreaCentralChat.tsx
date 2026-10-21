@@ -41,6 +41,10 @@ import ConversationHeader from "./ConversationHeader";
 import MediaGallery from "./MediaGallery";
 import MessageSearch, { HighlightedText, useMessageSearch } from "./MessageSearch";
 import MessageTranslation, { TranslationToolbar } from "./MessageTranslation";
+import { useWhatsAppScope } from "./WhatsAppScope";
+import type { Attendance } from "./TeamAttendance";
+import { InternalNoteCard, InternalNoteComposer } from "./InternalNote";
+import type { ReactNode } from "react";
 import { avatarColor } from "./avatarColor";
 
 function messageDayLabel(timestamp?: number) {
@@ -55,6 +59,8 @@ function messageDayLabel(timestamp?: number) {
 }
 
 interface AreaCentralProps {
+  attendance?: Attendance | null;
+  attendanceHeader?: ReactNode;
   conversaAtiva: ChatConversa | undefined;
   onEnviar: (texto: string, responderA?: string) => void | Promise<void>;
   onAbrirDadosPerfil: () => void;
@@ -463,8 +469,10 @@ export default function AreaCentralChat({
   figurinhasRecentes,
   onEnviarFigurinhaExistente,
   wallpaperUrl,
-  painelAberto, onVoltarLista, onAcaoCabecalho,
+  painelAberto, onVoltarLista, onAcaoCabecalho, attendance, attendanceHeader,
 }: AreaCentralProps) {
+  const { inboxId } = useWhatsAppScope();
+  const [noteMode, setNoteMode] = useState(false);
   const [resposta, setResposta] = useState("");
   const quick = useQuickReplies({ channel: "whatsapp", text: resposta,
     variables: { client_name: conversaAtiva ? conversationDisplayName(conversaAtiva) : "", nome: conversaAtiva ? conversationDisplayName(conversaAtiva) : "" },
@@ -653,14 +661,14 @@ export default function AreaCentralChat({
   const podeApagarSelecionadasParaTodos = mensagensSelecionadas.length > 0 && mensagensSelecionadas.every((message) => message.remetente === "usuario");
 
   return (
-    <section onPaste={handlePasteAttachments} className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
+    <section onPaste={noteMode ? undefined : handlePasteAttachments} className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
       {galleryId && <MediaGallery key={conversaAtiva.id} conversation={conversaAtiva} messageId={galleryId} onSelect={setGalleryId} onClose={() => setGalleryId(null)} onForward={onEncaminharMensagens} />}
       {!modoSelecao ? (
         <ConversationHeader avatar={<HeaderAvatar conversa={conversaAtiva} />} name={displayName}
           subtitle={conversaAtiva.esGrupo ? `${conversaAtiva.metadados?.participantes?.length || 0} participantes` : phoneLabel}
           group={Boolean(conversaAtiva.esGrupo)} panelOpen={painelAberto} searching={mostrarPesquisa} translating={traduzirChat}
           onPanel={onAbrirDadosPerfil} onSearch={() => setMostrarPesquisa(!mostrarPesquisa)}
-          onTranslate={() => setTraduzirChat(!traduzirChat)} onBack={onVoltarLista} onAction={onAcaoCabecalho} />
+          onTranslate={() => inboxId ? onFeedback?.("error", "A tradução da caixa compartilhada será integrada à Nora contextual.") : setTraduzirChat(!traduzirChat)} onBack={onVoltarLista} onAction={onAcaoCabecalho} />
       ) : (
         <div className="nx-conv-thread-head">
           <div className="flex items-center gap-2">
@@ -683,6 +691,7 @@ export default function AreaCentralChat({
         </div>
       )}
 
+      {attendanceHeader}
       {mostrarPesquisa && (
         <MessageSearch search={messageSearch} hasOlder={temMaisMensagens} onClose={() => { messageSearch.setQuery(""); setMostrarPesquisa(false); }} />
       )}
@@ -716,12 +725,18 @@ export default function AreaCentralChat({
             </Button>
           </div>
         )}
+        {attendance?.notes.hasMore && <div className="flex justify-center"><button type="button" className="nx-btn is-sm" disabled={attendance.busy} onClick={() => void attendance.more("notes")}>Notas internas anteriores</button></div>}
         {!carregandoMensagens && mensagensFiltradas.length === 0 && (
           <div className="flex min-h-40 items-center justify-center text-center text-sm text-[var(--nx-text-3)]">
             Nenhuma mensagem disponível nesta conversa.
           </div>
         )}
-        {mensagensFiltradas.map((msg, index) => {
+        {[...mensagensFiltradas.map(message => ({ message, timestamp: message.timestamp || 0, id: message.id })),
+          ...(attendance?.notes.items || []).map(note => ({ note, timestamp: note.createdAt, id: `note-${note.id}` }))]
+          .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)).map((entry) => {
+          if ("note" in entry) return attendance && <InternalNoteCard key={entry.id} note={entry.note} attendance={attendance} />;
+          const msg = entry.message;
+          const index = mensagensFiltradas.indexOf(msg);
           const outgoing = msg.remetente === "usuario";
           const estaSelecionada = selecionadas.includes(msg.id);
           const dayLabel = messageDayLabel(msg.timestamp);
@@ -779,19 +794,19 @@ export default function AreaCentralChat({
                     <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <Copy size={14} /> Copiar
                     </button>
-                    {msg.texto?.trim() && !msg.viewOnce && <button onClick={() => { setTraduzirChat(true); setTranslationRequest(current => ({ conversationId: conversaAtiva.id, messageId: msg.id, trigger: current.trigger + 1 })); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left"><Languages size={14} />Traduzir mensagem</button>}
+                    {msg.texto?.trim() && !msg.viewOnce && <button disabled={Boolean(inboxId)} title={inboxId ? "Tradução contextual: em implementação" : undefined} onClick={() => { setTraduzirChat(true); setTranslationRequest(current => ({ conversationId: conversaAtiva.id, messageId: msg.id, trigger: current.trigger + 1 })); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left"><Languages size={14} />Traduzir mensagem</button>}
                     <button onClick={() => { setModoSelecao(true); setSelecionadas([msg.id]); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <Check size={14} /> Selecionar
                     </button>
                     <div className="my-1 border-t border-[var(--nx-border)]" />
                     <p className="nx-conv-menu-label px-3 py-1">Nora</p>
-                    <button onClick={() => abrirAcaoNora("reply", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                    <button disabled={Boolean(inboxId)} title={inboxId ? "Nora contextual da caixa: em implementação" : undefined} onClick={() => abrirAcaoNora("reply", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <Sparkles size={14} className="text-[var(--nx-primary-text)]" /> Responder com a Nora
                     </button>
-                    <button onClick={() => abrirAcaoNora("summary", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                    <button disabled={Boolean(inboxId)} title={inboxId ? "Nora contextual da caixa: em implementação" : undefined} onClick={() => abrirAcaoNora("summary", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <Sparkles size={14} className="text-[var(--nx-primary-text)]" /> Resumir com a Nora
                     </button>
-                    <button onClick={() => abrirAcaoNora("task", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                    <button disabled={Boolean(inboxId)} title={inboxId ? "Nora contextual da caixa: em implementação" : undefined} onClick={() => abrirAcaoNora("task", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <ListChecks size={14} className="text-[var(--nx-primary-text)]" /> Transformar em tarefa
                     </button>
                     <div className="my-1 border-t border-[var(--nx-border)]" />
@@ -860,6 +875,16 @@ export default function AreaCentralChat({
       </div>
 
       <div className="norium-chat-composer relative shrink-0">
+        <div className="nx-whatsapp-composer-mode">
+          {attendance ? <div className="nx-whatsapp-note-mode" role="group" aria-label="Modo de composição">
+          <button type="button" aria-pressed={!noteMode} disabled={gravando} onClick={() => setNoteMode(false)}><MessageCircle size={14} />Responder</button>
+          <button type="button" aria-pressed={noteMode} disabled={gravando || enviandoAnexos} onClick={() => setNoteMode(true)}>Nota interna</button>
+        </div> : <span className="nx-whatsapp-reply-mode"><MessageCircle size={14} />Responder</span>}
+          <NoraChatComposer conversationId={conversaAtiva.id} disabled={Boolean(inboxId) || gravando || enviandoAnexos} onInsertDraft={setResposta} />
+          <small>/ respostas rápidas</small>
+        </div>
+        {attendance && noteMode ? <InternalNoteComposer attendance={attendance} /> : <>
+
         {mostrarPainelEmojis && (
           <div data-emoji-panel-root className="nx-conv-menu absolute bottom-full left-5 z-50 mb-2 w-[340px] max-w-[calc(100vw-24px)] overflow-hidden">
             <div className="p-2">
@@ -899,11 +924,6 @@ export default function AreaCentralChat({
           </div>
         )}
 
-        <div className="nx-whatsapp-composer-mode">
-          <span className="nx-whatsapp-reply-mode"><MessageCircle size={14} />Responder</span>
-          <NoraChatComposer conversationId={conversaAtiva.id} disabled={gravando || enviandoAnexos} onInsertDraft={setResposta} />
-          <small>/ respostas rápidas</small>
-        </div>
         <div className="nx-conv-composer-box">
           <AttachmentPreviewTray anexos={anexosPendentes} onRemover={onRemoverAnexo} onLimpar={onLimparAnexos} onToggleViewOnce={onAlternarVisualizacaoUnica} />
 
@@ -978,6 +998,7 @@ export default function AreaCentralChat({
               </button>}
           </div>
         </div>
+        </>}
       </div>
 
       {editandoMensagem && (
@@ -990,7 +1011,7 @@ export default function AreaCentralChat({
         </div>
       )}
 
-      <MessageNoraActions conversationId={conversaAtiva.id} request={noraRequest} onClose={() => setNoraRequest(null)} onUseReply={usarRespostaNora} onFeedback={onFeedback} />
+      {!inboxId && <MessageNoraActions conversationId={conversaAtiva.id} request={noraRequest} onClose={() => setNoraRequest(null)} onUseReply={usarRespostaNora} onFeedback={onFeedback} />}
     </section>
   );
 }

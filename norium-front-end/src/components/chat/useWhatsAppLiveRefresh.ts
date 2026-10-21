@@ -4,8 +4,8 @@ import { requestScope } from "../../core/api/sessionScope";
 export const WHATSAPP_FALLBACK_MS = 120_000;
 
 /** Reuse the application's socket; coalesce bursts without polling every chat. */
-export function useWhatsAppLiveRefresh({ active, ownerId, onChange }: {
-  active: boolean; ownerId?: string; onChange: (areas: Set<string>) => void;
+export function useWhatsAppLiveRefresh({ active, ownerId, inboxId, onChange }: {
+  active: boolean; ownerId?: string; inboxId?: string; onChange: (areas: Set<string>) => void;
 }) {
   const scope = requestScope();
   const handler = useRef(onChange); handler.current = onChange;
@@ -27,6 +27,8 @@ export function useWhatsAppLiveRefresh({ active, ownerId, onChange }: {
     };
     const event = (raw: Event) => {
       const detail = (raw as CustomEvent).detail;
+      if ((detail?.inboxId || undefined) !== inboxId) return;
+      if (detail?.ownerId && ownerId && detail.ownerId !== ownerId) return;
       online = true;
       queue(typeof detail?.area === "string" ? detail.area : "conversations");
       if (typeof detail?.area !== "string") queue("status");
@@ -55,5 +57,5 @@ export function useWhatsAppLiveRefresh({ active, ownerId, onChange }: {
       window.removeEventListener("norium:omnichannel-connection", connection);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [active, ownerId, scope]);
+  }, [active, ownerId, inboxId, scope]);
 }

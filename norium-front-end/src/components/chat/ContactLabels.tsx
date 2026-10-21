@@ -5,6 +5,7 @@ import { apiRequest } from "../../core/api/client";
 import { requestScope } from "../../core/api/sessionScope";
 import BusinessDialog from "../business/BusinessDialog";
 import ClientTagsPanel from "../business/ClientTagsPanel";
+import { useWhatsAppScope } from "./WhatsAppScope";
 
 type Label = { id: string; name: string; color: string };
 type LabelsContext = { values: Record<string, Label[]>; errors: Record<string, boolean>; ensure: (id: string) => void; revision: number };
@@ -12,6 +13,7 @@ const Context = createContext<LabelsContext>({ values: {}, errors: {}, ensure: (
 
 /** Batch only visible contacts. The existing tag registry remains the source. */
 export function ContactLabelsProvider({ children }: { children: ReactNode }) {
+  const { inboxId, prefix } = useWhatsAppScope();
   const scope = requestScope();
   const [values, setValues] = useState<Record<string, Label[]>>({});
   const [revision, setRevision] = useState(0);
@@ -32,7 +34,7 @@ export function ContactLabelsProvider({ children }: { children: ReactNode }) {
       for (let offset = 0; offset < ids.length; offset += 100) {
         const chunk = ids.slice(offset, offset + 100);
         chunk.forEach(id => cached.current.add(id));
-        void apiRequest<{ items: { id: string; tags: Label[] }[] }>("/api/business/whatsapp/contact-labels", {
+        void apiRequest<{ items: { id: string; tags: Label[] }[] }>(inboxId ? `${prefix}/contact-labels` : "/api/business/whatsapp/contact-labels", {
           method: "POST", body: JSON.stringify({ contactIds: chunk }), signal: lifecycle.current.controller.signal,
         }).then(data => {
           if (!lifecycle.current.active || epoch !== lifecycle.current.epoch || requestScope() !== scope) return;
@@ -47,7 +49,7 @@ export function ContactLabelsProvider({ children }: { children: ReactNode }) {
         });
       }
     }, 35);
-  }, [scope]);
+  }, [scope, inboxId, prefix]);
   useEffect(() => {
     const life = lifecycle.current;
     const queued = pending.current;
@@ -76,6 +78,8 @@ export function ContactLabelsProvider({ children }: { children: ReactNode }) {
 export function ContactLabels({ contactId, editable = false, limit = 2 }: {
   contactId: string; editable?: boolean; limit?: number;
 }) {
+  const { inboxId } = useWhatsAppScope();
+  editable = editable && !inboxId;
   const { values, errors, ensure, revision } = useContext(Context);
   const [open, setOpen] = useState(false);
   useEffect(() => { ensure(contactId); }, [contactId, ensure, revision]);

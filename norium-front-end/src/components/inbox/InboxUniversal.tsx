@@ -20,6 +20,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { EventSource, OmnichannelEvent } from "../../types/omnichannel";
 import Button from "../shared/Button";
+import WhatsAppAttendanceLink from "../chat/WhatsAppAttendanceLink";
 
 type InboxUniversalProps = {
   eventsBySource: Record<EventSource, OmnichannelEvent[]>;
@@ -289,6 +290,7 @@ function MiniInboxPanel({
                 <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
                   {eventDescription(event)}
                 </p>
+                <WhatsAppAttendanceLink metadata={event.metadata} />
               </article>
             ))}
           </div>

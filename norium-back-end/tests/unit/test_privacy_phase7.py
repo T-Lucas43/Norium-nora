@@ -226,16 +226,18 @@ class Phase7Tests(unittest.TestCase):
 
     def test_postgres_retention_does_not_use_local_fallback(self):
         from app.modules.privacy import retention
+        from app.modules.whatsapp_team import retention as team_retention
         fake = self.root / "uploads" / "alice" / "old.bin"
         original_stat = Path.stat
         def guarded_stat(path, *args, **kwargs):
             if path == self.root:
                 return original_stat(path, *args, **kwargs)
             raise AssertionError("local fallback forbidden")
-        with patch.dict(os.environ, {"NORIUM_RETENTION_ENABLED": "1"}), patch.object(retention, "get_data_root", return_value=self.root), patch.object(retention.postgres_store, "configured", return_value=True), patch.object(retention.postgres_store, "list_document_keys", return_value=[]), patch.object(retention.files, "list_paths", return_value=[fake]), patch.object(retention.files, "info", return_value=None), patch.object(retention.files, "delete") as delete, patch("app.services.system_logs.purge_logs_before", return_value=0), patch.object(Path, "stat", new=guarded_stat):
+        with patch.dict(os.environ, {"NORIUM_RETENTION_ENABLED": "1"}), patch.object(retention, "get_data_root", return_value=self.root), patch.object(retention.postgres_store, "configured", return_value=True), patch.object(retention.postgres_store, "list_document_keys", return_value=[]), patch.object(retention.files, "list_paths", return_value=[fake]), patch.object(retention.files, "info", return_value=None), patch.object(retention.files, "delete") as delete, patch("app.services.system_logs.purge_logs_before", return_value=0), patch.object(team_retention, "_postgres", return_value=0) as metadata, patch.object(Path, "stat", new=guarded_stat):
             result = maintain_retention()
         self.assertEqual(0, result["retainedFilesRemoved"])
         delete.assert_not_called()
+        metadata.assert_called_once()
 
 
 class AuditPhase7Tests(unittest.IsolatedAsyncioTestCase):

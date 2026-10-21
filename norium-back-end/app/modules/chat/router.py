@@ -2642,6 +2642,9 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
     db[phone] = normalize_conversation(phone, conversa)
     await save_conversations(db, user_id)
     await mark_whatsapp_conversation_updated(user_id, phone)
+    if not is_from_me:
+        from app.modules.whatsapp_team.bridge import incoming as update_team_attendance
+        await update_team_attendance(sys.modules[__name__], user_id, phone, message_id, timestamp)
     event_name = (
         sender_name
         if msg["isGroup"] and not is_from_me
@@ -4341,6 +4344,12 @@ async def encaminhar_mensagens(payload: EncaminharMensagensPayload, user: dict[s
             raise HTTPException(status_code=404, detail=f"Mensagem {message_id} nao encontrada.")
         sources.append(source)
 
+    return await _forward_authorized_sources(payload, user, sources)
+
+
+async def _forward_authorized_sources(payload, user, sources):
+    """Shared delivery path; callers must authorize the exact sources first."""
+    resolved_user_id = tenant_id(user)
     forwarded_ids: list[str] = []
     for source_conversation_id, source in sources:
         source_type = str(source.get("tipo") or "texto")
@@ -4830,6 +4839,8 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
             exc,
             "A API do WhatsApp recusou o envio.",
         ) from exc
+    from app.modules.whatsapp_team.bridge import outgoing as update_team_attendance
+    await update_team_attendance(sys.modules[__name__], user, payload.conversa_id)
     return {"status": result.status, "canal": result.channel}
 
 @router.post("/api/chat/enviar-arquivo")
@@ -4855,6 +4866,8 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
             exc,
             "A API do WhatsApp recusou o envio do arquivo.",
         ) from exc
+    from app.modules.whatsapp_team.bridge import outgoing as update_team_attendance
+    await update_team_attendance(sys.modules[__name__], user, payload.conversa_id)
     return {
         "status": result.status,
         "canal": result.channel,

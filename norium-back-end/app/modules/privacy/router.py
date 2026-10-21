@@ -122,6 +122,13 @@ def _build_export(user: dict[str, Any]) -> bytes:
         from app.infrastructure.persistence import files
         from app.modules.privacy.shared_data import personal_team_messages
         team_messages, team_attachments = personal_team_messages(user)
+        from app.modules.whatsapp_team.privacy import personal_contributions
+        whatsapp_contributions = personal_contributions(user_id)
+        if whatsapp_contributions:
+            data = json.dumps(_redact(whatsapp_contributions), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            name = "dados/whatsapp-contribuicoes-pessoais.json"
+            archive.writestr(name, data)
+            manifest.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
         if team_messages:
             data = json.dumps(_redact(team_messages), ensure_ascii=False, indent=2, default=str).encode("utf-8")
             archive.writestr("dados/equipe-mensagens-pessoais.json", data)
@@ -396,6 +403,10 @@ def _purge_due_workspace_directories(now: datetime | None = None) -> int:
                         ("nora_preferences", "tenant=%s AND workspace=%s"),
                         ("nora_jobs", "tenant=%s AND workspace=%s"),
                         ("usage", "user_id=%s AND workspace=%s"),
+                        ("norium_whatsapp_team_notes", "tenant_id=%s AND workspace_id=%s"),
+                        ("norium_whatsapp_team_events", "tenant_id=%s AND workspace_id=%s"),
+                        ("norium_whatsapp_team_assignments", "tenant_id=%s AND workspace_id=%s"),
+                        ("norium_whatsapp_team_inboxes", "tenant_id=%s AND workspace_id=%s"),
                     ):
                         if _table_exists(db, table):
                             db.execute(f"DELETE FROM {table} WHERE {where}", (tenant_id, workspace_id))  # nosec B608 -- fixed table map
@@ -447,6 +458,8 @@ async def run_data_lifecycle_maintenance() -> dict[str, int]:
             await asyncio.to_thread(record_deletion, user_id)
             from app.modules.privacy.shared_data import personal_team_messages
             await asyncio.to_thread(personal_team_messages, pending_users[user_id], purge=True)
+            from app.modules.whatsapp_team.privacy import personal_contributions
+            await asyncio.to_thread(personal_contributions, user_id, purge=True)
             await asyncio.to_thread(_purge_personal_files, user_id)
             from app.infrastructure.auth_sessions import erase_personal_sessions
             await asyncio.to_thread(erase_personal_sessions, user_id)

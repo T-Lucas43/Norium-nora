@@ -30,7 +30,7 @@ export default function MessageTranslation({ conversationId, messageId, language
   const inFlight = useRef(false), lastTrigger = useRef(0);
   const epoch = useRef(0);
   const previousKey = useRef(key);
-  useEffect(() => { lifecycle.current.active = true; return () => { lifecycle.current.active = false; }; }, []);
+  useEffect(() => { const life = lifecycle.current; life.active = true; return () => { life.active = false; }; }, []);
   useEffect(() => {
     if (previousKey.current === key) return;
     previousKey.current = key; epoch.current++; inFlight.current = false; setBusy(false); setResult(null); setError("");

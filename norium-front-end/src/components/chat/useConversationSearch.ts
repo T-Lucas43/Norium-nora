@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestScope } from "../../core/api/sessionScope";
 import type { ChatConversa } from "./types";
-import { whatsappApi } from "./whatsappApi";
+import { useWhatsAppScope } from "./WhatsAppScope";
 
 type Result = { key: string; items: ChatConversa[]; nextOffset: number | null; total: number };
 
 export function useConversationSearch(text: string, onFound?: (items: ChatConversa[]) => void) {
-  const scope = requestScope(); const query = text.trim(); const key = `${scope}:${query}`;
+  const { api: whatsappApi, inboxId } = useWhatsAppScope();
+  const scope = requestScope(); const query = text.trim(); const key = `${scope}:${inboxId || ""}:${query}`;
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   const active = useRef(key); active.current = key;
@@ -23,7 +24,7 @@ export function useConversationSearch(text: string, onFound?: (items: ChatConver
     } catch (err) {
       if (!signal?.aborted && active.current === key) setError(err instanceof Error ? err.message : "Busca indisponível. Mostrando o cache local.");
     } finally { if (!signal?.aborted && active.current === key) setLoading(false); }
-  }, [query, key, scope]);
+  }, [query, key, scope, whatsappApi]);
   useEffect(() => {
     const controller = new AbortController(); setResult(null); setError(""); setLoading(false);
     const timer = query ? setTimeout(() => void load(0, controller.signal), 300) : undefined;

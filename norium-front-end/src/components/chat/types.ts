@@ -65,6 +65,8 @@ export interface PerfilMetadados {
 
 export interface ChatConversa {
   id: string;
+  assignee?: { assigneeKind: string; assigneeUserId: string | null; status: "open" | "waiting_customer" | "resolved"; version: number; name?: string };
+  attendanceRef?: string;
   contato: string;
   canal: ChatChannel;
   channel?: ChatChannel;

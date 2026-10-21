@@ -32,4 +32,16 @@ describe("eventos do WhatsApp", () => {
     act(() => { window.dispatchEvent(new Event("norium:whatsapp-event")); vi.advanceTimersByTime(WHATSAPP_FALLBACK_MS * 2); });
     expect(onChange).not.toHaveBeenCalled(); view.unmount(); hidden.mockRestore();
   });
+  it("isola eventos por conta e por caixa compartilhada", () => {
+    vi.useFakeTimers(); const onChange = vi.fn();
+    const view = renderHook(() => useWhatsAppLiveRefresh({ active: true, ownerId: "alice", inboxId: "box-a", onChange }));
+    act(() => {
+      for (const detail of [{ ownerId: "alice", area: "conversations" }, { ownerId: "bob", inboxId: "box-a", area: "attendance" }, { ownerId: "alice", inboxId: "box-b", area: "attendance" }])
+        window.dispatchEvent(new CustomEvent("norium:whatsapp-event", { detail }));
+      vi.advanceTimersByTime(180);
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => { window.dispatchEvent(new CustomEvent("norium:whatsapp-event", { detail: { ownerId: "alice", inboxId: "box-a", area: "attendance" } })); vi.advanceTimersByTime(180); });
+    expect(onChange).toHaveBeenCalledTimes(1); view.unmount();
+  });
 });

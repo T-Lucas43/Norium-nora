@@ -58,6 +58,9 @@ def maintain_retention(now: datetime | None = None) -> dict[str, int]:
     else:
         paths = list(root.glob("user_*/**/*.json"))
     nora_cutoff, wa_cutoff = _cutoff("NORA", current), _cutoff("WHATSAPP", current)
+    if wa_cutoff:
+        from app.modules.whatsapp_team.retention import maintain
+        counts["retainedMessagesRemoved"] += maintain(wa_cutoff.timestamp())
     for path in paths[:10000]:
         if not pg and path.is_symlink():
             continue

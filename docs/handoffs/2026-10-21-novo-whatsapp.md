@@ -251,3 +251,75 @@ Não declarar fase concluída com botões sem ação ou fixtures como produto.
   71 casos dirigidos passaram antes das últimas notificações. Ainda falta
   concluir integração de envio, eventos/presença e UI; não está no Docker local.
   Retomar B após fechar este hotfix e manter C–G como pendentes.
+
+### Retomada B — histórico aceito, 21/10/2026
+
+- Hotfix A `fa63f37f1f49f04a1f556af3b438b1329ef8ea06` instalado em
+  http://localhost:8765, prontidão true/HTTP 200, mesmos volumes. O usuário
+  confirmou: "As antigas carregam". Suíte backend completa: 1.759 aprovados;
+  frontend inalterado: 984 aprovados. Bandit e snapshot Git Gitleaks sem achados.
+- B restaurada na branch `codex/whatsapp-equipe-20261021`, ainda sem imagem
+  local ou publicação. 113 testes dirigidos aprovados, com adaptadores falsos;
+  PostgreSQL descartável comprovou claim concorrente, rollback, isolamento e
+  anonimização. Nenhuma instância real foi compartilhada ou mensagem enviada.
+- Estão implementados opt-in por workspace/vínculo, permissões, tabelas,
+  responsáveis, estados, notas, notificações e transições de envio/resposta.
+  Prosseguir com ações autenticadas, presença, retenção e interface. Fases C–G
+  continuam pendentes; a aceitação do histórico não cobre a caixa de equipe.
+
+### Candidata B — 21/10/2026, sem ativar compartilhamento real
+
+- Implementada seleção explícita "Meu WhatsApp / WhatsApp da equipe". Só o dono
+  pode compartilhar sua instância no workspace e vínculo atuais. Permissões
+  `whatsapp.atender` e `whatsapp.ver_todas` são revalidadas no backend; os números
+  pessoais dos membros conservam os caminhos e o armazenamento anteriores.
+- Responsável, estado e histórico próprios em quatro tabelas PostgreSQL com
+  chave tenant/workspace/dono/vínculo, DDL aditivo e fallback arquivo. Versões
+  concorrentes recusam atualização obsoleta. Resolver pede confirmação; nova
+  resposta reabre sem trocar o responsável. Envio manual confirmado pode assumir
+  conversa não atribuída; falha/resultado desconhecido não dispara novo envio.
+- Rodízio opcional entre membros online sem foco, desligado por padrão, sem
+  distribuir replay de mensagens antigas. Não foi ligado em nenhuma conta real.
+- Notas âmbar na linha do tempo, composição e rascunho separados de resposta,
+  menções autorizadas, edição/exclusão lógica por autor/gestor. O serviço de
+  notas não importa adaptadores de envio. Avisos privados no Chat e na Central
+  contêm referência opaca; não levam corpo, telefone ou nome de cliente ao feed.
+- Rotas compartilhadas de texto/mídia, resposta citada, reação, edição, exclusão,
+  encaminhamento e metadados validam conversa/mensagem antes de chamar os
+  serviços atuais. Encaminhamento resolve todos os IDs na origem exata e confere
+  o destino antes do primeiro efeito. QR/identidade administrativa não aparecem
+  no status da equipe. URLs de mídia/foto passam por autorização específica.
+- Socket existente transporta caixa + área, sem conteúdo. Reatribuição também
+  invalida o antigo responsável; UI descarta conversa após perda de acesso.
+  A atualização preserva mensagens antigas já abertas. Presença reutiliza o
+  serviço do Chat, suas preferências e TTL, com título por leitor autorizado.
+- Exportação pessoal inclui somente contribuições próprias; exclusão anonimiza
+  notas/eventos e libera atribuições sem apagar trabalho alheio. Retenção global
+  opt-in remove notas/eventos em lotes, preservando a atribuição que controla ACL.
+- Validações: 132 testes backend dirigidos aprovados, 43 do delta final; frontend
+  completo repetido com 992/992, 11 contratos recentes. PostgreSQL 17 sintético
+  comprovou claim concorrente, rollback, isolamento, anonimização e retenção.
+  Container temporário encerrado pelo label, sem volumes do projeto.
+- A primeira suíte completa B executou 1.802 casos, zero falhas e um erro:
+  `test_postgres_retention_does_not_use_local_fallback` simulava `configured=True`
+  sem URL/conexão real e ainda não simulava o novo repositório. O teste passou
+  a simular `_postgres`, exigir sua chamada e conservar a proibição de `Path.stat`
+  e exclusão local. A prova SQL real separada cobre o novo caminho PostgreSQL.
+  Não tratar esse primeiro recibo como aprovação integral; repetir a suíte.
+- Bandit: zero achados médios/altos e zero erros. Gitleaks: snapshot de 1.303
+  arquivos de código, zero segredos; dados/dotenv ignorados não são enviados.
+  Build/orçamento frontend aprovados. Lint sem erros; cinco avisos de organização
+  de exports para Fast Refresh, sem avisos de dependências de hooks pendentes.
+- Visual com componentes reais e API sintética: claro/escuro em 1440, 1024 e 375 px,
+  mensagens + notas, composição sem sobreposição. Capturas `team-desktop-*.png`
+  e `team-mobile-*.png`; gaveta em `team-tablet-*.png`. Mesma largura de conteúdo
+  e viewport nas três medidas; botões de modo sem sobreposição no celular.
+  Nada foi enviado a WhatsApp real. Revisão humana da candidata e CI continuam
+  necessários antes de promoção. A imagem em 8765 permanece A/fa63f37.
+- Limites ainda abertos: edições de etiquetas em equipe/C, dados agregados do
+  cliente/D, novas ações e lembretes/E, Nora contextual da caixa/F e resolução
+  com resumo/satisfação/acompanhamento/G. Nora pessoal continua disponível;
+  chamadas que dependeriam do contexto compartilhado ficam explicitamente
+  desabilitadas nesta candidata, evitando consultar o número pessoal por engano.
+  Máscara granular de telefone e revisão final de acessibilidade ficam no aceite
+  integrado C/D. Não declarar o conjunto de funcionalidades do WhatsApp concluído.

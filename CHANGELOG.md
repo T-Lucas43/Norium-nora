@@ -1,5 +1,14 @@
 # Changelog
 
+## [Não publicado] — WhatsApp, 21/10/2026
+
+- fix(whatsapp): paginação do histórico Evolution com cursor persistente, deduplicação e guarda contra troca de instância; histórico recebido não dispara novas ações.
+- feat(whatsapp): lista paginada e virtualizada, busca no histórico sincronizado e etiquetas visíveis em lote por conta, workspace e vínculo.
+- feat(whatsapp): invalidações no WebSocket existente, agrupamento de eventos e reserva de leitura de 120 segundos com a aba visível.
+- style(whatsapp): layout claro/escuro dos PDFs, navegação móvel, menus preservados e painel com preferência por usuário e cache curto.
+- feat(whatsapp): busca com destaque e navegação, galeria autenticada com teclado e miniaturas limitadas sem baixar o original.
+- fix(whatsapp): tradução de mensagem sob demanda pela Nora com minimização, permissão e medição em tokens; erros do provedor não aparecem como tradução.
+
 ## [Não publicado] — expansão, 19/10/2026
 
 - feat(nora): diagnóstico de configuração autenticado para administradores em Consumo da Nora, sem exibir credenciais ou ativar provedores.

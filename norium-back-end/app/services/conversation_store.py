@@ -123,6 +123,9 @@ def normalize_conversation(conversa_id: str, conversa: Dict[str, Any]) -> Dict[s
         "historicoCursor": metadados.get("historicoCursor"),
         "historicoTemMais": bool(metadados.get("historicoTemMais", False)),
         "historicoSchema": metadados.get("historicoSchema"),
+        "historicoProximaPagina": metadados.get("historicoProximaPagina"),
+        "historicoAte": metadados.get("historicoAte"),
+        "historicoVinculo": metadados.get("historicoVinculo"),
         **({"evolutionCatalog": True} if metadados.get("evolutionCatalog") is True else {}),
     }
 

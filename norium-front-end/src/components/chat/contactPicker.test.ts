@@ -25,6 +25,15 @@ const contact: Contact = {
 };
 
 describe("contact picker", () => {
+  it("mantém a ordem do cursor quando páginas chegam no mesmo segundo", () => {
+    const row: MsgConteudo = { id: "B", timestamp: 10, tipo: "texto", remetente: "contato", horario: "10:00" };
+    expect(mergeMessages([{ ...row, id: "b" }, row], [{ ...row, id: "A" }]).map(message => message.id)).toEqual(["A", "B", "b"]);
+  });
+  it("preserva a miniatura autenticada ao mesclar um resumo sem essa referência", () => {
+    const row: MsgConteudo = { id: "media", timestamp: 10, tipo: "midia", remetente: "contato", horario: "10:00" };
+    const result = mergeMessages([{ ...row, miniaturaUrl: "/api/chat/preview" }], [{ ...row, miniaturaUrl: undefined }]);
+    expect(result[0].miniaturaUrl).toBe("/api/chat/preview");
+  });
   it("encontra contatos pelo pushname e pelo telefone", () => {
     expect(contactMatchesSearch(contact, "joao")).toBe(true);
     expect(contactMatchesSearch(contact, "9999-9999")).toBe(true);

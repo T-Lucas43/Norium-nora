@@ -9,6 +9,7 @@ import { useConversationLabels } from "../business/useConversationLabels";
 import SelectionTagDialog from "../business/SelectionTagDialog";
 import { saveBlob } from "../clients/clientModel";
 import Button from "../shared/Button";
+import { ContactLabels } from "./ContactLabels";
 
 interface WhatsAppDirectoryProps {
   mode: "contacts" | "groups";
@@ -121,6 +122,7 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
                 <DirectoryAvatar identifier={contact.id || contact.phone} name={name} photoUrl={contact.photoUrl} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-bold">{name}</span>
+                  <ContactLabels contactId={id} />
                   <span className="mt-0.5 block truncate text-xs text-[var(--text-secondary)]">{contact.bio || contact.phone || contact.id}</span>
                 </span>
                 <ArrowRight size={15} className="text-[var(--text-secondary)] opacity-0 transition group-hover:opacity-100" />

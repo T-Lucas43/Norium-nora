@@ -8,6 +8,7 @@ export interface MsgConteudo {
   texto?: string;
   tipo: "texto" | "audio" | "documento" | "midia" | "sticker";
   arquivoUrl?: string;
+  miniaturaUrl?: string;
   arquivoMime?: string;
   duracaoAudio?: string;
   nomeArquivo?: string;

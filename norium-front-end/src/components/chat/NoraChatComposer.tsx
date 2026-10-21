@@ -162,7 +162,7 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
         className={`ml-1 inline-flex h-[26px] items-center gap-1.5 rounded-full pl-1 pr-2.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${menuOpen || customOpen || reviewOpen ? "bg-[var(--nx-primary)] text-white" : "bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)] hover:brightness-95"}`}
       >
         <NoraAvatar className="h-5 w-5" />
-        <span>Nora</span>
+        <span>Ações da Nora</span>
       </button>
 
       {menuOpen && (

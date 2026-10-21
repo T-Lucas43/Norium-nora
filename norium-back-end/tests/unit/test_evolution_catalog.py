@@ -96,7 +96,7 @@ class EvolutionCatalogTests(unittest.IsolatedAsyncioTestCase):
              patch.object(router.wapi_client, "get_all_groups", side_effect=groups), \
              patch.object(router.wapi_client, "device", AsyncMock(return_value={"name": "Meu perfil", "connectedPhone": "5511999990000"})), \
              patch.object(router, "load_whatsapp_catalog_cache", AsyncMock(return_value={})), patch.object(router, "save_whatsapp_catalog_cache", save):
-            task = asyncio.create_task(router._evolution_metadata_snapshot("synthetic-user", {"evolutionWebhookVersion": 1}))
+            task = asyncio.create_task(router._evolution_metadata_snapshot("synthetic-user", {"evolutionWebhookVersion": 2}))
             for _ in range(20):
                 if save.await_count: break
                 await asyncio.sleep(0)
@@ -108,14 +108,14 @@ class EvolutionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("Meu perfil", result["updates"]["evolutionProfile"]["name"])
 
     async def test_fresh_metadata_does_not_repeat_remote_reads(self):
-        cache = {"evolutionMetadataVersion": 1, "evolutionMetadataSyncedAt": time.time(), "evolutionGroups": [{"id": GROUP}]}
+        cache = {"evolutionMetadataVersion": 1, "evolutionWebhookVersion": 2, "evolutionMetadataSyncedAt": time.time(), "evolutionGroups": [{"id": GROUP}]}
         with patch.object(router, "is_evolution", return_value=True), patch.object(router.wapi_client, "get_all_groups", AsyncMock()) as fetch:
             result = await router._evolution_metadata_snapshot("synthetic-user", cache)
         fetch.assert_not_awaited()
         self.assertEqual(cache["evolutionGroups"], result["groups"])
 
     async def test_metadata_failure_preserves_known_groups(self):
-        cache = {"evolutionWebhookVersion": 1, "evolutionGroups": [{"id": GROUP, "name": "Equipe conhecida"}]}
+        cache = {"evolutionWebhookVersion": 2, "evolutionGroups": [{"id": GROUP, "name": "Equipe conhecida"}]}
         with patch.object(router, "is_evolution", return_value=True), patch.object(router, "wapi_creds", return_value=("synthetic", "token")), \
              patch.object(router.wapi_client, "get_all_groups", AsyncMock(side_effect=WapiError("synthetic timeout"))), \
              patch.object(router.wapi_client, "device", AsyncMock(return_value={"name": "Meu perfil"})), \

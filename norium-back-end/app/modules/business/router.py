@@ -285,6 +285,38 @@ class ContactTagChange(StrictModel):
     apply: bool = Field(default=True, strict=True)
 
 
+class ContactLabelsQuery(StrictModel):
+    contactIds: list[Annotated[str, Field(min_length=1, max_length=180)]] = Field(min_length=1, max_length=100)
+
+
+@router.post("/whatsapp/contact-labels")
+async def contact_label_projection(payload: ContactLabelsQuery, user: dict = Depends(current_user)):
+    """One bounded projection for visible rows, scoped to workspace AND binding."""
+    from .whatsapp_contacts import aliases_for, contact_alias_index, identity
+    from app.modules.chat.router import assert_channel_permission
+    assert_channel_permission(user, "whatsapp")
+    assert_route_permissions(user, "/api/chat")
+    binding = await conversation_binding_key(user)
+    actor = require_user_id(user)
+    conversations = await owned_conversations(user, [])
+    aliases = await contact_alias_index(user)
+    definitions, links = await asyncio.gather(asyncio.to_thread(snapshot, user, "tags"),
+                                              asyncio.to_thread(snapshot, user, "tag_links"))
+    tags = {item["id"]: tag_summary(user, item) for item in definitions["items"]
+            if active_tag(item) and item["scope"] in {"contact", "conversation"}}
+    by_contact: dict[str, set[str]] = {}
+    for row in links["items"]:
+        if row.get("conversationOwnerId") == actor and row.get("bindingKey") == binding and row.get("tagId") in tags:
+            by_contact.setdefault(identity(row.get("conversationId")), set()).add(row["tagId"])
+    items = []
+    for identifier in dict.fromkeys(payload.contactIds):
+        # An arbitrary identifier never authorizes reading another account.
+        known = identifier in conversations or identity(identifier) in aliases
+        identifiers = set().union(*(by_contact.get(alias, set()) for alias in aliases_for(aliases, identifier))) if known else set()
+        items.append({"id": identifier, "tags": sorted((tags[tag] for tag in identifiers), key=lambda tag: tag["name"].casefold())})
+    return {"items": items}
+
+
 async def owned_conversations(user: dict, identifiers: list[str]):
     from app.services.conversation_store import load_conversations
     assert_route_permissions(user, "/api/chat")
@@ -334,6 +366,8 @@ async def change_whatsapp_tags(user: dict, tag_id: str, apply: bool, groups: lis
         return {"updated": len(unique)}
     result = await asyncio.to_thread(mutate, user, "tag_links", change)
     await business_audit(user, "business_whatsapp_tags_changed", "tag", tag_id, {"count": len(unique), "apply": apply})
+    from app.modules.chat.realtime import publish_change
+    await publish_change(actor, "labels")
     return result
 
 

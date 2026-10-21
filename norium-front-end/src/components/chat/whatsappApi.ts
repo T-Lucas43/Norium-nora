@@ -198,6 +198,7 @@ export type Contact = {
 export type HistoryPage = {
   items: MsgConteudo[];
   cursor: number | null;
+  cursorId?: string | null;
   hasMore: boolean;
 };
 
@@ -307,6 +308,7 @@ export function normalizeWhatsAppMessage(value: unknown, index = 0): MsgConteudo
     texto: text || placeholder,
     tipo,
     arquivoUrl: mediaUrl || undefined,
+    miniaturaUrl: firstText(raw.miniaturaUrl) || undefined,
     arquivoMime: mime || undefined,
     duracaoAudio: firstText(raw.duracaoAudio, raw.duration, audio.seconds) || undefined,
     nomeArquivo: firstText(raw.nomeArquivo, raw.filename, raw.fileName, documentMessage.fileName) || undefined,
@@ -434,6 +436,7 @@ export const whatsappApi = {
   },
 
   async conversations(since?: number, refresh = false) {
+    if (!since) return whatsappApi.conversationPage(0, "", undefined, refresh);
     const params = new URLSearchParams();
     if (since && since > 0) params.set("since", String(since));
     if (refresh) params.set("refresh", "true");
@@ -447,7 +450,7 @@ export const whatsappApi = {
       // Um lote de metadados pode atualizar centenas de grupos no mesmo segundo.
       // O snapshot completo evita avançar o cursor além dos itens não entregues.
       const [full, groupPayload] = await Promise.all([
-        apiRequest<unknown[]>("/api/chat/conversas", { timeoutMs: 12_000 }),
+        whatsappApi.allConversationSummaries(),
         apiRequest<{ items: unknown[] }>("/api/chat/grupos", { timeoutMs: 12_000 }),
       ]);
       const items = new Map(normalizeItems(groupPayload.items || []).map(item => [item.id, item]));
@@ -455,6 +458,35 @@ export const whatsappApi = {
       return { items: [...items.values()], cursor: payload.cursor, hasMore: false };
     }
     return Array.isArray(payload) ? normalizeItems(payload) : { ...payload, items: normalizeItems(payload.items || []) };
+  },
+
+  async conversationPage(offset = 0, search = "", signal?: AbortSignal, refresh = false): Promise<{
+    items: ChatConversa[]; total: number; nextOffset: number | null; cursor: number; hasMore: boolean;
+  }> {
+    const params = new URLSearchParams({ paged: "true", offset: String(offset), limit: "100" });
+    if (search.trim()) params.set("search", search.trim());
+    if (refresh) params.set("refresh", "true");
+    const payload = await apiRequest<unknown[] | { items: unknown[]; total: number; nextOffset: number | null; cursor: number }>(
+      `/api/chat/conversas?${params}`, { timeoutMs: 12_000, signal });
+    const items = (Array.isArray(payload) ? payload : payload.items || []).map(normalizeWhatsAppConversation)
+      .filter((item): item is ChatConversa => Boolean(item));
+    if (!Array.isArray(payload) && payload.nextOffset !== null &&
+      (!Number.isSafeInteger(payload.nextOffset) || payload.nextOffset <= offset)) throw new Error("Cursor de conversas inválido.");
+    return Array.isArray(payload) ? { items, total: items.length, nextOffset: null, cursor: 0, hasMore: false }
+      : { ...payload, items, hasMore: false };
+  },
+
+  async allConversationSummaries(): Promise<ChatConversa[]> {
+    const items = new Map<string, ChatConversa>();
+    let offset: number | null = 0;
+    for (let page = 0; page < 500 && offset !== null; page++) {
+      const response = await whatsappApi.conversationPage(offset);
+      response.items.forEach(item => items.set(item.id, item));
+      if (response.nextOffset !== null && response.nextOffset <= offset) throw new Error("Cursor de conversas inválido.");
+      offset = response.nextOffset;
+    }
+    if (offset !== null) throw new Error("Catálogo de conversas excedeu o limite de páginas.");
+    return [...items.values()];
   },
 
   async details(conversationId: string) {
@@ -466,16 +498,18 @@ export const whatsappApi = {
     return normalized;
   },
 
-  async history(conversationId: string, before?: number | null, limit = 50) {
+  async history(conversationId: string, before?: number | null, limit = 50, beforeId?: string | null) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (before) params.set("before", String(before));
-    const payload = await apiRequest<{ items?: unknown[]; cursor?: number | null; hasMore?: boolean }>(
+    if (before && beforeId) params.set("beforeId", beforeId);
+    const payload = await apiRequest<{ items?: unknown[]; cursor?: number | null; cursorId?: string | null; hasMore?: boolean }>(
       `/api/chat/conversas/${encodeURIComponent(conversationId)}/mensagens?${params.toString()}`,
       { timeoutMs: 30_000 },
     );
     return {
       items: (payload.items || []).map(normalizeWhatsAppMessage).filter((item): item is MsgConteudo => Boolean(item)),
       cursor: payload.cursor ?? null,
+      cursorId: payload.cursorId ?? null,
       hasMore: Boolean(payload.hasMore),
     };
   },

@@ -160,6 +160,7 @@ export function mergeMessages(current: MsgConteudo[] = [], incoming: MsgConteudo
       ...message,
       texto: message.texto || previous.texto,
       arquivoUrl: message.arquivoUrl || previous.arquivoUrl,
+      miniaturaUrl: message.miniaturaUrl || previous.miniaturaUrl,
       remetenteNome: message.remetenteNome || previous.remetenteNome,
       status: richerMessageStatus(previous.status, message.status),
       reacoes: Array.isArray(message.reacoes) ? message.reacoes : previous.reacoes,
@@ -167,7 +168,7 @@ export function mergeMessages(current: MsgConteudo[] = [], incoming: MsgConteudo
       midiaMeta: hasRecordContent(message.midiaMeta) ? message.midiaMeta : previous.midiaMeta,
     } : message);
   }
-  return [...merged.values()].sort((left, right) => Number(left.timestamp || 0) - Number(right.timestamp || 0));
+  return [...merged.values()].sort((left, right) => Number(left.timestamp || 0) - Number(right.timestamp || 0) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
 }
 
 function contactKeys(contact: Contact) {

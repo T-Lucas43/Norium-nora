@@ -81,7 +81,7 @@ describe("renderização das mensagens", () => {
     render(<AreaCentralChat {...baseProps} onColarAnexos={onColarAnexos} conversaAtiva={conversation} />);
     const image = new File(["imagem"], "captura.png", { type: "image/png" });
 
-    fireEvent.paste(screen.getByPlaceholderText("Digite uma mensagem"), {
+    fireEvent.paste(screen.getByRole("textbox", { name: "Mensagem" }), {
       clipboardData: { items: [], files: [image] },
     });
 

@@ -1688,7 +1688,11 @@ function ChatCentralContent({ active: isActive = true, userId = "primary", onCon
     }).catch(error => { if (!controller.signal.aborted) mostrarAviso("error", error instanceof Error ? error.message : "Atendimento indisponível."); });
     return () => controller.abort();
   }, [inboxId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
+  const conversaAtiva = conversas.find(c => c.id === conversaSelecionada || c.metadados?.identityAliases?.includes(conversaSelecionada || ""));
+  const conversaCanonicaId = conversaAtiva?.id;
+  useEffect(() => {
+    if (conversaCanonicaId && conversaCanonicaId !== conversaSelecionada) setConversaSelecionada(conversaCanonicaId);
+  }, [conversaCanonicaId, conversaSelecionada]);
   const attendance = useTeamAttendance(inboxId, conversaAtiva, userId, () => { setConversaSelecionada(null); setConversas([]); void carregarConversasDoBackend(false, false, false); });
   const gruposDisponiveis = grupos.length > 0 ? grupos : conversas.filter((conversation) => conversation.esGrupo);
   const destinosEncaminhamento = [...new Map([...conversas, ...gruposDisponiveis].map((conversation) => [conversation.id, conversation])).values()];

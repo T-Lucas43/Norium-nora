@@ -349,11 +349,25 @@ export function enrichConversationsWithContacts(conversations: ChatConversa[], c
 }
 
 export function mergeConversationCatalog(current: ChatConversa[], incoming: ChatConversa[], contacts: Contact[] = []) {
+  // The backend attests aliases from provider records. Never join by name/text.
+  const canonical = new Map<string, string>();
+  incoming.forEach(row => [row.id, ...(row.metadados?.identityAliases || [])].forEach(alias =>
+    whatsappIdentifierKeys(alias).forEach(key => canonical.set(key, row.id))));
+  const identity = (row: ChatConversa) => whatsappIdentifierKeys(row.id).map(key => canonical.get(key)).find(Boolean) || row.id;
+  const compact = (rows: ChatConversa[]) => {
+    const result = new Map<string, ChatConversa>();
+    rows.forEach(row => {
+      const id = identity(row), previous = result.get(id);
+      const latest = previous && Number(previous.timestampUltimaMsg || 0) > Number(row.timestampUltimaMsg || 0) ? previous : row;
+      result.set(id, { ...latest, id, mensagens: mergeMessages(previous?.mensagens, row.mensagens) });
+    });
+    return [...result.values()];
+  };
   const isStatusConversation = (conversation: ChatConversa) => (
     [conversation.id, conversation.metadados?.numeroCompleto].some(isWhatsAppStatusIdentifier)
   );
-  const safeCurrent = current.filter((conversation) => !isStatusConversation(conversation));
-  const safeIncoming = incoming.filter((conversation) => !isStatusConversation(conversation));
+  const safeCurrent = compact(current.filter((conversation) => !isStatusConversation(conversation)));
+  const safeIncoming = compact(incoming.filter((conversation) => !isStatusConversation(conversation)));
   const currentById = new Map(safeCurrent.map((conversation) => [conversation.id, conversation]));
   const merged = safeIncoming.map((conversation) => {
     const previous = currentById.get(conversation.id);

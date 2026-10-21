@@ -84,6 +84,9 @@ def normalize_database(data: Dict[str, Any]) -> Dict[str, Any]:
     for conversa_id, conversa in data.items():
         if isinstance(conversa, dict):
             normalized[conversa_id] = normalize_conversation(conversa_id, conversa)
+    if is_evolution():
+        from app.services.whatsapp_identity import coalesce
+        return coalesce(normalized)
     return normalized
 
 
@@ -127,6 +130,8 @@ def normalize_conversation(conversa_id: str, conversa: Dict[str, Any]) -> Dict[s
         "historicoAte": metadados.get("historicoAte"),
         "historicoVinculo": metadados.get("historicoVinculo"),
         **({"evolutionCatalog": True} if metadados.get("evolutionCatalog") is True else {}),
+        **({"identityAliases": [value for value in metadados["identityAliases"][:32] if isinstance(value, str)]}
+           if isinstance(metadados.get("identityAliases"), list) else {}),
     }
 
     mensagens_raw = conversa.get("mensagens")
@@ -344,19 +349,29 @@ async def modify_conversation(conversa_id: str, field: str, value: Any, user_id:
 
 
 async def build_conversation_history(conversa_id: str, limit: int = 25, user_id: str | None = None) -> str:
-    db = await load_conversations(user_id)
+    if is_evolution():
+        from app.modules.chat import router as chat
+        from app.modules.chat import message_state
+        db = await chat.load_conversations(user_id)
+        state = await asyncio.to_thread(message_state.snapshot, chat, user_id)
+    else:
+        db = await load_conversations(user_id)
+        state = None
     conversa = db.get(conversa_id)
     mensagens = conversa.get("mensagens", []) if conversa else []
+    if state is not None:
+        mensagens = message_state.apply(state, str((conversa or {}).get("id") or conversa_id), mensagens)
+    mensagens = [row for row in mensagens if not row.get("visualizacaoUnica")]
     if not conversa or not mensagens:
         return EMPTY_HISTORY_MARKER
 
     linhas = []
-    for mensagem in mensagens[-limit:]:
+    for mensagem in mensagens[-min(limit, 12):]:
         if mensagem.get("remetente") == "usuario":
             remetente = "Voce (Atendente)"
         else:
             remetente = mensagem.get("remetenteNome") or conversa.get("contato") or "Contato"
-        texto = mensagem.get("texto") or _label_for_message(mensagem)
+        texto = str(mensagem.get("texto") or _label_for_message(mensagem))[:600]
         canal = mensagem.get("channel") or mensagem.get("canal") or conversa.get("canal") or "whatsapp"
         linhas.append(f"[{mensagem.get('horario', '--:--')}] [{canal}] {remetente}: {texto}")
 

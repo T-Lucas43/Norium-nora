@@ -117,7 +117,7 @@ async def conversations(inbox_id: str, offset: int = Query(0, ge=0, le=50000), l
     counts = {"me": 0, "none": 0, "nora": 0, "all": 0}
     for row in rows:
         try:
-            assignment = access.assert_conversation(grant, value, row["id"])
+            assignment = access.assert_conversation(grant, value, row["id"], row.get("metadados", {}).get("identityAliases", []))
         except HTTPException:
             continue
         assignment = {**service.default_assignment(row["id"]), **assignment}
@@ -140,10 +140,10 @@ async def conversations(inbox_id: str, offset: int = Query(0, ge=0, le=50000), l
     permitted = []
     for row in visible:
         try:
-            assignment = access.assert_conversation(fresh, latest, row["id"])
+            assignment = access.assert_conversation(fresh, latest, row["id"], row.get("metadados", {}).get("identityAliases", []))
         except HTTPException:
             continue
-        if assignment != value["assignments"].get(row["id"], {}):
+        if assignment != access.assert_conversation(grant, value, row["id"], row.get("metadados", {}).get("identityAliases", [])):
             raise HTTPException(409, "O atendimento mudou durante a leitura. Atualize a lista.")
         permitted.append(row)
     return {"items": permitted[offset:offset + limit], "total": len(permitted), "counts": counts,

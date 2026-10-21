@@ -86,7 +86,7 @@ from app.services.conversation_store import (
     append_outgoing_message,
     delete_conversation,
     delete_message,
-    load_conversations,
+    load_conversations as _load_conversations,
     modify_conversation,
     new_conversation,
     normalize_conversation,
@@ -498,6 +498,25 @@ async def load_whatsapp_catalog_cache(user_id: str) -> Dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+async def load_conversations(user_id: str | None = None) -> Dict[str, Any]:
+    database = await _load_conversations(user_id)
+    if not is_evolution():
+        return database
+    from app.services.whatsapp_identity import coalesce
+    cache = await load_whatsapp_catalog_cache(user_id)
+    records = [*(cache.get("contacts") or []), *(cache.get("chats") or []), *(cache.get("evolutionGroups") or [])]
+    result = coalesce(database, records)
+    names, _, _ = build_contact_indexes(records)
+    for identifier, row in result.items():
+        if is_group_chat(identifier, row):
+            name = _lookup_contact_index(names, identifier)
+            if name:
+                row["contato"] = name
+            elif row.get("contato") == row.get("ultimoRemetenteNome"):
+                row["contato"] = "Grupo do WhatsApp"
+    return result
+
+
 async def save_whatsapp_catalog_cache(user_id: str, payload: Dict[str, Any]) -> None:
     await asyncio.to_thread(write_user_db, user_id, store_name("whatsapp_catalog_cache"), payload)
 
@@ -880,6 +899,9 @@ def _contact_saved_name(contact: Dict[str, Any], reference_id: str = "") -> str 
 
 def _contact_display_name(contact: Dict[str, Any], reference_id: str = "") -> str | None:
     """Extrai nomes de contatos/chats nos shapes conhecidos sem aceitar JID."""
+    if is_group_chat(reference_id or _contact_primary_id(contact), contact):
+        keys = ("subject",) if contact.get("pushName") or contact.get("pushname") else ("subject", "name")
+        return _contact_name_from_keys(contact, keys, reference_id)
     return _contact_name_from_keys(
         contact,
         (
@@ -918,6 +940,8 @@ def _build_saved_contact_name_index(
 
     for contact in contact_records:
         jid = _contact_primary_id(contact)
+        if jid.endswith("@g.us"):
+            continue
         explicit_name = _contact_explicit_saved_name(contact, jid)
         saved_name = explicit_name or _contact_saved_name(contact, jid)
         # O catálogo de contatos é mais confiável que o fallback de chats.
@@ -925,6 +949,8 @@ def _build_saved_contact_name_index(
 
     for record in fallback_contact_records:
         jid = _contact_primary_id(record)
+        if jid.endswith("@g.us"):
+            continue
         explicit_name = _contact_explicit_saved_name(record, jid)
         trusted_name = (
             _contact_saved_name(record, jid)
@@ -2563,12 +2589,22 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
     is_from_me = msg["fromMe"]
 
     db = await load_conversations(user_id)
+    if is_evolution():
+        from app.services.whatsapp_identity import coalesce
+        key = data.get("key") if isinstance(data.get("key"), dict) else {}
+        db = coalesce(db, [{"id": phone, "remoteJidAlt": key.get("remoteJidAlt")}])
+        phone = db.canonical(phone)
+        msg["chatId"] = phone
     # Numa conversa nova aberta por uma msg fromMe (você enviou primeiro, inclusive
     # pelo celular), o "sender" é você — não use isso como nome do contato.
     contato_inicial = phone if is_from_me else (msg["chatName"] or phone)
     conversa = db.get(phone) or new_conversation(
         phone, contato=contato_inicial, channel="whatsapp", is_group=msg["isGroup"]
     )
+    if is_evolution():
+        aliases = set(conversa.get("metadados", {}).get("identityAliases") or [])
+        aliases.update(alias for alias, canonical in db.aliases.items() if canonical == phone)
+        conversa.setdefault("metadados", {})["identityAliases"] = sorted(aliases)[:32]
     mensagens = conversa.setdefault("mensagens", [])
     if any(str(item.get("id") or "") == message_id for item in mensagens):
         return {"status": "duplicate"}
@@ -5500,7 +5536,10 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
         explicit_name = _contact_explicit_saved_name(contato, jid)
         membership = _contact_membership_flag(contato)
         saved_name = _contact_saved_name(contato, jid)
-        if explicit_name:
+        if jid.endswith("@g.us"):
+            nome = _contact_display_name(contato, jid)
+            name_priority = 4 if contato.get("subject") else 1
+        elif explicit_name:
             nome = explicit_name
             name_priority = 3
         elif membership is True and saved_name:

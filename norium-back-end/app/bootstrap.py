@@ -564,6 +564,8 @@ def create_app() -> FastAPI:
     app.include_router(whatsapp_team_router)
     app.include_router(whatsapp_bulk_router)
     app.include_router(whatsapp_views_router)
+    from app.modules.whatsapp_team.nora import router as whatsapp_team_nora_router
+    app.include_router(whatsapp_team_nora_router)
     app.include_router(system_router)
     app.include_router(platform_router)
     configure_spa(app)

@@ -67,13 +67,21 @@ def assert_enabled(value: dict) -> None:
         raise HTTPException(404, "Caixa indisponível.")
 
 
-def assert_conversation(access: Access, value: dict, conversation_id: str) -> dict:
+def assert_conversation(access: Access, value: dict, conversation_id: str, aliases=()) -> dict:
     assert_enabled(value)
-    row = value["assignments"].get(conversation_id) or {}
-    kind = row.get("assigneeKind", "none")
-    if not access.manager and (kind != "none" and row.get("assigneeUserId") != access.actor_id):
-        raise HTTPException(404, "Conversa indisponível.")
-    return row
+    from app.services.whatsapp_identity import token
+    keys = {conversation_id, *aliases}
+    for key in list(keys):
+        normalized = token(key)
+        if normalized.endswith("@s.whatsapp.net"):
+            phone = normalized.split("@", 1)[0]
+            keys.update({normalized, phone, phone + "@c.us"})
+    rows = [value["assignments"][key] for key in keys if key in value["assignments"]]
+    for row in rows:
+        kind = row.get("assigneeKind", "none")
+        if not access.manager and (kind != "none" and row.get("assigneeUserId") != access.actor_id):
+            raise HTTPException(404, "Conversa indisponível.")
+    return value["assignments"].get(conversation_id) or next((row for row in rows if row.get("assigneeKind") != "none"), {})
 
 
 def public_member(row: dict) -> dict:

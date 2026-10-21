@@ -30,7 +30,7 @@ async def authorized(user: dict, inbox_id: str, conversation_id: str | None = No
         # A binding may have changed while the document was being read.
         grant = await access.resolve(chat, user, inbox_id)
         value = await asyncio.to_thread(repository.snapshot, grant.scope)
-        access.assert_conversation(grant, value, conversation_id)
+        access.assert_conversation(grant, value, conversation_id, (conversation or {}).get("metadados", {}).get("identityAliases", []))
     return grant, value, conversation
 
 

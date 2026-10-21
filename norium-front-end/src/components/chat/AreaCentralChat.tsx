@@ -800,13 +800,13 @@ export default function AreaCentralChat({
                     </button>
                     <div className="my-1 border-t border-[var(--nx-border)]" />
                     <p className="nx-conv-menu-label px-3 py-1">Nora</p>
-                    <button disabled={Boolean(inboxId)} title={inboxId ? "Nora contextual da caixa: em implementação" : undefined} onClick={() => abrirAcaoNora("reply", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                    <button onClick={() => abrirAcaoNora("reply", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <Sparkles size={14} className="text-[var(--nx-primary-text)]" /> Responder com a Nora
                     </button>
-                    <button disabled={Boolean(inboxId)} title={inboxId ? "Nora contextual da caixa: em implementação" : undefined} onClick={() => abrirAcaoNora("summary", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                    <button onClick={() => abrirAcaoNora("summary", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <Sparkles size={14} className="text-[var(--nx-primary-text)]" /> Resumir com a Nora
                     </button>
-                    <button disabled={Boolean(inboxId)} title={inboxId ? "Nora contextual da caixa: em implementação" : undefined} onClick={() => abrirAcaoNora("task", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+                    <button onClick={() => abrirAcaoNora("task", msg)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <ListChecks size={14} className="text-[var(--nx-primary-text)]" /> Transformar em tarefa
                     </button>
                     <div className="my-1 border-t border-[var(--nx-border)]" />
@@ -880,7 +880,7 @@ export default function AreaCentralChat({
           <button type="button" aria-pressed={!noteMode} disabled={gravando} onClick={() => setNoteMode(false)}><MessageCircle size={14} />Responder</button>
           <button type="button" aria-pressed={noteMode} disabled={gravando || enviandoAnexos} onClick={() => setNoteMode(true)}>Nota interna</button>
         </div> : <span className="nx-whatsapp-reply-mode"><MessageCircle size={14} />Responder</span>}
-          <NoraChatComposer conversationId={conversaAtiva.id} disabled={Boolean(inboxId) || gravando || enviandoAnexos} onInsertDraft={setResposta} />
+          <NoraChatComposer conversationId={conversaAtiva.id} disabled={gravando || enviandoAnexos} onInsertDraft={setResposta} />
           <small>/ respostas rápidas</small>
         </div>
         {attendance && noteMode ? <InternalNoteComposer attendance={attendance} /> : <>
@@ -1011,7 +1011,7 @@ export default function AreaCentralChat({
         </div>
       )}
 
-      {!inboxId && <MessageNoraActions conversationId={conversaAtiva.id} request={noraRequest} onClose={() => setNoraRequest(null)} onUseReply={usarRespostaNora} onFeedback={onFeedback} />}
+      {<MessageNoraActions conversationId={conversaAtiva.id} request={noraRequest} onClose={() => setNoraRequest(null)} onUseReply={usarRespostaNora} onFeedback={onFeedback} />}
     </section>
   );
 }

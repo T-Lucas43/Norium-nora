@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiRequest } from "../../core/api/client";
-import { noraChatApi } from "./noraChatApi";
+import { noraChatApi, inboxNoraChatApi } from "./noraChatApi";
 
 vi.mock("../../core/api/client", () => ({ apiRequest: vi.fn() }));
 
@@ -9,6 +9,19 @@ const request = vi.mocked(apiRequest);
 
 describe("noraChatApi", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("na caixa de equipe usa somente o endpoint contextual, sem cair na conta pessoal", async () => {
+    request.mockResolvedValue({ response: "Rascunho para revisar" });
+    const api = inboxNoraChatApi("a".repeat(64));
+    await api.suggestReply("123@lid"); await api.summarizeConversation("123@lid");
+    await api.runCustomAction("123@lid", "melhore"); await api.improveDraft("123@lid", "rascunho", "encurte");
+    expect(request).toHaveBeenCalledTimes(4);
+    for (const [path, options] of request.mock.calls) {
+      expect(path).toBe(`/api/chat/caixas/${"a".repeat(64)}/conversas/123%40lid/nora`);
+      expect(options?.body).not.toContain("ownerId");
+      expect(options?.body).not.toContain("enviar_direto_whatsapp");
+    }
+  });
 
   it("gera sugestão pelo endpoint de rascunho sem executar envio", async () => {
     request.mockResolvedValueOnce({ draft: "Olá!" });

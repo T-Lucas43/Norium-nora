@@ -47,6 +47,7 @@ export interface ParticipanteGrupo {
 
 export interface PerfilMetadados {
   numeroCompleto: string;
+  identityAliases?: string[];
   notify?: string;
   username?: string;
   bioRecado?: string;

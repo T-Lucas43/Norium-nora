@@ -8,6 +8,23 @@ from app.services.evolution_client import _message_record
 from . import message_state
 
 
+def _aliases(conversation_id: str, conversation: dict | None) -> list[str]:
+    from app.services.whatsapp_identity import record_aliases
+    values = record_aliases({**(conversation or {}), "id": conversation_id})
+    return [conversation_id, *sorted(values - {conversation_id})][:32]
+
+
+def _page_aliases(owner, instance, aliases, *, before, before_id, limit):
+    messages, more = {}, False
+    for alias in aliases:
+        result = evolution_history.page(owner, instance, alias, before=before, before_id=before_id, limit=limit)
+        more = more or result["hasMore"]
+        for row in result["records"]:
+            messages[str((row.get("key") or {}).get("id"))] = row
+    rows = sorted(messages.values(), key=lambda row: (int(row.get("messageTimestamp") or 0), str((row.get("key") or {}).get("id"))), reverse=True)
+    return {"records": rows[:limit], "hasMore": more or len(rows) > limit}
+
+
 def _binding(runtime, owner: str):
     if not getattr(runtime, "is_evolution", lambda: False)() or not evolution_data.database_configured():
         return None
@@ -34,7 +51,7 @@ async def page(runtime, owner: str, conversation_id: str, conversation: dict | N
     if binding is None:
         return None
     try:
-        result = await asyncio.to_thread(evolution_history.page, owner, binding.instance_id, conversation_id,
+        result = await asyncio.to_thread(_page_aliases, owner, binding.instance_id, _aliases(conversation_id, conversation),
                                         before=before, before_id=before_id, limit=limit)
     except RuntimeError:
         raise HTTPException(503, "O histórico está temporariamente indisponível. Tente novamente.") from None

@@ -5,6 +5,10 @@ from typing import Any
 
 
 def list_page(runtime: Any, database: dict, catalog: dict, *, offset: int, limit: int, search: str = "", filters: dict | None = None, allowed_ids: set | None = None) -> dict:
+    if getattr(runtime, "is_evolution", lambda: False)():
+        from app.services.whatsapp_identity import coalesce
+        records = [*(catalog.get("contacts") or []), *(catalog.get("chats") or []), *(catalog.get("evolutionGroups") or [])]
+        database = coalesce(database, records)
     names, photos, _ = runtime.build_contact_indexes([*(catalog.get("contacts") or []), *(catalog.get("chats") or [])])
     conversations = {identifier: row for identifier, row in database.items()
                      if not identifier.lower().endswith("@newsletter")}
@@ -22,7 +26,13 @@ def list_page(runtime: Any, database: dict, catalog: dict, *, offset: int, limit
         if photo:
             row["photoUrl"] = photo
             row.setdefault("metadados", {})["photoUrl"] = photo
-        conversations[identifier] = row
+        if hasattr(database, "canonical"):
+            identifier = database.canonical(identifier)
+            row["id"] = identifier
+        if identifier not in conversations:
+            conversations[identifier] = row
+    if getattr(runtime, "is_evolution", lambda: False)():
+        conversations = coalesce(conversations, records)
     query = search.strip().casefold()
     items = []
     for identifier, row in conversations.items():
@@ -34,7 +44,8 @@ def list_page(runtime: Any, database: dict, catalog: dict, *, offset: int, limit
             *(message.get("texto") for message in row.get("mensagens", []) if isinstance(message, dict)),
         ]):
             continue
-        item = runtime.normalize_conversation(identifier, {**row, "mensagens": []})
+        name = runtime._lookup_contact_index(names, identifier)
+        item = runtime.normalize_conversation(identifier, {**row, **({"contato": name} if name else {}), "mensagens": []})
         items.append(item)
     items.sort(key=lambda item: (not item.get("fixada", False), -int(item.get("timestampUltimaMsg") or 0), str(item.get("contato") or ""), item["id"]))
     updates = catalog.get("conversationUpdates") or {}

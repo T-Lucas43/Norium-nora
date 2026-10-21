@@ -32,7 +32,7 @@ async def options(user, encoded, *, team=False):
 
 
 def matches(identifier, row, filters, allowed_ids):
-    if allowed_ids is not None and identifier not in allowed_ids:
+    if allowed_ids is not None and not {identifier, *(row.get("metadados", {}).get("identityAliases") or [])}.intersection(allowed_ids):
         return False
     if filters.get("unread") and not int(row.get("naoLidasCount") or 0):
         return False

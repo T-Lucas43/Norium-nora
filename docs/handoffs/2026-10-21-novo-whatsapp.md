@@ -382,3 +382,17 @@ Não declarar fase concluída com botões sem ação ou fixtures como produto.
   mesma etiqueta em Clientes; não inferir esse vínculo pelo telefone/nome.
   Máscara granular e dados agregados ainda pendentes. C não representa aceite
   do conjunto WhatsApp; D–G seguem abertos. A imagem ativa em 8765 ainda é A.
+
+
+## Hotfix de identidade e Nora — 21/10/2026
+
+- O usuário confirmou a imagem C em localhost:8765: histórico antigo e menu de etiquetas funcionam.
+- Novo relato: contato recebido/enviado aparecia em dois cartões, título de grupo recebia nome de participante e Nora não respondia.
+- WIP do painel do cliente/funil preservado no stash `whatsapp-client-pipeline-wip-before-identity-hotfix`, branch `codex/whatsapp-cliente-20261021`. Não compõe esta imagem.
+- Correção isolada em `codex/whatsapp-identidade-20261021`: identidade por aliases explícitos PN/LID do catálogo/webhook da própria conta, variantes PN normalizadas, eventos deduplicados por ID. Nomes/textos/números parecidos não são evidência. Conflito entre telefones distintos impede fusão. Aliases originais preservados no registro e usados na paginação antiga.
+- Grupo: subject do catálogo de grupos tem prioridade; pushName e remetente não são títulos. A agenda individual não substitui o título do grupo.
+- Nora pessoal: usuário explícito nas consultas personalizadas e resumos, contexto limitado a 12 mensagens/600 caracteres, respeitando estado local e visualização única.
+- Nora da caixa: somente rascunhos explícitos; autenticação e acesso rechecados antes/depois da leitura e depois da IA, sem notas internas/anexos brutos, cobrança ao solicitante, nenhum envio automático. Botões existentes reativados com rota dedicada, sem fallback para o WhatsApp pessoal.
+- Causa operacional confirmada: container local sem GROQ_API_KEY/OPENAI_API_KEY. Chave Groq já configurada no backend da máquina foi preparada no `.env` local ignorado, sem impressão do segredo. Compose passa apenas essa variável opcional. Nenhuma nova chave/provedor foi criado.
+- Regressões `whatsapp-identity-release-regression`: 218 testes backend, zero falhas/erros/skips. Front `whatsapp-identity-final-directed`: 60 testes/9 arquivos, zero falhas. Build TypeScript/Vite e orçamento de bundle aprovados. Bandit módulos novos/ACL/histórico: zero achados/erros. Primeira bateria ampliada errou o nome do módulo de testes de visões; a repetição usou `test_whatsapp_views_filters` e passou.
+- Não houve uso de conversas reais em testes nem envio/reação/pareamento externo. Publicação GitHub/ShardCloud deste hotfix não executada. A atualização local e seu recibo serão registrados após verificar a imagem.

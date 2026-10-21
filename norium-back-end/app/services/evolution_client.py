@@ -303,6 +303,8 @@ class EvolutionClient(WapiClient):
                 normalized = {**row, "id": identity, "name": row.get("subject") or row.get("savedName") or row.get("name") or row.get("pushName"),
                               "profilePictureUrl": row.get("profilePicUrl"), "isGroup": str(identity).endswith("@g.us"),
                               "unreadCount": row.get("unreadMessages", row.get("unreadCount", 0))}
+                if normalized["isGroup"]:
+                    normalized["name"] = row.get("subject") or (row.get("name") if row.get("name") != row.get("pushName") else None)
                 if isinstance(normalized.get("lastMessage"), dict):
                     last = normalized["lastMessage"]
                     timestamp = last.get("timestamp") or last.get("messageTimestamp")

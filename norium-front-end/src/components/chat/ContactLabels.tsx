@@ -3,8 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
 import { requestScope } from "../../core/api/sessionScope";
-import BusinessDialog from "../business/BusinessDialog";
-import ClientTagsPanel from "../business/ClientTagsPanel";
+import ConversationTagDialog from "./ConversationTagDialog";
 import { useWhatsAppScope } from "./WhatsAppScope";
 
 type Label = { id: string; name: string; color: string };
@@ -71,15 +70,13 @@ export function ContactLabelsProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("norium:business-tags-changed", invalidate);
       window.removeEventListener("norium:whatsapp-event", live);
     };
-  }, [scope]);
+  }, [scope, inboxId, prefix]);
   return <Context.Provider value={{ values, errors, ensure, revision }}>{children}</Context.Provider>;
 }
 
 export function ContactLabels({ contactId, editable = false, limit = 2 }: {
   contactId: string; editable?: boolean; limit?: number;
 }) {
-  const { inboxId } = useWhatsAppScope();
-  editable = editable && !inboxId;
   const { values, errors, ensure, revision } = useContext(Context);
   const [open, setOpen] = useState(false);
   useEffect(() => { ensure(contactId); }, [contactId, ensure, revision]);
@@ -91,8 +88,6 @@ export function ContactLabels({ contactId, editable = false, limit = 2 }: {
     {labels.length > limit && <span className="nx-whatsapp-tag-overflow" title={labels.slice(limit).map(label => label.name).join(", ")}>+{labels.length - limit}</span>}
     {editable && errors[contactId] && <span className="business-note" role="status">Etiquetas indisponíveis</span>}
     {editable && <button type="button" className="nx-whatsapp-add-tag" aria-label="Editar etiquetas do contato" title="Etiquetas do contato" onClick={event => { event.stopPropagation(); setOpen(true); }}><Plus size={13} /></button>}
-    {open && <BusinessDialog title="Etiquetas do contato" onClose={() => setOpen(false)}>
-      <ClientTagsPanel conversationId={contactId} canEdit />
-    </BusinessDialog>}
+    {open && <ConversationTagDialog ids={[contactId]} onClose={() => setOpen(false)} />}
   </span>;
 }

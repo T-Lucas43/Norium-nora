@@ -323,3 +323,62 @@ Não declarar fase concluída com botões sem ação ou fixtures como produto.
   desabilitadas nesta candidata, evitando consultar o número pessoal por engano.
   Máscara granular de telefone e revisão final de acessibilidade ficam no aceite
   integrado C/D. Não declarar o conjunto de funcionalidades do WhatsApp concluído.
+
+### Retomada C — 21/10/2026
+
+- B consolidada no commit local `dcb683b467eabba23910e8ff3eea339516472545`.
+  A repetição integral `whatsapp-team-verified-full.json` passou: 1.802 casos,
+  zero falhas/erros/skips. O delta de identidade/workspace passou com 17 casos.
+  ZIP Git imutável separado; ainda não instalado nem publicado. Docker local
+  permanece A/fa63f37 com pareamento preservado e histórico aceito pelo usuário.
+- C na branch `codex/whatsapp-etiquetas-20261021`: reutilizar `business_tags` e
+  `business_tag_links`, com aliases explícitos de contato e vínculo atual.
+  Lote de até 200, todos os itens autorizados antes da escrita, rollback integral,
+  estados mistos e criação no modal. Nenhuma mensagem em massa. Atribuição usa
+  versões concorrentes existentes; etiquetas verificam definições sob o mesmo
+  lock da gravação. Arquivar/lida são metadados locais, sem recibos externos.
+- Critérios: conta/workspace/vínculo isolados, lote inválido sem escrita parcial,
+  etiqueta arquivada recusada, aliases sem duplicação, modal misto acessível e
+  lista/painel atualizados por evento. Preservar exportação CSV e controles atuais.
+
+### Candidata C — etiquetas, seleção e filtros
+
+- Modal reutiliza definições/vínculos atuais: busca, criação, estado misto,
+  contagem por contato canônico, aplicação só das escolhas explícitas. Cabeçalho
+  e painel permitem editar também na caixa compartilhada. Seleção até 200;
+  Arquivar/Lida alteram o Norium, sem enviar recibos ou mensagens ao provedor.
+- `POST /api/chat/conversas/lote` valida ação, limites, vínculo e cada item.
+  Atribuir/Resolver usam uma transação do repositório, versões e eventos atuais.
+  Etiquetas/metadados têm um único documento gravado, dependências bloqueadas e
+  autoridade da caixa revalidada sob lock. PostgreSQL falha fechado, sem arquivo.
+  Sem PostgreSQL, locks de arquivo + cópia e uma gravação atômica preservam o lote.
+- Filtros combinados antes da contagem/paginação, incluindo período em Brasília.
+  Visões versionadas usam `saved_views`/`team_views`, com contexto explícito da
+  caixa, autor/gestor e compartilhamento opcional. As rotas antigas de Clientes
+  não listam nem editam os registros WhatsApp. Troca de caixa limpa filtros e
+  preserva o bloqueio de ações pessoais na caixa compartilhada.
+- PostgreSQL 17 descartável comprovou rollback de capacidade e versão, rótulos
+  concorrentes sem duplicação, recusa de etiqueta arquivada, ACL sob lock,
+  isolamento de workspace e ausência de fallback; recibo
+  `output/whatsapp-20261021/bulk-postgres-proof-final.log`. Pool fechado e
+  container encerrado/removido após conferir seu label; nenhum volume do projeto.
+- Backend dirigido: 61 casos (lote + equipe/ciclo) e 46 (visões/filtros + lote +
+  rotas), todos aprovados, com sobreposição entre os conjuntos. Frontend final
+  dirigido: 33 aprovados. Bandit: zero achados médios/altos e zero erros;
+  Gitleaks em 1.287 fontes, zero segredos. Build/orçamento aprovados; lint sem
+  erros e um aviso de organização dos exports no contexto já existente.
+- Primeira suíte completa frontend: 1.004 aprovados, seis falhas no Status e
+  cinco erros associados. Uma resposta `{}` da consulta opcional de visões
+  deixava `views` indefinido. Corrigida validação de resposta, com regressões;
+  os testes do Status voltaram a passar nos 33 dirigidos. Repetição completa
+  `whatsapp-phase-c-verified-all` e backend `whatsapp-phase-c-full` em execução;
+  não contar a primeira execução como aprovação integral.
+- Visual real com API sintética em 1280 e 375 px, claro/escuro: modal de estado
+  misto legível, menu de ferramentas sem recorte e barra com todas as ações.
+  Modal de filtros em 375: largura cliente/scroll 320/320, altura 684/970;
+  rolagem alcança o rodapé. Capturas `phase-c-labels-*.png` e
+  `phase-c-filters-mobile-light.png`. Nenhuma ação sobre WhatsApp real.
+- Pendente integrado com D: vínculo explícito cliente/contato para projetar a
+  mesma etiqueta em Clientes; não inferir esse vínculo pelo telefone/nome.
+  Máscara granular e dados agregados ainda pendentes. C não representa aceite
+  do conjunto WhatsApp; D–G seguem abertos. A imagem ativa em 8765 ainda é A.

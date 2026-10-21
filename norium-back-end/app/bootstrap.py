@@ -53,6 +53,8 @@ from app.modules.brainstorm.router import router as brainstorm_router
 from app.modules.calendar.router import integracoes_google_router, router as agenda_router
 from app.modules.chat.router import router as chat_router
 from app.modules.whatsapp_team.router import router as whatsapp_team_router
+from app.modules.chat.bulk import router as whatsapp_bulk_router
+from app.modules.business.whatsapp_views import router as whatsapp_views_router
 from app.modules.clients.router import router as clients_router
 from app.modules.commercial.router import router as commercial_router
 from app.modules.finance.router import router as financeiro_router
@@ -560,6 +562,8 @@ def create_app() -> FastAPI:
     app.include_router(brainstorm_router)
     app.include_router(chat_router)
     app.include_router(whatsapp_team_router)
+    app.include_router(whatsapp_bulk_router)
+    app.include_router(whatsapp_views_router)
     app.include_router(system_router)
     app.include_router(platform_router)
     configure_spa(app)

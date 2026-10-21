@@ -22,8 +22,9 @@ import { useWhatsAppProfilePhoto } from "./useAuthenticatedMedia";
 import { conversationDisplayName, isTechnicalWhatsAppLabel } from "./contactPicker";
 import { avatarColor } from "./avatarColor";
 import { requestScope } from "../../core/api/sessionScope";
-import { useConversationLabels } from "../business/useConversationLabels";
-import SelectionTagDialog from "../business/SelectionTagDialog";
+import ConversationFilters from "./ConversationFilters";
+import ConversationTagDialog from "./ConversationTagDialog";
+import ConversationBulkBar from "./ConversationBulkBar";
 import Button from "../shared/Button";
 import { saveBlob } from "../clients/clientModel";
 import { ContactLabels } from "./ContactLabels";
@@ -46,6 +47,7 @@ interface SidebarProps {
   onAbrirModalContatos: () => void;
   onAbrirModalCriarGrupo: () => void;
   onAtualizar: () => void;
+  onBatchUpdated?: () => void;
   sincronizando?: boolean;
   syncProgress?: WhatsAppSyncProgress | null;
   onClose?: () => void;
@@ -85,6 +87,7 @@ export default function SidebarEsquerda({
   onAbrirModalContatos,
   onAbrirModalCriarGrupo,
   onAtualizar,
+  onBatchUpdated,
   sincronizando = false,
   syncProgress,
   onClose,
@@ -92,12 +95,11 @@ export default function SidebarEsquerda({
   onSearchResults, onLoadMore, loadingMore = false,
   attendanceFilters,
 }: SidebarProps) {
-  const { inboxId } = useWhatsAppScope();
   const [filtroTipo, setFiltroTipo] = useState<Filter>("todos");
   const [menuAbertoId, setMenuAbertoId] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const serverSearch = useConversationSearch(busca, onSearchResults);
-  const scope = requestScope(); const labels = useConversationLabels("conversations", !inboxId);
+  const scope = requestScope();
   const [selectionMode, setSelectionMode] = useState(false); const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false);
   useEffect(() => { setSelectedIds([]); setSelectionMode(false); setBulkTagsOpen(false); setBusca(""); }, [scope]);
@@ -126,7 +128,6 @@ export default function SidebarEsquerda({
   const filtradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return sorted.filter((chat) => {
-      if (labels.matching && !labels.matching.has(chat.id)) return false;
       if (termo && (serverSearch.matching ? !serverSearch.matching.has(chat.id) : !`${chat.contato} ${chat.ultimoTexto} ${chat.id}`.toLowerCase().includes(termo))) return false;
       if (filtroTipo === "arquivados") return chat.arquivada === true;
       if (chat.arquivada) return false;
@@ -138,7 +139,7 @@ export default function SidebarEsquerda({
       if (filtroTipo === "grupos") return chat.esGrupo === true;
       return true;
     });
-  }, [busca, conversaSelecionada, filtroTipo, sorted, labels.matching, serverSearch.matching]);
+  }, [busca, conversaSelecionada, filtroTipo, sorted, serverSearch.matching]);
 
   // Lista unificada: contatos e grupos juntos, em ordem de atividade/tempo
   // (fixadas no topo — ver `sorted`). Sem seções separadas de "Conversas"/"Grupos".
@@ -162,7 +163,7 @@ export default function SidebarEsquerda({
         onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onSelecionar(chat.id); } }}
         className={`nx-conv-row group/chat relative flex cursor-pointer items-center gap-2.5 px-4 py-3 ${selected ? "is-selected" : ""}`}
       >
-        {selectionMode && <input type="checkbox" checked={selectedIds.includes(chat.id)} disabled={!selectedIds.includes(chat.id) && selectedIds.length >= 100} aria-label={`Selecionar conversa com ${displayName}`} onClick={event => event.stopPropagation()} onChange={event => setSelectedIds(current => event.target.checked ? [...current, chat.id] : current.filter(id => id !== chat.id))} />}
+        {selectionMode && <input type="checkbox" checked={selectedIds.includes(chat.id)} disabled={!selectedIds.includes(chat.id) && selectedIds.length >= 200} aria-label={`Selecionar conversa com ${displayName}`} onClick={event => event.stopPropagation()} onChange={event => setSelectedIds(current => event.target.checked ? [...current, chat.id] : current.filter(id => id !== chat.id))} />}
         <ChatAvatar chat={chat} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
@@ -238,8 +239,8 @@ export default function SidebarEsquerda({
           </select>
           <details className="nx-whatsapp-list-tools"><summary className="nx-btn is-sm" aria-label="Etiquetas e seleção"><SlidersHorizontal size={14} />Etiquetas e seleção</summary>
             <div className="nx-whatsapp-list-tools-menu">
-              {!inboxId && labels.toolbar}
-              <Button size="sm" icon={<ListChecks size={14} />} onClick={() => { setSelectionMode(current => !current); setSelectedIds([]); setBulkTagsOpen(false); }}>{selectionMode ? "Encerrar seleção" : "Selecionar conversas"}</Button>
+              <ConversationFilters />
+              <Button size="sm" icon={<ListChecks size={14} />} onClick={event => { setSelectionMode(current => !current); setSelectedIds([]); setBulkTagsOpen(false); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{selectionMode ? "Encerrar seleção" : "Selecionar conversas"}</Button>
             </div>
           </details>
         </div>
@@ -305,12 +306,13 @@ export default function SidebarEsquerda({
 
       <VirtualConversationList items={filtradas} renderItem={renderChat}
         onReachEnd={busca.trim() ? serverSearch.hasMore ? serverSearch.more : undefined : !loadingMore ? onLoadMore : undefined}
-        footer={<div className="nx-whatsapp-list-footer">{labels.more}
+        footer={<div className="nx-whatsapp-list-footer">
           {busca.trim() ? serverSearch.hasMore && <Button size="sm" disabled={serverSearch.loading} onClick={serverSearch.more}>Mais resultados ({serverSearch.total})</Button>
             : onLoadMore && <Button size="sm" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? "Carregando conversas…" : "Carregar mais conversas"}</Button>}</div>}
-        empty={!labels.loading && <div className="border-t border-[var(--nx-border)] p-8 text-center text-[13px] text-[var(--nx-text-3)]">Nenhuma conversa encontrada.</div>} />
-      {selectionMode && <div className="business-conversation-bulk" role="region" aria-label="Ações para conversas selecionadas"><strong>{selectedIds.length}/100 selecionadas</strong><div className="flex flex-wrap gap-2"><Button size="sm" disabled={!selectedIds.length || Boolean(inboxId)} title={inboxId ? "Etiquetas em equipe: próxima etapa" : undefined} onClick={() => setBulkTagsOpen(true)}>Etiqueta</Button><Button size="sm" disabled={!selectedIds.length} onClick={exportSelected}>Exportar contatos</Button><Button size="sm" onClick={() => setSelectedIds([])}>Limpar</Button></div></div>}
-      {bulkTagsOpen && selectedIds.length > 0 && <SelectionTagDialog ids={selectedIds} target="conversations" onClose={() => setBulkTagsOpen(false)} />}
+        empty={<div className="border-t border-[var(--nx-border)] p-8 text-center text-[13px] text-[var(--nx-text-3)]">Nenhuma conversa encontrada.</div>} />
+      {selectionMode && <ConversationBulkBar ids={selectedIds} conversations={conversas} onTags={() => setBulkTagsOpen(true)}
+        onClear={() => setSelectedIds([])} onExport={exportSelected} onUpdated={onBatchUpdated || onAtualizar} />}
+      {bulkTagsOpen && selectedIds.length > 0 && <ConversationTagDialog ids={selectedIds} onClose={() => setBulkTagsOpen(false)} />}
     </aside>
   );
 }

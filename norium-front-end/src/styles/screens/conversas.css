@@ -503,6 +503,10 @@
 .nx-whatsapp-list-tools > summary { height:30px; font-size:11px; white-space:nowrap; }
 .nx-whatsapp-list-tools-menu { position:absolute; top:36px; right:0; width:276px; padding:12px; display:flex; flex-direction:column; align-items:flex-start; gap:10px; background:var(--nx-surface); border:1px solid var(--nx-border); border-radius:10px; box-shadow:0 12px 24px #0003; z-index:60; }
 .nx-whatsapp-list-tools-menu .business-conversation-labels { margin:0; }
+.nx-whatsapp-list-filters:has(.nx-whatsapp-list-tools[open]) { flex-wrap:wrap; }
+.nx-whatsapp-list-tools[open] { flex-basis:100%; }
+.nx-whatsapp-list-tools[open] .nx-whatsapp-list-tools-menu { position:static; width:100%; margin-top:8px; box-shadow:none; }
+.nx-conv .business-conversation-header:has(.nx-whatsapp-list-tools[open]) { max-height:70%; }
 .nx-conv .business-conversation-header { padding:16px 14px 12px; }
 .nx-conv-row:has(.nx-conv-count) .min-w-0 > .mt-0\.5 > span { font-weight:600; }
 /* Override legacy mobile rail rules: all six destinations remain reachable. */

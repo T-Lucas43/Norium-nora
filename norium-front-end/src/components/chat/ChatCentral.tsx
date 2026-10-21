@@ -165,7 +165,7 @@ export default function ChatCentral(props: ChatCentralProps) {
 }
 
 function ChatCentralContent({ active: isActive = true, userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
-  const { api: whatsappApi, inboxId } = useWhatsAppScope();
+  const { api: whatsappApi, inboxId, hasListFilters } = useWhatsAppScope();
   const currentScope = requestScope() + (inboxId ? `:${inboxId}` : "");
   const chatWallpaper = useChatWallpaper(userId);
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
@@ -296,10 +296,10 @@ function ChatCentralContent({ active: isActive = true, userId = "primary", onCon
       const since = incremental && cursorConversasRef.current > 0
         ? Math.max(0, cursorConversasRef.current - 1)
         : undefined;
-      const payload = await whatsappApi.conversations(inboxId ? undefined : since, refresh);
+      const payload = await whatsappApi.conversations(inboxId || hasListFilters ? undefined : since, refresh);
       if (generation !== connectionStatusRequestGenerationRef.current) return null;
       const data = [...(Array.isArray(payload) ? payload : payload.items)];
-      if (inboxId && selectedConversationRef.current && !data.some(row => row.id === selectedConversationRef.current)) {
+      if ((inboxId || hasListFilters) && selectedConversationRef.current && !data.some(row => row.id === selectedConversationRef.current)) {
         const selectedId = selectedConversationRef.current;
         try {
           const selected = await whatsappApi.details(selectedId);
@@ -310,13 +310,13 @@ function ChatCentralContent({ active: isActive = true, userId = "primary", onCon
           if (selectedConversationRef.current === selectedId) setConversaSelecionada(null);
         }
       }
-      if (!incremental || inboxId) setConversationNextOffset(!Array.isArray(payload) && "nextOffset" in payload && typeof payload.nextOffset === "number" ? payload.nextOffset : null);
+      if (!incremental || inboxId || hasListFilters) setConversationNextOffset(!Array.isArray(payload) && "nextOffset" in payload && typeof payload.nextOffset === "number" ? payload.nextOffset : null);
       const nextCursor = Array.isArray(payload)
         ? Math.max(0, ...data.map((item) => Number(item.timestampUltimaMsg || 0)))
         : Number(payload.cursor || cursorConversasRef.current);
       cursorConversasRef.current = Math.max(cursorConversasRef.current, nextCursor);
       setConversas((current) => {
-        return mergeConversationCatalog(inboxId ? current.filter(row => data.some(item => item.id === row.id)) : current, data, contatosRef.current).sort(
+        return mergeConversationCatalog(inboxId || hasListFilters ? current.filter(row => data.some(item => item.id === row.id)) : current, data, contatosRef.current).sort(
           (left, right) => Number(right.timestampUltimaMsg || 0) - Number(left.timestampUltimaMsg || 0),
         );
       });
@@ -330,7 +330,7 @@ function ChatCentralContent({ active: isActive = true, userId = "primary", onCon
     } finally {
       if (generation === connectionStatusRequestGenerationRef.current) carregandoConversasRef.current = false;
     }
-  }, [mostrarAviso, whatsappApi, inboxId]);
+  }, [mostrarAviso, whatsappApi, inboxId, hasListFilters]);
 
   const loadMoreConversations = useCallback(async () => {
     if (conversationNextOffset == null || moreConversationsRef.current || typeof whatsappApi.conversationPage !== "function") return;
@@ -1951,6 +1951,7 @@ function ChatCentralContent({ active: isActive = true, userId = "primary", onCon
             onAbrirModalContatos={abrirAgendaContatos}
             onAbrirModalCriarGrupo={abrirModalGrupo}
             onAtualizar={() => void atualizarCatalogo()}
+              onBatchUpdated={() => void carregarConversasDoBackend(false, false)}
             sincronizando={sincronizandoCatalogo}
             syncProgress={progressoSincronizacao}
             connected={Boolean(canaisStatus.whatsapp?.conectado)}

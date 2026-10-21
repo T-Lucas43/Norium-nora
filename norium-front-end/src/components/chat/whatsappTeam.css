@@ -35,3 +35,22 @@
 @media(max-width:767px){.nx-whatsapp-inbox-picker{padding:5px 10px}.nx-whatsapp-inbox-picker small{display:none}.nx-whatsapp-attendance{padding:6px 10px}.nx-whatsapp-attendance>label select{max-width:125px}.nx-whatsapp-internal-note{width:calc(100% - 8px);padding:8px 10px}.nx-whatsapp-attendance .nx-btn{font-size:11px;padding:4px 7px}}
 
 @media(max-width:767px){.norium-chat.nx-conv.is-team-inbox{padding-bottom:0!important}.norium-chat.nx-conv.is-team-inbox>aside.norium-chat-sidebar{inset:0!important;width:100%!important}}
+.nx-whatsapp-label-choices { display: grid; gap: 6px; max-height: 300px; overflow-y: auto; }
+.nx-whatsapp-label-choice { display: flex; align-items: center; gap: 9px; padding: 10px; border-radius: 8px; background: var(--nx-surface-2); }
+.nx-whatsapp-label-choice span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nx-whatsapp-label-choice small { color: var(--nx-text-3); font-size: 11px; }
+.nx-whatsapp-label-create { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.nx-whatsapp-label-create label:first-child { flex: 1; min-width: 140px; }
+.nx-whatsapp-bulk { background: var(--nx-primary-soft); border-top: 1px solid var(--nx-primary); color: var(--nx-text); max-height: 38%; overflow-y: auto; flex-shrink: 0; }
+.nx-whatsapp-filter-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.nx-whatsapp-filter-dates input { width: 100%; min-width: 0; }
+.nx-whatsapp-saved-select { display: flex; align-items: center; gap: 7px; margin-top: 8px; font-size: 12px; }
+.nx-whatsapp-saved-select select { width: 100%; min-width: 0; background: var(--nx-surface); border: 1px solid var(--nx-border); border-radius: 7px; padding: 5px; }
+.business-dialog.nx-whatsapp-dialog { width:min(560px,calc(100vw - 24px)); }
+.business-dialog.nx-whatsapp-dialog > header { background:transparent; border:0; box-shadow:none; padding:0; min-height:0; }
+.nx-whatsapp-dialog .business-form .nx-whatsapp-label-choice { display:flex; align-items:center; min-height:44px; }
+.nx-whatsapp-label-choice input[type="checkbox"] { width:16px; height:16px; flex:none; margin:0; }
+.nx-whatsapp-label-choice small { flex:none; }
+.nx-whatsapp-dialog .business-form .nx-conv-search { display:flex; align-items:center; gap:8px; border:1px solid var(--nx-border); border-radius:8px; padding:9px 10px; }
+.nx-whatsapp-dialog .nx-conv-search input { flex:1; min-width:0; background:transparent; outline-offset:3px; }
+.business-conversation-bulk.nx-whatsapp-bulk { background:var(--nx-primary-soft,#2563eb15); }

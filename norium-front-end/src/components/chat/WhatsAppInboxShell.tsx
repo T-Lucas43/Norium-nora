@@ -42,11 +42,11 @@ export default function WhatsAppInboxShell({ children }: { children: (key: strin
     } catch (failure) { if (requestScope() === scope) setError(failure instanceof Error ? failure.message : "Não foi possível salvar a caixa."); }
     finally { setBusy(false); }
   }
-  const key = `${scope}:${inboxId || "personal"}:${filter.responsavel}:${filter.estado}`;
+  const key = `${scope}:${inboxId || "personal"}:${JSON.stringify(filter)}`;
   return <WhatsAppScopeProvider inboxId={inboxId} filter={filter} setFilter={setFilter} counts={counts} onCounts={setCounts}>
     <div className="nx-whatsapp-inbox-shell nx-conv">
       {(data.items.length > 0 || data.configuration) && <div className="nx-whatsapp-inbox-picker">
-        <Users size={16} /><label>Caixa <select aria-label="Caixa do WhatsApp" value={inboxId || ""} onChange={event => { setInboxId(event.target.value || undefined); setCounts({}); }}>
+        <Users size={16} /><label>Caixa <select aria-label="Caixa do WhatsApp" value={inboxId || ""} onChange={event => { setInboxId(event.target.value || undefined); setFilter({ responsavel: "all", estado: "" }); setCounts({}); }}>
           <option value="">Meu WhatsApp</option>{data.items.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
         </select></label>
         <small>{inboxId ? "Atendimento da equipe" : "Conta pessoal"}</small>

@@ -2,6 +2,9 @@
 
 ## [Não publicado] — WhatsApp, 21/10/2026
 
+- feat(whatsapp): etiquetas com estados mistos, busca e criação no cadastro comum; seleção de até 200 contatos com lote atômico, atribuição/resolução versionadas e metadados locais de arquivo/leitura.
+- feat(whatsapp): filtros por etiqueta, responsável, estado, período, grupo e não lidas antes da paginação; visões pessoais/compartilhadas no armazenamento de negócios existente.
+- fix(whatsapp): ferramentas sem recorte, diálogos responsivos com rolagem e falha isolada de consultas opcionais, preservando a tela de conversas.
 - feat(whatsapp): caixa de equipe opcional por workspace e vínculo, permissões de atendimento, responsável/estado, rodízio online desligado por padrão e ações autenticadas sobre a instância compartilhada.
 - feat(whatsapp): notas internas com menções privadas, histórico de atendimento, fotos/presença dos responsáveis e atualização pelo socket existente; notas nunca passam pelo adaptador de envio.
 - fix(whatsapp): exportação e anonimização de contribuições, retenção incremental de notas/eventos sem remover a autoridade do atendimento e invalidação da caixa após reatribuição.

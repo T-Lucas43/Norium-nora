@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def list_page(runtime: Any, database: dict, catalog: dict, *, offset: int, limit: int, search: str = "") -> dict:
+def list_page(runtime: Any, database: dict, catalog: dict, *, offset: int, limit: int, search: str = "", filters: dict | None = None, allowed_ids: set | None = None) -> dict:
     names, photos, _ = runtime.build_contact_indexes([*(catalog.get("contacts") or []), *(catalog.get("chats") or [])])
     conversations = {identifier: row for identifier, row in database.items()
                      if not identifier.lower().endswith("@newsletter")}
@@ -26,6 +26,9 @@ def list_page(runtime: Any, database: dict, catalog: dict, *, offset: int, limit
     query = search.strip().casefold()
     items = []
     for identifier, row in conversations.items():
+        from .list_filters import matches
+        if not matches(identifier, row, filters or {}, allowed_ids):
+            continue
         if query and not any(query in str(value or "").casefold() for value in [
             identifier, row.get("contato"), row.get("ultimoTexto"), (row.get("metadados") or {}).get("numeroCompleto"),
             *(message.get("texto") for message in row.get("mensagens", []) if isinstance(message, dict)),

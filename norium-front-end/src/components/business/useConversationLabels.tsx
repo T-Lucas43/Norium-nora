@@ -7,15 +7,15 @@ import TagManager, { type BusinessTag } from "./TagManager";
 
 type Matches = { ids: string[]; total: number; nextOffset: number | null };
 
-export function useConversationLabels(target: "conversations" | "contacts" = "conversations", enabled = true) {
+export function useConversationLabels(target: "conversations" | "contacts" = "conversations", enabled = true, teamPrefix?: string) {
   const scope = requestScope(); const [labels, setLabels] = useState<BusinessTag[]>([]);
   const [selected, setSelected] = useState<string[]>([]); const [manage, setManage] = useState(false);
   const [revision, setRevision] = useState(0); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   const [matches, setMatches] = useState<Matches>({ ids: [], total: 0, nextOffset: null });
-  const signature = selected.join(","); const key = `${scope}|${target}|${enabled}|${signature}|${revision}`;
+  const signature = selected.join(","); const key = `${scope}|${target}|${teamPrefix || ""}|${enabled}|${signature}|${revision}`;
   const matching = useMemo(() => signature ? new Set(matches.ids) : null, [signature, matches.ids]);
   const activeKey = useRef(key); activeKey.current = key;
-  useEffect(() => { setSelected([]); setMatches({ ids: [], total: 0, nextOffset: null }); setManage(false); setError(""); }, [scope, target, enabled]);
+  useEffect(() => { setSelected([]); setMatches({ ids: [], total: 0, nextOffset: null }); setManage(false); setError(""); }, [scope, target, enabled, teamPrefix]);
   useEffect(() => {
     const controller = new AbortController(); setLabels([]);
     if (!enabled) return () => controller.abort();
@@ -31,11 +31,11 @@ export function useConversationLabels(target: "conversations" | "contacts" = "co
   const load = useCallback(async (offset: number, signal?: AbortSignal) => {
     if (!enabled || !signature || activeKey.current !== key || requestScope() !== scope) return;
     setLoading(true); setError("");
-    try { const page = await apiRequest<Matches>(`/api/business/tagged-${target}?tagIds=${encodeURIComponent(signature)}&offset=${offset}&limit=200`, { signal });
+    try { const page = await apiRequest<Matches>(`${teamPrefix || "/api/business"}/tagged-${target}?tagIds=${encodeURIComponent(signature)}&offset=${offset}&limit=200`, { signal });
       if (!signal?.aborted && activeKey.current === key && requestScope() === scope) setMatches(current => ({ ...page, ids: offset ? [...new Set([...current.ids, ...page.ids])] : page.ids }));
     } catch (err) { if (!signal?.aborted && activeKey.current === key && requestScope() === scope) setError(err instanceof Error ? err.message : "Não foi possível filtrar as conversas."); }
     finally { if (!signal?.aborted && activeKey.current === key && requestScope() === scope) setLoading(false); }
-  }, [signature, key, scope, enabled, target]);
+  }, [signature, key, scope, enabled, target, teamPrefix]);
   useEffect(() => { const controller = new AbortController(); setMatches({ ids: [], total: 0, nextOffset: null });
     if (signature && enabled) void load(0, controller.signal); else setLoading(false);
     return () => controller.abort();

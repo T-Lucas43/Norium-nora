@@ -346,26 +346,11 @@ async def tag_conversations(payload: ConversationTagChange, user: dict = Depends
 
 
 async def change_whatsapp_tags(user: dict, tag_id: str, apply: bool, groups: list[frozenset[str]]):
-    from .whatsapp_contacts import canonical, identity
+    from .whatsapp_tag_batch import change
     binding_key = await conversation_binding_key(user)
     actor = require_user_id(user)
-    tag_data = await asyncio.to_thread(snapshot, user, "tags")
-    if not any(item["id"] == tag_id and item["scope"] in {"contact", "conversation"} and active_tag(item) for item in tag_data["items"]):
-        raise HTTPException(404, "Etiqueta de contato não encontrada.")
-    unique = {canonical(group): group for group in groups}
-    def change(data):
-        for identifier, aliases in unique.items():
-            def matches(row):
-                return row.get("conversationOwnerId") == actor and identity(row.get("conversationId")) in aliases and row.get("tagId") == tag_id and row.get("bindingKey") == binding_key
-            if apply and not any(matches(row) for row in data["items"]):
-                require_room(data["items"], 50_000)
-                data["items"].append({"conversationOwnerId": actor, "conversationId": identifier,
-                    "tagId": tag_id, "bindingKey": binding_key, "createdBy": actor, "createdAt": now()})
-            elif not apply:
-                data["items"] = [row for row in data["items"] if not matches(row)]
-        return {"updated": len(unique)}
-    result = await asyncio.to_thread(mutate, user, "tag_links", change)
-    await business_audit(user, "business_whatsapp_tags_changed", "tag", tag_id, {"count": len(unique), "apply": apply})
+    result = await asyncio.to_thread(change, user, binding_key, actor, groups, [{"tagId": tag_id, "apply": apply}])
+    await business_audit(user, "business_whatsapp_tags_changed", "tag", tag_id, {"count": result["updated"], "apply": apply})
     from app.modules.chat.realtime import publish_change
     await publish_change(actor, "labels")
     return result
@@ -492,7 +477,7 @@ async def client_views(user: dict = Depends(clients_user)):
     return {"items": [{**item, "version": item.get("version", 1),
                        "canDelete": item["createdBy"] == require_user_id(user) or can_manage_team(user),
                        "canEdit": item["createdBy"] == require_user_id(user) or can_manage_team(user)}
-                      for item in [*personal["items"], *team["items"]]], "canShare": can_manage_team(user)}
+                      for item in [*personal["items"], *team["items"]] if item.get("kind") != "whatsapp"], "canShare": can_manage_team(user)}
 
 
 @router.post("/client-views", status_code=201)
@@ -516,7 +501,7 @@ async def remove_client_view(scope: Literal["personal", "team"], view_id: str,
                              expectedVersion: int = Query(ge=1), user: dict = Depends(clients_user)):
     domain = "saved_views" if scope == "personal" else "team_views"
     def remove(data):
-        item = next((row for row in data["items"] if row["id"] == view_id), None)
+        item = next((row for row in data["items"] if row["id"] == view_id and row.get("kind") != "whatsapp"), None)
         if not item:
             raise HTTPException(404, "Visão não encontrada.")
         if item["createdBy"] != require_user_id(user) and not can_manage_team(user):
@@ -536,7 +521,7 @@ async def edit_client_view(scope: Literal["personal", "team"], view_id: str,
     if len(payload.name.strip()) < 2:
         raise HTTPException(422, "Informe um nome com pelo menos dois caracteres.")
     def update(data):
-        item = next((row for row in data["items"] if row["id"] == view_id), None)
+        item = next((row for row in data["items"] if row["id"] == view_id and row.get("kind") != "whatsapp"), None)
         if item is None:
             raise HTTPException(404, "Visão não encontrada.")
         if item["createdBy"] != require_user_id(user) and not can_manage_team(user):

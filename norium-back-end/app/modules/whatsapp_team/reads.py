@@ -102,12 +102,17 @@ async def synchronization(inbox_id: str, user: dict = Depends(current_user)):
 @router.get("/conversas")
 async def conversations(inbox_id: str, offset: int = Query(0, ge=0, le=50000), limit: int = Query(100, ge=1, le=100),
                         search: str = Query("", max_length=200), responsavel: str = Query("all", pattern="^(all|me|none|nora)$"),
-                        estado: str | None = Query(None, pattern="^(open|waiting_customer|resolved)$"), user: dict = Depends(current_user)):
+                        estado: str | None = Query(None, pattern="^(open|waiting_customer|resolved)$"), user: dict = Depends(current_user),
+                        filtros: str = Query("", max_length=5000)):
     grant, value, _ = await context.authorized(user, inbox_id)
     chat = context.runtime()
     database = await chat.load_conversations(grant.scope.owner_id)
     catalog = await chat.load_whatsapp_catalog_cache(grant.scope.owner_id)
-    rows = list_page(chat, database, catalog, offset=0, limit=50000, search=search)["items"]
+    from app.modules.chat.list_filters import options as filter_options
+    filters, allowed_ids = await filter_options(grant.owner, filtros, team=True)
+    responsavel = filters.get("responsavel", responsavel)
+    estado = filters.get("estado", estado)
+    rows = list_page(chat, database, catalog, offset=0, limit=50000, search=search, filters=filters, allowed_ids=allowed_ids)["items"]
     visible = []
     counts = {"me": 0, "none": 0, "nora": 0, "all": 0}
     for row in rows:

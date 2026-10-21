@@ -108,41 +108,42 @@ def received(scope: repository.Scope, conversation_id: str, *, message_id: str, 
     return repository.mutate(scope, operation)
 
 
-def update_assignment(access: Access, conversation_id: str, *, expected_version: int, changes: dict) -> dict:
+def apply_assignment(value: dict, access: Access, conversation_id: str, *, expected_version: int, changes: dict) -> dict:
     if not changes or set(changes) - {"assigneeKind", "assigneeUserId", "status"}:
         raise HTTPException(422, "Alteração de atendimento inválida.")
+    assert_conversation(access, value, conversation_id)
+    row = {**default_assignment(conversation_id), **value["assignments"].get(conversation_id, {})}
+    _version(row, expected_version)
+    before = dict(row)
+    if "assigneeUserId" in changes or "assigneeKind" in changes:
+        kind = changes.get("assigneeKind", "user" if changes.get("assigneeUserId") else "none")
+        target = changes.get("assigneeUserId")
+        if kind not in {"none", "user"} or (kind == "none" and target is not None):
+            raise HTTPException(422, "Responsável inválido. Atendente Nora ainda indisponível.")
+        if kind == "user" and target not in {member["id"] for member in access.roster}:
+            raise HTTPException(422, "Escolha um membro com acesso ao atendimento.")
+        if not access.manager and target not in {None, access.actor_id}:
+            raise HTTPException(403, "Somente gestores podem reatribuir atendimentos.")
+        row.update({"assigneeKind": kind, "assigneeUserId": target if kind == "user" else None})
+    if "status" in changes:
+        if changes["status"] not in STATUSES:
+            raise HTTPException(422, "Estado de atendimento inválido.")
+        row["status"] = changes["status"]
+    if all(row.get(key) == before.get(key) for key in ("assigneeKind", "assigneeUserId", "status")):
+        return row
+    # Human takeover invalidates all preparation tied to an old assignment.
+    row["generation"] = row.get("generation", 0) + 1
+    if row["status"] != before["status"]:
+        row["statusChangedAt"] = time.time()
+        _event(value, conversation_id, access.actor_id, "status", {"before": before["status"], "status": row["status"]})
+    if (row["assigneeKind"], row["assigneeUserId"]) != (before["assigneeKind"], before["assigneeUserId"]):
+        _event(value, conversation_id, access.actor_id, "assigned" if row["assigneeKind"] == "user" else "unassigned",
+               {"assigneeUserId": row["assigneeUserId"], "assigneeKind": row["assigneeKind"]})
+    return _save_assignment(value, row, access.actor_id)
 
-    def operation(value):
-        assert_conversation(access, value, conversation_id)
-        row = {**default_assignment(conversation_id), **value["assignments"].get(conversation_id, {})}
-        _version(row, expected_version)
-        before = dict(row)
-        if "assigneeUserId" in changes or "assigneeKind" in changes:
-            kind = changes.get("assigneeKind", "user" if changes.get("assigneeUserId") else "none")
-            target = changes.get("assigneeUserId")
-            if kind not in {"none", "user"} or (kind == "none" and target is not None):
-                raise HTTPException(422, "Responsável inválido. Atendente Nora ainda indisponível.")
-            if kind == "user" and target not in {member["id"] for member in access.roster}:
-                raise HTTPException(422, "Escolha um membro com acesso ao atendimento.")
-            if not access.manager and target not in {None, access.actor_id}:
-                raise HTTPException(403, "Somente gestores podem reatribuir atendimentos.")
-            row.update({"assigneeKind": kind, "assigneeUserId": target if kind == "user" else None})
-        if "status" in changes:
-            if changes["status"] not in STATUSES:
-                raise HTTPException(422, "Estado de atendimento inválido.")
-            row["status"] = changes["status"]
-        if all(row.get(key) == before.get(key) for key in ("assigneeKind", "assigneeUserId", "status")):
-            return row
-        # Human takeover invalidates all preparation tied to an old assignment.
-        row["generation"] = row.get("generation", 0) + 1
-        if row["status"] != before["status"]:
-            row["statusChangedAt"] = time.time()
-            _event(value, conversation_id, access.actor_id, "status", {"before": before["status"], "status": row["status"]})
-        if (row["assigneeKind"], row["assigneeUserId"]) != (before["assigneeKind"], before["assigneeUserId"]):
-            _event(value, conversation_id, access.actor_id, "assigned" if row["assigneeKind"] == "user" else "unassigned",
-                   {"assigneeUserId": row["assigneeUserId"], "assigneeKind": row["assigneeKind"]})
-        return _save_assignment(value, row, access.actor_id)
-    return repository.mutate(access.scope, operation)
+
+def update_assignment(access: Access, conversation_id: str, *, expected_version: int, changes: dict) -> dict:
+    return repository.mutate(access.scope, lambda value: apply_assignment(value, access, conversation_id, expected_version=expected_version, changes=changes))
 
 
 def create_note(access: Access, conversation_id: str, *, body: str, mentions: list[str]) -> dict:

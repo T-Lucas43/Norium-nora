@@ -2994,6 +2994,7 @@ async def obter_conversas(
     paged: bool = Query(default=False),
     offset: int = Query(default=0, ge=0, le=50000),
     search: str = Query(default="", max_length=200),
+    filtros: str = Query(default="", max_length=5000),
     user: dict[str, Any] = Depends(current_user),
 ):
     resolved_user_id = tenant_id(user)
@@ -3011,9 +3012,11 @@ async def obter_conversas(
     )
     if paged is True and since is None:
         from app.modules.chat.conversation_projection import list_page
+        from app.modules.chat.list_filters import options as filter_options
+        filters, allowed_ids = await filter_options(user, filtros)
         if wapi_connect.cached_status(resolved_user_id).get("status") == "conectado" and (refresh is True or contact_sync_retry_due(catalog_cache)):
             schedule_contact_sync(resolved_user_id, force=refresh is True)
-        return list_page(sys.modules[__name__], db, catalog_cache, offset=offset, limit=limit, search=search)
+        return list_page(sys.modules[__name__], db, catalog_cache, offset=offset, limit=limit, search=search, filters=filters, allowed_ids=allowed_ids)
     conversation_list_db = {
         conversation_id: conversation
         for conversation_id, conversation in db.items()

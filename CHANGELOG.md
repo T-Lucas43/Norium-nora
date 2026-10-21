@@ -2,6 +2,7 @@
 
 ## [Não publicado] — WhatsApp, 21/10/2026
 
+- fix(whatsapp): histórico acima de 250 mensagens pelo PostgreSQL privado da Evolution, com cursor estável e referências antigas para mídia e ações; visibilidade local, reações e retenção isoladas por conta, workspace e vínculo.
 - fix(whatsapp): paginação do histórico Evolution com cursor persistente, deduplicação e guarda contra troca de instância; histórico recebido não dispara novas ações.
 - feat(whatsapp): lista paginada e virtualizada, busca no histórico sincronizado e etiquetas visíveis em lote por conta, workspace e vínculo.
 - feat(whatsapp): invalidações no WebSocket existente, agrupamento de eventos e reserva de leitura de 120 segundos com a aba visível.

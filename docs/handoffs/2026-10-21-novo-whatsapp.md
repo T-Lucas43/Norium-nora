@@ -208,3 +208,46 @@ Não declarar fase concluída com botões sem ação ou fixtures como produto.
 - Atualização local será somente do serviço app, mantendo os volumes e os
   serviços Evolution existentes. Essa revisão continua sem promoção remota;
   revisão humana e CI serão necessários para homologação.
+
+### Entrega local A e hotfix do histórico — 21/10/2026
+
+- `fd2b0f388635dc5cb051052e6a9a01decb2bd555` instalado no Docker local em
+  http://localhost:8765. Página HTTP 200, prontidão true e identidade pública
+  local/2026.10.21/esse SHA, com os mesmos volumes antes/depois. Recibo em
+  `output/whatsapp-20261021/local-release-a.json`; imagem anterior preservada.
+- A suíte completa A terminou: 1.749 testes aprovados, zero falhas/erros/skips,
+  recibo `whatsapp-phase-a-verified-full.json`. Frontend: 984 aprovados, build e
+  orçamento aprovados. Na preparação da imagem, SHA abreviado foi recusado pelo
+  verificador; a imagem efetiva foi construída do ZIP Git com SHA completo.
+- A revisão das transições da fase B revelou que o snapshot continua limitado
+  a 250 mensagens em `sync_catalog_messages` e no webhook. O novo hotfix usa
+  consultas limitadas no PostgreSQL privado já existente da Evolution, com
+  cursor timestamp/ID e collation C. Não cria outro arquivo integral de histórico
+  nem aumenta o snapshot da lista. O banco privado está configurado no Docker
+  local; somente essa presença foi consultada, sem ler mensagens reais.
+- Leituras comprovam o proprietário no registro existente e revalidam a geração
+  do vínculo depois de aguardar. Referências antigas alimentam mídia, miniatura,
+  encaminhamento, resposta citada, edição e tradução pelos caminhos atuais.
+- Visibilidade local e reações próprias têm metadados pequenos por usuário,
+  workspace e geração do vínculo, com quota/lock do repositório existente.
+  Apagar localmente não faz a mensagem reaparecer ao consultar o gateway.
+  Esses documentos entram na exportação/exclusão já existentes e no prazo de
+  retenção WhatsApp quando habilitado. Mensagens apagadas no provedor não
+  devolvem conteúdo/mídia anterior pelo histórico privado.
+- Prova SQL em PostgreSQL 17 descartável, sem rede/portas públicas: 751 mensagens
+  paginadas sem duplicação, 750 no mesmo segundo, isolamento de conta/conversa,
+  aliases explícitos e referência ambígua negada. Recibo
+  `output/whatsapp-20261021/history-postgres-proof.log`; o container de teste
+  foi identificado pelo label e encerrado, sem tocar nos serviços do projeto.
+- Regressões dirigidas anteriores: 177 aprovados (`whatsapp-history-actions-final`).
+  Suíte final com mensagens apagadas está em `whatsapp-history-private-full`.
+  Hotfix ainda sem instalação local/push/deploy remoto neste registro.
+- O fallback Evolution sem banco privado mantém a API existente e sua limitação
+  de snapshot; o acesso ao histórico profundo exige o banco privado configurado.
+  Nenhuma recuperação de mensagens que o provedor nunca recebeu é prometida.
+- Fase B preservada em `codex/whatsapp-equipe-20261021`, stash nomeado
+  `whatsapp-team-foundation-before-history-archive-fix`. Inclui opt-in, permissões,
+  quatro tabelas, responsáveis/estados/notas, ciclo LGPD e rotas próprias.
+  71 casos dirigidos passaram antes das últimas notificações. Ainda falta
+  concluir integração de envio, eventos/presença e UI; não está no Docker local.
+  Retomar B após fechar este hotfix e manter C–G como pendentes.

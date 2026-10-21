@@ -21,6 +21,10 @@ async def translate_message(runtime, service, user: dict, conversation_id: str, 
     conversations = await runtime.load_conversations(owner)
     conversation = conversations.get(conversation_id) or {}
     message = next((row for row in conversation.get("mensagens", []) if row.get("id") == message_id), None)
+    if message is None:
+        from app.modules.chat.private_history import reference
+        historical = await reference(runtime, owner, message_id, conversation_id)
+        message = historical[1] if historical else None
     if not message or message.get("visualizacaoUnica") or message.get("viewOnce"):
         raise HTTPException(404, "Mensagem indisponível para tradução.")
     text = str(message.get("texto") or "").strip()

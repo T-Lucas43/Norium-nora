@@ -3302,6 +3302,10 @@ async def obter_historico_conversa(
     resolved_user_id = tenant_id(user)
     db = await load_conversations(resolved_user_id)
     conversation = db.get(conversa_id)
+    from app.modules.chat import message_state
+    local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
+    if isinstance(conversation, dict):
+        conversation["mensagens"] = message_state.apply(local_state, conversa_id, conversation.get("mensagens", []))
     history_available_at = 0
     if is_evolution():
         history_catalog = await load_whatsapp_catalog_cache(resolved_user_id)
@@ -3312,12 +3316,19 @@ async def obter_historico_conversa(
         saved_contact_names = _saved_contact_name_index_from_cache(catalog_cache)
         if isinstance(conversation, dict):
             hydrate_group_message_names(conversation, saved_contact_names)
+            local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
+            conversation["mensagens"] = message_state.apply(local_state, conversa_id, conversation.get("mensagens", []))
 
     # Páginas antigas sempre vêm do snapshot já persistido. A W-API não
     # oferece cursor de mensagens; repetir uma chamada remota para cada página
     # não acrescentaria dados e quebraria a paginação determinística.
     if before is not None:
         if is_evolution():
+            from app.modules.chat.private_history import page as private_history_page
+            private_page = await private_history_page(sys.modules[__name__], resolved_user_id, conversa_id, conversation,
+                                                      before=before, before_id=beforeId, limit=limit)
+            if private_page is not None:
+                return private_page
             from app.modules.chat.history import backfill_older
             try:
                 return await backfill_older(sys.modules[__name__], resolved_user_id, conversa_id,
@@ -3402,6 +3413,8 @@ async def obter_historico_conversa(
                 if not _contact_primary_id(provider_chat):
                     provider_chat = {**provider_chat, "id": conversa_id}
                 sync_catalog_messages(latest, provider_chat)
+                local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
+                latest["mensagens"] = message_state.apply(local_state, conversa_id, latest.get("mensagens", []))
                 hydrate_group_message_names(latest, saved_contact_names)
                 metadata = latest.setdefault("metadados", {})
                 metadata["historicoSincronizadoEm"] = time.time()
@@ -3567,12 +3580,18 @@ async def _whatsapp_stream_media_legacy(
         )
 
     resolved_conversation_id: str | None = None
+    historical_message: Dict[str, Any] | None = None
     if not resolved_conversation_id:
         db = await load_conversations(resolved_user_id)
         for candidate_id, conversation in db.items():
             if any(str(item.get("id") or "") == message_id for item in conversation.get("mensagens") or []):
                 resolved_conversation_id = candidate_id
                 break
+    if not resolved_conversation_id:
+        from app.modules.chat.private_history import reference as historical_reference
+        historical = await historical_reference(sys.modules[__name__], resolved_user_id, message_id)
+        if historical:
+            resolved_conversation_id, historical_message = historical
     if not resolved_conversation_id:
         catalog = await load_whatsapp_catalog_cache(resolved_user_id)
         for channel in catalog.get("channels") or []:
@@ -3593,7 +3612,7 @@ async def _whatsapp_stream_media_legacy(
     # A W-API baixa midia por metadados (mediaKey/directPath/type/mimetype) que
     # chegam no webhook de recebimento e ficam salvos em ``midiaMeta`` da mensagem.
     creds = wapi_creds(resolved_user_id)
-    media_meta: Dict[str, Any] | None = None
+    media_meta: Dict[str, Any] | None = (historical_message or {}).get("midiaMeta")
     if resolved_conversation_id:
         db = await load_conversations(resolved_user_id)
         conversation = db.get(resolved_conversation_id) or {}
@@ -3742,6 +3761,10 @@ async def obter_miniatura_whatsapp(conversa_id: str, message_id: str, user: dict
     database = await load_conversations(tenant_id(user))
     conversation = database.get(conversa_id) or {}
     message = next((item for item in conversation.get("mensagens", []) if item.get("id") == message_id), None)
+    if message is None:
+        from app.modules.chat.private_history import reference as historical_reference
+        historical = await historical_reference(sys.modules[__name__], tenant_id(user), message_id, conversa_id)
+        message = historical[1] if historical else None
     if not message:
         raise HTTPException(404, "Miniatura indisponível.")
     content = await asyncio.to_thread(thumbnail_bytes, message)
@@ -4312,6 +4335,9 @@ async def encaminhar_mensagens(payload: EncaminharMensagensPayload, user: dict[s
             None,
         )
         if source is None:
+            from app.modules.chat.private_history import reference as historical_reference
+            source = await historical_reference(sys.modules[__name__], resolved_user_id, message_id)
+        if source is None:
             raise HTTPException(status_code=404, detail=f"Mensagem {message_id} nao encontrada.")
         sources.append(source)
 
@@ -4565,6 +4591,11 @@ async def quoted_message_preview(
             }
     # Respostas a Status são enviadas ao contato, mas o item citado fica no
     # feed separado e não no histórico dessa conversa.
+    from app.modules.chat.private_history import reference as historical_reference
+    historical = await historical_reference(sys.modules[__name__], user_id, message_id, conversation_id)
+    if historical:
+        target = historical[1]
+        return {"id": message_id, "content": target.get("texto") or "", "senderName": target.get("remetenteNome")}
     feed = await load_whatsapp_status_feed(user_id)
     status_item = next(
         (
@@ -4837,6 +4868,8 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
 async def reagir_mensagem(payload: ReagirMensagemPayload, user: dict[str, Any] = Depends(current_user)):
     assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
+    from app.modules.chat.private_history import reference as historical_reference
+    historical = await historical_reference(sys.modules[__name__], resolved_user_id, payload.mensagem_id, payload.conversa_id)
     try:
         await wapi_messaging.react(resolved_user_id, payload.conversa_id, payload.mensagem_id, payload.emoji)
     except (MessagingUnavailable, WapiError) as exc:
@@ -4844,6 +4877,7 @@ async def reagir_mensagem(payload: ReagirMensagemPayload, user: dict[str, Any] =
 
     db = await load_conversations(resolved_user_id)
     conversation = db.get(payload.conversa_id)
+    reaction_target = historical[1] if historical else None
     if isinstance(conversation, dict):
         for message in conversation.get("mensagens") or []:
             if str(message.get("id") or "") != payload.mensagem_id:
@@ -4853,8 +4887,15 @@ async def reagir_mensagem(payload: ReagirMensagemPayload, user: dict[str, Any] =
             if payload.emoji:
                 reactions.append({"emoji": payload.emoji, "count": 1, "fromMe": True, "senders": []})
             message["reacoes"] = reactions
+            reaction_target = message
             await save_conversations(db, resolved_user_id)
             break
+    if reaction_target is not None:
+        reactions = [row for row in reaction_target.get("reacoes", []) if isinstance(row, dict) and not row.get("fromMe")]
+        if payload.emoji:
+            reactions.append({"emoji": payload.emoji, "count": 1, "fromMe": True, "senders": []})
+        from app.modules.chat import message_state
+        await asyncio.to_thread(message_state.update, sys.modules[__name__], resolved_user_id, payload.conversa_id, payload.mensagem_id, {"reacoes": reactions})
     return {"status": "reagido", "emoji": payload.emoji}
 
 
@@ -4872,6 +4913,10 @@ async def editar_mensagem(payload: EditarMensagemPayload, user: dict[str, Any] =
         ),
         None,
     )
+    if target is None:
+        from app.modules.chat.private_history import reference as historical_reference
+        historical = await historical_reference(sys.modules[__name__], resolved_user_id, payload.mensagem_id, payload.conversa_id)
+        target = historical[1] if historical else None
     if target is None:
         raise HTTPException(status_code=404, detail="Mensagem ou conversa nao encontrada.")
     if target.get("remetente") != "usuario":
@@ -4914,12 +4959,18 @@ async def editar_mensagem(payload: EditarMensagemPayload, user: dict[str, Any] =
 async def apagar_mensagem(payload: ApagarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
     assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
+    from app.modules.chat.private_history import reference as historical_reference
+    historical = await historical_reference(sys.modules[__name__], resolved_user_id, payload.mensagem_id, payload.conversa_id)
     try:
         await wapi_messaging.delete(resolved_user_id, payload.conversa_id, payload.mensagem_id, payload.para_todos)
     except (MessagingUnavailable, WapiError) as exc:
         raise _messaging_http_error(exc, "O WhatsApp recusou a exclusao da mensagem.") from exc
     async with whatsapp_conversation_mutation_lock(resolved_user_id):
         sucesso = await delete_message(payload.conversa_id, payload.mensagem_id, resolved_user_id)
+        if sucesso or historical is not None:
+            from app.modules.chat import message_state
+            await asyncio.to_thread(message_state.update, sys.modules[__name__], resolved_user_id, payload.conversa_id, payload.mensagem_id, {"hidden": True})
+            sucesso = True
     if sucesso:
         return {"status": "sucesso"}
     raise HTTPException(status_code=404, detail="Mensagem ou conversa nao encontrada.")

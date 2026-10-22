@@ -415,3 +415,11 @@ Não declarar fase concluída com botões sem ação ou fixtures como produto.
 - Após atualizar a sessão local, o usuário confirmou: “Sim, tudo certo” para conversa única por contato, nome dos grupos e sugestão da Nora. Em seguida solicitou “faça o deploy agora”.
 - Candidata de código validada: 697d252ec5d9a6b4f699cb822bc4a32766a9ebbb. Este registro só acrescenta documentação; não altera a árvore da aplicação aceita. Publicação solicitada via GitHub e ShardCloud, preservando volumes, segredos do servidor, sessões e rollback. A caixa de equipe segue opt-in, desligada por padrão; o WIP de Cliente/Funil está preservado fora desta candidata.
 - Não confundir aceite local com aceite autenticado da homologação. Os gates e recibos remotos serão vinculados ao SHA efetivamente promovido.
+
+### Preparação do PR #71 e retomada — 22/10/2026
+
+- PR #71 publicado; a rodada 39691222207 encontrou dois problemas backend e vulnerabilidades de dependências. Não foi promovida nem teve gates dispensados.
+- Corrigida a expectativa antiga de 30 mensagens para o limite minimizado de 12, preservando a asserção de tenant. A corrida confirmar/cancelar no PDF agora serializa check/auditoria/notificação por workspace/proposta no runtime de um worker. Dois testes determinísticos cobrem concorrência e liberação após falha.
+- Atualizações: certifi 2026.10.19, Pillow 13.0.0, Vite 8.1.6 e Vitest/coverage 4.1.12. Lock frontend gerado em Node 24 isolado, auditoria de resolução sem vulnerabilidades. Sem novas exceções na auditoria.
+- Regressões backend com Pillow/certifi novos: 108 aprovadas, zero falhas/erros/skips; recibo output/pos-correcao/whatsapp-release-python-security.json. A repetição local frontend ainda não executou porque o Docker está parado após reinício; o CI fará a validação completa da candidata.
+- Em 21/10 o painel bloqueava a VPS por network limit até 22/10 00:28 (horário exibido). Usuário escolheu aguardar. Em 22/10 informou reinício e pediu primeiro deploy, depois investigação do consumo de rede. Painel conferido online; nenhuma promoção remota ainda.

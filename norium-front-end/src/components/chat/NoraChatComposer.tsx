@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, FilePenLine, ListCollapse, LoaderCircle, MessageSquareText, Sparkles, X } from "lucide-react";
 
 import NoraAvatar from "../layout/NoraAvatar";
 import Button from "../shared/Button";
-import { noraChatApi } from "./noraChatApi";
+import { noraChatApi, inboxNoraChatApi } from "./noraChatApi";
+import { useWhatsAppScope } from "./WhatsAppScope";
 import { noraDraftForInsertion } from "./noraDraft";
 
 type NoraAction = "suggest" | "summary" | "custom";
@@ -21,6 +22,8 @@ const ACTION_LABELS: Record<NoraAction, string> = {
 };
 
 export default function NoraChatComposer({ conversationId, disabled = false, onInsertDraft }: NoraChatComposerProps) {
+  const { inboxId } = useWhatsAppScope();
+  const api = useMemo(() => inboxId ? inboxNoraChatApi(inboxId) : noraChatApi, [inboxId]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [customOpen, setCustomOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -58,7 +61,7 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
     setLoading(false);
     closePanels();
     setCustomInstruction("");
-  }, [conversationId]);
+  }, [conversationId, inboxId]);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -87,10 +90,10 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
     setMenuOpen(false);
     try {
       const result = selectedAction === "suggest"
-        ? await noraChatApi.suggestReply(conversationId)
+        ? await api.suggestReply(conversationId)
         : selectedAction === "summary"
-          ? await noraChatApi.summarizeConversation(conversationId)
-          : await noraChatApi.runCustomAction(conversationId, instruction);
+          ? await api.summarizeConversation(conversationId)
+          : await api.runCustomAction(conversationId, instruction);
       if (requestIdRef.current !== requestId) return;
       setDraft(result);
       setCustomOpen(false);
@@ -114,7 +117,7 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
     setLoading(true);
     setError("");
     try {
-      const result = await noraChatApi.improveDraft(conversationId, draft, improvement);
+      const result = await api.improveDraft(conversationId, draft, improvement);
       if (requestIdRef.current !== requestId) return;
       setDraft(result);
       setImprovement("");
@@ -162,7 +165,7 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
         className={`ml-1 inline-flex h-[26px] items-center gap-1.5 rounded-full pl-1 pr-2.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${menuOpen || customOpen || reviewOpen ? "bg-[var(--nx-primary)] text-white" : "bg-[var(--nx-primary-soft)] text-[var(--nx-primary-text)] hover:brightness-95"}`}
       >
         <NoraAvatar className="h-5 w-5" />
-        <span>Nora</span>
+        <span>Ações da Nora</span>
       </button>
 
       {menuOpen && (

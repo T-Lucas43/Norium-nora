@@ -8,17 +8,18 @@ import {
   CornerUpRight,
   Eye,
   FileText,
-  Languages,
+  Image as ImageIcon,
   ListChecks,
+  Languages,
   Maximize2,
   MessageCircle,
   Mic,
   MoreVertical,
   Paperclip,
+  Plus,
   PencilLine,
   Pause,
   Play,
-  Search,
   SendHorizontal,
   Smile,
   Sparkles,
@@ -35,7 +36,15 @@ import NoraChatComposer from "./NoraChatComposer";
 import MessageNoraActions, { type MessageNoraRequest } from "./MessageNoraActions";
 import MessageTemplatePicker from "../message-templates/MessageTemplatePicker";
 import { useQuickReplies } from "../message-templates/useQuickReplies";
-import ClientTagsPanel from "../business/ClientTagsPanel";
+import { ContactLabels } from "./ContactLabels";
+import ConversationHeader from "./ConversationHeader";
+import MediaGallery from "./MediaGallery";
+import MessageSearch, { HighlightedText, useMessageSearch } from "./MessageSearch";
+import MessageTranslation, { TranslationToolbar } from "./MessageTranslation";
+import { useWhatsAppScope } from "./WhatsAppScope";
+import type { Attendance } from "./TeamAttendance";
+import { InternalNoteCard, InternalNoteComposer } from "./InternalNote";
+import type { ReactNode } from "react";
 import { avatarColor } from "./avatarColor";
 
 function messageDayLabel(timestamp?: number) {
@@ -50,10 +59,12 @@ function messageDayLabel(timestamp?: number) {
 }
 
 interface AreaCentralProps {
+  attendance?: Attendance | null;
+  attendanceHeader?: ReactNode;
   conversaAtiva: ChatConversa | undefined;
   onEnviar: (texto: string, responderA?: string) => void | Promise<void>;
   onAbrirDadosPerfil: () => void;
-  onAnexarArquivo: () => void;
+  onAnexarArquivo: (kind?: "media" | "document") => void;
   onColarAnexos: (files: File[]) => void;
   onGravarAudio: () => void;
   gravando: boolean;
@@ -77,6 +88,9 @@ interface AreaCentralProps {
   figurinhasRecentes: MsgConteudo[];
   onEnviarFigurinhaExistente: (figurinha: MsgConteudo) => void | Promise<void>;
   wallpaperUrl?: string | null;
+  painelAberto?: boolean;
+  onVoltarLista?: () => void;
+  onAcaoCabecalho?: (action: "silenciar" | "arquivar" | "papel" | "excluir") => void;
 }
 
 function initials(name: string) {
@@ -89,16 +103,16 @@ function initials(name: string) {
 }
 
 function HeaderAvatar({ conversa }: { conversa: ChatConversa }) {
-  const [failed, setFailed] = useState(false);
+  const [failedSource, setFailedSource] = useState("");
   const photoUrl = useAuthenticatedMedia(conversa.metadados?.photoUrl || conversa.photoUrl);
   const displayName = conversationDisplayName(conversa);
-  const hasPhoto = Boolean(photoUrl && !failed);
+  const hasPhoto = Boolean(photoUrl && photoUrl !== failedSource);
   const showInitials = !hasPhoto && !conversa.esGrupo && Boolean(displayName) && !isTechnicalWhatsAppLabel(displayName);
 
   return (
     <div className={`nx-conv-av h-[34px] w-[34px] ${showInitials ? "" : "is-photo"}`} style={showInitials ? { background: avatarColor(displayName) } : undefined}>
       {hasPhoto ? (
-        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailedSource(photoUrl)} />
       ) : conversa.esGrupo ? (
         <Users size={16} />
       ) : showInitials ? (
@@ -122,8 +136,8 @@ function ParticipantAvatar({ conversa, message }: { conversa: ChatConversa; mess
 
 const GROUP_MENTION_PATTERN = /@(\d{5,})(?:@(lid|c\.us|s\.whatsapp\.net))?(?![\w])/gi;
 
-function MessageText({ conversa, text }: { conversa: ChatConversa; text: string }) {
-  if (!conversa.esGrupo) return text;
+function MessageText({ conversa, text, query = "" }: { conversa: ChatConversa; text: string; query?: string }) {
+  if (!conversa.esGrupo) return <HighlightedText text={text} query={query} />;
 
   const participantNames = new Map<string, string>();
   for (const participant of conversa.metadados?.participantes || []) {
@@ -144,7 +158,7 @@ function MessageText({ conversa, text }: { conversa: ChatConversa; text: string 
     const participantName = participantNames.get(match[1]);
     if (!participantName) continue;
     const matchIndex = match.index ?? 0;
-    if (matchIndex > lastIndex) parts.push(text.slice(lastIndex, matchIndex));
+    if (matchIndex > lastIndex) parts.push(<HighlightedText key={`text-${lastIndex}`} text={text.slice(lastIndex, matchIndex)} query={query} />);
     parts.push(
       <span key={`${matchIndex}-${match[1]}`} className="font-extrabold text-[var(--primary)]">
         @{participantName}
@@ -154,8 +168,8 @@ function MessageText({ conversa, text }: { conversa: ChatConversa; text: string 
     foundMention = true;
   }
 
-  if (!foundMention) return text;
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  if (!foundMention) return <HighlightedText text={text} query={query} />;
+  if (lastIndex < text.length) parts.push(<HighlightedText key={`text-${lastIndex}`} text={text.slice(lastIndex)} query={query} />);
   return parts;
 }
 
@@ -290,139 +304,29 @@ function AudioMessage({ src, outgoing }: { src: string; outgoing: boolean }) {
   );
 }
 
-function MediaLightbox({ src, kind, onClose }: { src: string; kind: "image" | "video"; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [onClose]);
-
-  // Portal para o body: escapa de ancestrais com transform (framer-motion), que
-  // fariam o overlay "fixed" ser recortado dentro do balão da mensagem.
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-    >
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Fechar"
-        className="absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
-      >
-        <X size={20} />
-      </button>
-      {kind === "video" ? (
-        <video
-          src={src}
-          controls
-          autoPlay
-          className="max-h-[92vh] max-w-[92vw]"
-          onClick={(e) => e.stopPropagation()}
-        />
-      ) : (
-        <img
-          src={src}
-          alt="Midia em tela cheia"
-          className="max-h-[92vh] max-w-[92vw] object-contain"
-          onClick={(e) => e.stopPropagation()}
-        />
-      )}
-    </div>,
-    document.body,
-  );
-}
-
-function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }) {
-  const mime = msg.arquivoMime || "";
+function MessageMedia({ msg, outgoing, onOpen }: { msg: MsgConteudo; outgoing: boolean; onOpen: (id: string) => void }) {
   const fileName = msg.nomeArquivo || "Arquivo";
-  const looksVideo = mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(fileName);
-  const mediaUrl = useAuthenticatedMedia(msg.viewOnce ? undefined : msg.arquivoUrl);
-  const [telaCheia, setTelaCheia] = useState(false);
-
-  if (msg.viewOnce) {
-    return (
-      <div className="flex min-w-52 items-center gap-3 rounded-lg border border-white/15 bg-black/10 px-3 py-2.5">
-        <span className="inline-flex items-center gap-1 rounded-full bg-[var(--primary)] px-2 py-1 text-xs font-black text-white">
-          <Eye size={14} />
-          1x
-        </span>
-        <span className="text-xs font-semibold">{outgoing ? "M\u00eddia enviada para visualiza\u00e7\u00e3o \u00fanica" : "M\u00eddia de visualiza\u00e7\u00e3o \u00fanica"}</span>
-      </div>
-    );
-  }
-
-  if (!msg.arquivoUrl) {
-    return <p className="text-sm font-medium">{msg.texto || "Midia sem URL disponivel"}</p>;
-  }
-
-  if (msg.tipo === "audio") {
-    return mediaUrl ? <AudioMessage src={mediaUrl} outgoing={outgoing} /> : null;
-  }
-
-  if (msg.tipo === "sticker") {
-    return (
-      <div className="h-36 w-36 bg-transparent">
-        {mediaUrl ? <img src={mediaUrl} alt="Figurinha" className="h-full w-full object-contain" /> : null}
-      </div>
-    );
-  }
-
-  if (msg.tipo === "documento") {
-    return (
-      <a href={mediaUrl || undefined} download={fileName} className={`flex max-w-[320px] items-center gap-3 rounded-lg p-3 ${outgoing ? "bg-white/15" : "bg-[var(--background)]"}`}>
-        <FileText size={24} />
-        <span className="min-w-0 flex-1 truncate text-xs font-bold">{fileName}</span>
-      </a>
-    );
-  }
-
-  if (looksVideo) {
-    return (
-      <div className="max-w-[420px] overflow-hidden rounded-lg">
-        {mediaUrl ? (
-          <div className="group relative">
-            <video src={mediaUrl} controls className="max-h-[320px] w-full bg-black" />
-            <button
-              type="button"
-              onClick={() => setTelaCheia(true)}
-              aria-label="Abrir em tela cheia"
-              title="Tela cheia"
-              className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
-            >
-              <Maximize2 size={15} />
-            </button>
-          </div>
-        ) : null}
-        {msg.texto && msg.texto !== "[Video]" && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
-        {telaCheia && mediaUrl && <MediaLightbox src={mediaUrl} kind="video" onClose={() => setTelaCheia(false)} />}
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-[420px] overflow-hidden rounded-lg">
-      {mediaUrl ? (
-        <img
-          src={mediaUrl}
-          alt={msg.texto || "Imagem"}
-          onClick={() => setTelaCheia(true)}
-          className="max-h-[320px] w-full cursor-zoom-in object-contain bg-black/5"
-        />
-      ) : null}
-      {msg.texto && msg.texto !== "[Imagem]" && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
-      {telaCheia && mediaUrl && <MediaLightbox src={mediaUrl} kind="image" onClose={() => setTelaCheia(false)} />}
-    </div>
-  );
+  const looksVideo = msg.arquivoMime?.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(fileName);
+  const source = msg.viewOnce ? undefined : msg.tipo === "midia" ? msg.miniaturaUrl : msg.arquivoUrl;
+  const mediaUrl = useAuthenticatedMedia(source);
+  if (msg.viewOnce) return <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/15 bg-black/10 px-3 py-2.5">
+    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--primary)] px-2 py-1 text-xs font-black text-white"><Eye size={14} />1x</span>
+    <span className="text-xs font-semibold">{outgoing ? "Mídia enviada para visualização única" : "Mídia de visualização única"}</span>
+  </div>;
+  if (!msg.arquivoUrl) return <p className="text-sm font-medium">{msg.texto || "Mídia indisponível"}</p>;
+  if (msg.tipo === "audio") return mediaUrl ? <AudioMessage src={mediaUrl} outgoing={outgoing} /> : null;
+  if (msg.tipo === "sticker") return <div className="h-36 w-36 bg-transparent">{mediaUrl && <img src={mediaUrl} alt="Figurinha" className="h-full w-full object-contain" />}</div>;
+  if (msg.tipo === "documento") return <a href={mediaUrl || undefined} download={fileName} className={`flex max-w-[320px] items-center gap-3 rounded-lg p-3 ${outgoing ? "bg-white/15" : "bg-[var(--background)]"}`}>
+    <FileText size={24} /><span className="min-w-0 flex-1 truncate text-xs font-bold">{fileName}</span>
+  </a>;
+  return <div className="max-w-[420px] overflow-hidden rounded-lg">
+    <button type="button" aria-label="Abrir em tela cheia" onClick={() => onOpen(msg.id)} className="nx-whatsapp-media-preview">
+      {mediaUrl ? <img loading="lazy" src={mediaUrl} alt={msg.texto || "Imagem"} /> : <span><ImageIcon size={26} />Abrir {looksVideo ? "vídeo" : "imagem"}</span>}
+      {looksVideo && <Play size={26} className="nx-whatsapp-video-play" />}
+      <Maximize2 size={15} className="nx-whatsapp-media-expand" />
+    </button>
+    {msg.texto && !["[Imagem]", "[Video]"].includes(msg.texto) && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
+  </div>;
 }
 
 function StickerLibraryItem({
@@ -565,15 +469,20 @@ export default function AreaCentralChat({
   figurinhasRecentes,
   onEnviarFigurinhaExistente,
   wallpaperUrl,
+  painelAberto, onVoltarLista, onAcaoCabecalho, attendance, attendanceHeader,
 }: AreaCentralProps) {
+  const { inboxId } = useWhatsAppScope();
+  const [noteMode, setNoteMode] = useState(false);
   const [resposta, setResposta] = useState("");
   const quick = useQuickReplies({ channel: "whatsapp", text: resposta,
     variables: { client_name: conversaAtiva ? conversationDisplayName(conversaAtiva) : "", nome: conversaAtiva ? conversationDisplayName(conversaAtiva) : "" },
     onApply: ({ body }) => setResposta(body) });
   const [respondendoA, setRespondendoA] = useState<MsgConteudo | null>(null);
   const [mostrarPesquisa, setMostrarPesquisa] = useState(false);
-  const [termoPesquisa, setTermoPesquisa] = useState("");
+  const [galleryId, setGalleryId] = useState<string | null>(null);
   const [traduzirChat, setTraduzirChat] = useState(false);
+  const [translationLanguage, setTranslationLanguage] = useState("pt-BR");
+  const [translationRequest, setTranslationRequest] = useState({ conversationId: "", messageId: "", trigger: 0 });
   const [menuMensagemId, setMenuMensagemId] = useState<string | null>(null);
   const [menuMensagemPosicao, setMenuMensagemPosicao] = useState({ top: 8, left: 8 });
   const [modoSelecao, setModoSelecao] = useState(false);
@@ -586,6 +495,7 @@ export default function AreaCentralChat({
   const [noraRequest, setNoraRequest] = useState<MessageNoraRequest | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messageSearch = useMessageSearch(conversaAtiva?.mensagens || [], conversaAtiva?.id, scrollRef);
   const previousHeightRef = useRef<number | null>(null);
   const nearBottomRef = useRef(true);
   const previousConversationRef = useRef<string | undefined>(undefined);
@@ -689,9 +599,7 @@ export default function AreaCentralChat({
   const phoneLabel = formatWhatsAppPhone(conversaAtiva.metadados?.numeroCompleto || conversaAtiva.id);
   const mensagensFiltradas = conversaAtiva.mensagens.filter((mensagem) => {
     const hasVisibleContent = Boolean(mensagem.texto?.trim() || mensagem.arquivoUrl);
-    if (!hasVisibleContent) return false;
-    if (!termoPesquisa) return true;
-    return mensagem.texto?.toLowerCase().includes(termoPesquisa.toLowerCase());
+    return hasVisibleContent;
   });
 
   const acionarEnviar = () => {
@@ -753,32 +661,14 @@ export default function AreaCentralChat({
   const podeApagarSelecionadasParaTodos = mensagensSelecionadas.length > 0 && mensagensSelecionadas.every((message) => message.remetente === "usuario");
 
   return (
-    <section onPaste={handlePasteAttachments} className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
+    <section onPaste={noteMode ? undefined : handlePasteAttachments} className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
+      {galleryId && <MediaGallery key={conversaAtiva.id} conversation={conversaAtiva} messageId={galleryId} onSelect={setGalleryId} onClose={() => setGalleryId(null)} onForward={onEncaminharMensagens} />}
       {!modoSelecao ? (
-        <div className="nx-conv-thread-head">
-          <button type="button" className="flex min-w-0 items-center gap-2.5 text-left" onClick={onAbrirDadosPerfil}>
-            <HeaderAvatar conversa={conversaAtiva} />
-            <div className="min-w-0">
-              <h3 className="truncate text-sm font-semibold text-[var(--nx-text)]">{displayName}</h3>
-              <p className="truncate text-[12.5px] text-[var(--nx-text-3)]">
-                {conversaAtiva.esGrupo ? `${conversaAtiva.metadados?.participantes?.length || 0} participantes` : phoneLabel || "WhatsApp"}
-              </p>
-            </div>
-          </button>
-
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <span className="nx-badge is-green max-sm:hidden">WhatsApp</span>
-            <button type="button" title="Pesquisar" onClick={() => setMostrarPesquisa(!mostrarPesquisa)} aria-pressed={mostrarPesquisa} className="nx-conv-iconbtn h-[30px] w-[30px]" aria-label="Pesquisar">
-              <Search size={16} />
-            </button>
-            <button type="button" title="Traduzir" onClick={() => setTraduzirChat(!traduzirChat)} aria-pressed={traduzirChat} className="nx-conv-iconbtn h-[30px] w-[30px]" aria-label="Traduzir">
-              <Languages size={16} />
-            </button>
-            <button type="button" className="nx-btn is-sm" onClick={onAbrirDadosPerfil}>
-              <User size={14} /> Dados
-            </button>
-          </div>
-        </div>
+        <ConversationHeader avatar={<HeaderAvatar conversa={conversaAtiva} />} name={displayName}
+          subtitle={conversaAtiva.esGrupo ? `${conversaAtiva.metadados?.participantes?.length || 0} participantes` : phoneLabel}
+          group={Boolean(conversaAtiva.esGrupo)} panelOpen={painelAberto} searching={mostrarPesquisa} translating={traduzirChat}
+          onPanel={onAbrirDadosPerfil} onSearch={() => setMostrarPesquisa(!mostrarPesquisa)}
+          onTranslate={() => inboxId ? onFeedback?.("error", "A tradução da caixa compartilhada será integrada à Nora contextual.") : setTraduzirChat(!traduzirChat)} onBack={onVoltarLista} onAction={onAcaoCabecalho} />
       ) : (
         <div className="nx-conv-thread-head">
           <div className="flex items-center gap-2">
@@ -801,24 +691,13 @@ export default function AreaCentralChat({
         </div>
       )}
 
+      {attendanceHeader}
       {mostrarPesquisa && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--nx-border)] bg-[var(--nx-surface)] px-5 py-2.5">
-          <label className="nx-conv-search flex-1">
-            <Search size={15} />
-            <input
-              type="text"
-              placeholder="Buscar nesta conversa"
-              value={termoPesquisa}
-              onChange={(event) => setTermoPesquisa(event.target.value)}
-            />
-          </label>
-          <button type="button" className="nx-conv-iconbtn" aria-label="Fechar busca" title="Fechar busca" onClick={() => { setTermoPesquisa(""); setMostrarPesquisa(false); }}>
-            <X size={15} />
-          </button>
-        </div>
+        <MessageSearch search={messageSearch} hasOlder={temMaisMensagens} onClose={() => { messageSearch.setQuery(""); setMostrarPesquisa(false); }} />
       )}
+      {traduzirChat && <TranslationToolbar language={translationLanguage} onLanguage={setTranslationLanguage} onClose={() => setTraduzirChat(false)} />}
 
-      <details className="border-b border-[var(--nx-border)] px-4 py-2"><summary className="text-xs cursor-pointer text-[var(--nx-text-2)]">Etiquetas do contato</summary><ClientTagsPanel key={conversaAtiva.id} conversationId={conversaAtiva.id} canEdit /></details>
+      <div className="nx-whatsapp-header-tags"><ContactLabels contactId={conversaAtiva.id} editable limit={5} /></div>
       <div
         ref={scrollRef}
         onScroll={handleMessageScroll}
@@ -826,7 +705,7 @@ export default function AreaCentralChat({
         style={{
           backgroundImage: wallpaperUrl
             ? `linear-gradient(var(--chat-wallpaper-overlay), var(--chat-wallpaper-overlay)), url("${wallpaperUrl}")`
-            : "radial-gradient(circle at 20px 20px, rgba(255,255,255,0.035) 1px, transparent 1.4px), radial-gradient(circle at 70px 60px, rgba(255,255,255,0.025) 1.4px, transparent 1.8px)",
+            : "radial-gradient(circle at 20px 20px, var(--nx-whatsapp-dot) 1px, transparent 1.4px), radial-gradient(circle at 70px 60px, var(--nx-whatsapp-dot) 1px, transparent 1.8px)",
           backgroundPosition: wallpaperUrl ? "center" : undefined,
           backgroundRepeat: wallpaperUrl ? "no-repeat" : undefined,
           backgroundSize: wallpaperUrl ? "cover" : "96px 96px",
@@ -846,12 +725,18 @@ export default function AreaCentralChat({
             </Button>
           </div>
         )}
+        {attendance?.notes.hasMore && <div className="flex justify-center"><button type="button" className="nx-btn is-sm" disabled={attendance.busy} onClick={() => void attendance.more("notes")}>Notas internas anteriores</button></div>}
         {!carregandoMensagens && mensagensFiltradas.length === 0 && (
           <div className="flex min-h-40 items-center justify-center text-center text-sm text-[var(--nx-text-3)]">
-            {termoPesquisa ? "Nenhuma mensagem corresponde à busca." : "Nenhuma mensagem disponível nesta conversa."}
+            Nenhuma mensagem disponível nesta conversa.
           </div>
         )}
-        {mensagensFiltradas.map((msg, index) => {
+        {[...mensagensFiltradas.map(message => ({ message, timestamp: message.timestamp || 0, id: message.id })),
+          ...(attendance?.notes.items || []).map(note => ({ note, timestamp: note.createdAt, id: `note-${note.id}` }))]
+          .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)).map((entry) => {
+          if ("note" in entry) return attendance && <InternalNoteCard key={entry.id} note={entry.note} attendance={attendance} />;
+          const msg = entry.message;
+          const index = mensagensFiltradas.indexOf(msg);
           const outgoing = msg.remetente === "usuario";
           const estaSelecionada = selecionadas.includes(msg.id);
           const dayLabel = messageDayLabel(msg.timestamp);
@@ -861,7 +746,7 @@ export default function AreaCentralChat({
           return (
             <Fragment key={msg.id}>
             {showDay && <div className="nx-conv-day py-1">{dayLabel}</div>}
-            <div onClick={() => modoSelecao && alternarSelecaoMensagem(msg.id)} className={`flex w-full items-end gap-3 group ${outgoing ? "justify-end" : "justify-start"} ${modoSelecao ? "cursor-pointer" : ""}`}>
+            <div data-message-id={msg.id} data-search-active={messageSearch.activeId === msg.id || undefined} onClick={() => modoSelecao && alternarSelecaoMensagem(msg.id)} className={`flex w-full items-end gap-3 group ${outgoing ? "justify-end" : "justify-start"} ${modoSelecao ? "cursor-pointer" : ""}`}>
               {modoSelecao && (
                 <input
                   type="checkbox"
@@ -909,6 +794,7 @@ export default function AreaCentralChat({
                     <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <Copy size={14} /> Copiar
                     </button>
+                    {msg.texto?.trim() && !msg.viewOnce && <button disabled={Boolean(inboxId)} title={inboxId ? "Tradução contextual: em implementação" : undefined} onClick={() => { setTraduzirChat(true); setTranslationRequest(current => ({ conversationId: conversaAtiva.id, messageId: msg.id, trigger: current.trigger + 1 })); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left"><Languages size={14} />Traduzir mensagem</button>}
                     <button onClick={() => { setModoSelecao(true); setSelecionadas([msg.id]); setMenuMensagemId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left">
                       <Check size={14} /> Selecionar
                     </button>
@@ -954,12 +840,14 @@ export default function AreaCentralChat({
 
                 {msg.tipo === "texto" ? (
                   <p className="whitespace-pre-wrap break-words pr-6">
-                    <MessageText conversa={conversaAtiva} text={msg.texto || ""} />
+                    <MessageText conversa={conversaAtiva} text={msg.texto || ""} query={messageSearch.query} />
                   </p>
                 ) : (
-                  <MessageMedia msg={msg} outgoing={outgoing} />
+                  <MessageMedia msg={msg} outgoing={outgoing} onOpen={setGalleryId} />
                 )}
 
+                {traduzirChat && msg.texto?.trim() && !msg.viewOnce && <MessageTranslation key={`${conversaAtiva.id}:${msg.id}`} conversationId={conversaAtiva.id} messageId={msg.id} language={translationLanguage}
+                  trigger={translationRequest.conversationId === conversaAtiva.id && translationRequest.messageId === msg.id ? translationRequest.trigger : 0} />}
                 <div className="nx-conv-msg-time mt-[3px] flex items-center justify-end gap-1">
                   <span>{msg.horario}</span>
                   {outgoing && <MessageStatus status={msg.status} />}
@@ -987,6 +875,16 @@ export default function AreaCentralChat({
       </div>
 
       <div className="norium-chat-composer relative shrink-0">
+        <div className="nx-whatsapp-composer-mode">
+          {attendance ? <div className="nx-whatsapp-note-mode" role="group" aria-label="Modo de composição">
+          <button type="button" aria-pressed={!noteMode} disabled={gravando} onClick={() => setNoteMode(false)}><MessageCircle size={14} />Responder</button>
+          <button type="button" aria-pressed={noteMode} disabled={gravando || enviandoAnexos} onClick={() => setNoteMode(true)}>Nota interna</button>
+        </div> : <span className="nx-whatsapp-reply-mode"><MessageCircle size={14} />Responder</span>}
+          <NoraChatComposer conversationId={conversaAtiva.id} disabled={gravando || enviandoAnexos} onInsertDraft={setResposta} />
+          <small>/ respostas rápidas</small>
+        </div>
+        {attendance && noteMode ? <InternalNoteComposer attendance={attendance} /> : <>
+
         {mostrarPainelEmojis && (
           <div data-emoji-panel-root className="nx-conv-menu absolute bottom-full left-5 z-50 mb-2 w-[340px] max-w-[calc(100vw-24px)] overflow-hidden">
             <div className="p-2">
@@ -1065,6 +963,16 @@ export default function AreaCentralChat({
 
           {quick.panel}
           {quick.missingVariables.length > 0 && <p role="status" className="business-note">Preencha antes de enviar: {quick.missingVariables.join(", ")}.</p>}
+          <div className="nx-whatsapp-input-row">
+          <details className="nx-whatsapp-attachments" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.stopPropagation(); } }}>
+            <summary className="nx-conv-iconbtn" aria-label="Anexar" title="Anexar"><Plus size={20} /></summary>
+            <div className="nx-conv-menu">
+              <button type="button" onClick={event => { event.currentTarget.closest("details")!.open = false; onAnexarArquivo("media"); }}><ImageIcon size={16} />Foto, vídeo ou áudio</button>
+              <button type="button" onClick={event => { event.currentTarget.closest("details")!.open = false; onAnexarArquivo("document"); }}><Paperclip size={16} />Documento</button>
+              <MessageTemplatePicker channel="whatsapp" clientName={displayName} onApply={({ body }) => setResposta(body)} />
+            </div>
+          </details>
+          <button type="button" data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" aria-pressed={mostrarPainelEmojis} className="nx-conv-iconbtn" aria-label="Emoji"><Smile size={18} /></button>
           <input
             type="text"
             value={resposta}
@@ -1072,40 +980,25 @@ export default function AreaCentralChat({
             disabled={gravando || enviandoAnexos}
             onChange={(event) => setResposta(event.target.value)}
             onKeyDown={(event) => { if (quick.onKeyDown(event)) return; if (event.key === "Enter") acionarEnviar(); }}
-            placeholder={gravando ? `Gravando áudio: ${formatarTempo(tempoGravacao)}` : "Digite uma mensagem"}
+            placeholder={gravando ? `Gravando áudio: ${formatarTempo(tempoGravacao)}` : "Mensagem · / para respostas rápidas"}
             aria-label="Mensagem"
             className="nx-conv-composer-input"
           />
 
-          <div className="nx-conv-tools flex flex-wrap items-center gap-1">
-            <button type="button" className="nx-conv-iconbtn" onClick={onAnexarArquivo} title="Anexar" aria-label="Anexar">
-              <Paperclip size={16} />
-            </button>
-            <button type="button" data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" aria-pressed={mostrarPainelEmojis} className="nx-conv-iconbtn" aria-label="Emoji">
-              <Smile size={16} />
-            </button>
-            <MessageTemplatePicker channel="whatsapp" clientName={displayName} onApply={({ body }) => setResposta(body)} />
-            <NoraChatComposer
-              conversationId={conversaAtiva.id}
-              disabled={gravando || enviandoAnexos}
-              onInsertDraft={setResposta}
-            />
-            <div className="ml-auto flex items-center gap-1.5">
-              <button type="button" onClick={onGravarAudio} disabled={enviandoAnexos} title="Áudio" className={`nx-conv-iconbtn ${gravando ? "animate-pulse bg-[var(--nx-danger)] text-white hover:bg-[var(--nx-danger)] hover:text-white" : ""}`} aria-label="Audio">
-                <Mic size={16} />
-              </button>
-              <button
+          {(gravando || (!resposta.trim() && anexosPendentes.length === 0)) ? (
+            <button type="button" onClick={onGravarAudio} disabled={enviandoAnexos} title={gravando ? "Parar gravação" : "Áudio"} className={`nx-conv-send ${gravando ? "is-recording" : ""}`} aria-label="Audio"><Mic size={19} /></button>
+          ) : <button
                 type="button"
                 onClick={acionarEnviar}
                 disabled={enviandoAnexos || quick.missingVariables.length > 0 || (!resposta.trim() && anexosPendentes.length === 0)}
                 title="Enviar"
                 className="nx-conv-send"
                 aria-label="Enviar">
-                <SendHorizontal size={16} />
-              </button>
-            </div>
+                <SendHorizontal size={19} />
+              </button>}
           </div>
         </div>
+        </>}
       </div>
 
       {editandoMensagem && (
@@ -1118,7 +1011,7 @@ export default function AreaCentralChat({
         </div>
       )}
 
-      <MessageNoraActions conversationId={conversaAtiva.id} request={noraRequest} onClose={() => setNoraRequest(null)} onUseReply={usarRespostaNora} onFeedback={onFeedback} />
+      {<MessageNoraActions conversationId={conversaAtiva.id} request={noraRequest} onClose={() => setNoraRequest(null)} onUseReply={usarRespostaNora} onFeedback={onFeedback} />}
     </section>
   );
 }

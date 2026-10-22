@@ -21,7 +21,7 @@ STATES = {"online": "Disponível", "away": "Ausente", "call": "Em chamada", "mee
 
 
 class ContextRef(StrictModel):
-    type: Literal["task", "client", "project", "conversation", "meeting"]
+    type: Literal["task", "client", "project", "conversation", "meeting", "whatsapp"]
     id: str = Field(min_length=1, max_length=250)
 
 
@@ -47,6 +47,9 @@ class ChannelNotifications(StrictModel):
 
 async def context_title(resource: dict | None, user: dict, store: dict) -> str | None:
     if not resource: return None
+    if resource["type"] == "whatsapp":
+        from app.modules.whatsapp_team.presence import title
+        return await title(user, resource["id"])
     d = domain()
     if resource["type"] == "conversation":
         if resource["id"] == "team": return "Time todo"

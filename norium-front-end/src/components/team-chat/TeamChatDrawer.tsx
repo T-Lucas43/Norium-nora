@@ -19,6 +19,7 @@ import TeamNoraDialog, { type NoraDialogInput, type NoraSource } from "./TeamNor
 import TeamNoraMessageTools from "./TeamNoraMessageTools";
 import TeamPollCard, { type TeamPoll } from "./TeamPollCard";
 import { Clock3, Plus } from "lucide-react";
+import WhatsAppAttendanceLink from "../chat/WhatsAppAttendanceLink";
 import TeamMessageText from "./TeamMessageText";
 import TeamStatusDialog from "./TeamStatusDialog";
 import { useTeamPresence } from "./useTeamPresence";
@@ -1269,6 +1270,7 @@ export default function TeamChatDrawer({ open, onClose, onOpen, session, onUnrea
                     {message.quotedMessageId && <div className="team-v3-quote"><div><strong>{quoted?.senderName || "Mensagem anterior"}</strong><p>{quoted?.metadata?.deletedAt ? "Mensagem apagada" : quoted?.text || "Abra o contexto para ler a mensagem citada."}</p></div></div>}
                     {deleted ? <em className="text-xs">Mensagem apagada</em> : message.metadata?.poll ? <TeamPollCard poll={message.metadata.poll as TeamPoll} userId={session.user.id} onVote={(choices) => vote(message, choices)} /> : message.text && <NoraMessageContent message={message} />}
                     {Boolean(message.metadata?.editedAt) && !deleted && <small>editada</small>}
+                    <WhatsAppAttendanceLink metadata={message.metadata} />
                     <TeamResourceCards cards={collaboration.cards[message.id] || []} />
                     <TeamNoraMessageTools message={message} request={collaboration.request} onSource={source => void openNoraSource(source)} enabled={noraAllowed} onTask={canUse(session.user, "tarefas") ? () => setProductivity({ action: "task", source: message }) : undefined} onSchedule={() => noraSchedule(message)} />
                     {Boolean(message.metadata?.pinnedAt) && <small className="team-v3-pin-label"><Pin size={11} />Fixada</small>}

@@ -198,6 +198,7 @@ export type Contact = {
 export type HistoryPage = {
   items: MsgConteudo[];
   cursor: number | null;
+  cursorId?: string | null;
   hasMore: boolean;
 };
 
@@ -307,6 +308,7 @@ export function normalizeWhatsAppMessage(value: unknown, index = 0): MsgConteudo
     texto: text || placeholder,
     tipo,
     arquivoUrl: mediaUrl || undefined,
+    miniaturaUrl: firstText(raw.miniaturaUrl) || undefined,
     arquivoMime: mime || undefined,
     duracaoAudio: firstText(raw.duracaoAudio, raw.duration, audio.seconds) || undefined,
     nomeArquivo: firstText(raw.nomeArquivo, raw.filename, raw.fileName, documentMessage.fileName) || undefined,
@@ -337,6 +339,8 @@ export function normalizeWhatsAppConversation(value: unknown): ChatConversa | nu
   const contactName = firstText(raw.contato, raw.name, raw.chatName, raw.notify, raw.subject, metadata.notify, metadata.verifiedName, id);
   return {
     id,
+    assignee: raw.assignee,
+    attendanceRef: raw.attendanceRef,
     contato: contactName,
     canal: "whatsapp",
     channel: "whatsapp",
@@ -390,9 +394,10 @@ export function normalizeWhatsAppContact(value: unknown): Contact | null {
   };
 }
 
-export const whatsappApi = {
+export function createWhatsAppApi(request: typeof apiRequest = apiRequest) {
+const client = {
   async consentStatus(signal?: AbortSignal) {
-    return apiRequest<ConsentInfo>("/api/chat/consentimento", {
+    return request<ConsentInfo>("/api/chat/consentimento", {
       cache: "no-store",
       timeoutMs: 15_000,
       signal,
@@ -400,7 +405,7 @@ export const whatsappApi = {
   },
 
   async acceptConsent(termVersion?: string) {
-    return apiRequest<ConsentInfo>("/api/chat/consentimento", {
+    return request<ConsentInfo>("/api/chat/consentimento", {
       method: "POST",
       body: JSON.stringify({ aceito: true, versao: termVersion ?? null }),
       timeoutMs: 20_000,
@@ -408,7 +413,7 @@ export const whatsappApi = {
   },
 
   async status(signal?: AbortSignal, live = false) {
-    const payload = await apiRequest<{ whatsapp: WhatsAppConnection }>(`/api/chat/status-canais${live ? "?live=true" : ""}`, {
+    const payload = await request<{ whatsapp: WhatsAppConnection }>(`/api/chat/status-canais${live ? "?live=true" : ""}`, {
       cache: "no-store",
       timeoutMs: live ? 12_000 : 6_000,
       signal,
@@ -417,7 +422,7 @@ export const whatsappApi = {
   },
 
   async start(signal?: AbortSignal, plan?: "lite" | "pro" | null) {
-    return apiRequest<Pick<WhatsAppConnection, "status" | "qrcode" | "plano" | "provider" | "providerLabel" | "requiresPlanSelection">>("/api/chat/inicializar-login", {
+    return request<Pick<WhatsAppConnection, "status" | "qrcode" | "plano" | "provider" | "providerLabel" | "requiresPlanSelection">>("/api/chat/inicializar-login", {
       method: "POST",
       body: JSON.stringify({ canal: "whatsapp", plano: plan ?? null }),
       timeoutMs: 20_000,
@@ -426,7 +431,7 @@ export const whatsappApi = {
   },
 
   async disconnect() {
-    return apiRequest<{ status: string }>("/api/chat/desconectar", {
+    return request<{ status: string }>("/api/chat/desconectar", {
       method: "POST",
       body: JSON.stringify({}),
       timeoutMs: 40_000,
@@ -434,11 +439,12 @@ export const whatsappApi = {
   },
 
   async conversations(since?: number, refresh = false) {
+    if (!since) return client.conversationPage(0, "", undefined, refresh);
     const params = new URLSearchParams();
     if (since && since > 0) params.set("since", String(since));
     if (refresh) params.set("refresh", "true");
     const query = params.size ? `?${params.toString()}` : "";
-    const payload = await apiRequest<unknown[] | { items: unknown[]; cursor: number; hasMore: boolean }>(
+    const payload = await request<unknown[] | { items: unknown[]; cursor: number; hasMore: boolean }>(
       `/api/chat/conversas${query}`,
       { timeoutMs: refresh ? 12_000 : 8_000 },
     );
@@ -447,8 +453,8 @@ export const whatsappApi = {
       // Um lote de metadados pode atualizar centenas de grupos no mesmo segundo.
       // O snapshot completo evita avançar o cursor além dos itens não entregues.
       const [full, groupPayload] = await Promise.all([
-        apiRequest<unknown[]>("/api/chat/conversas", { timeoutMs: 12_000 }),
-        apiRequest<{ items: unknown[] }>("/api/chat/grupos", { timeoutMs: 12_000 }),
+        client.allConversationSummaries(),
+        request<{ items: unknown[] }>("/api/chat/grupos", { timeoutMs: 12_000 }),
       ]);
       const items = new Map(normalizeItems(groupPayload.items || []).map(item => [item.id, item]));
       normalizeItems(full).forEach(item => items.set(item.id, item));
@@ -457,8 +463,37 @@ export const whatsappApi = {
     return Array.isArray(payload) ? normalizeItems(payload) : { ...payload, items: normalizeItems(payload.items || []) };
   },
 
+  async conversationPage(offset = 0, search = "", signal?: AbortSignal, refresh = false): Promise<{
+    items: ChatConversa[]; total: number; nextOffset: number | null; cursor: number; hasMore: boolean;
+  }> {
+    const params = new URLSearchParams({ paged: "true", offset: String(offset), limit: "100" });
+    if (search.trim()) params.set("search", search.trim());
+    if (refresh) params.set("refresh", "true");
+    const payload = await request<unknown[] | { items: unknown[]; total: number; nextOffset: number | null; cursor: number }>(
+      `/api/chat/conversas?${params}`, { timeoutMs: 12_000, signal });
+    const items = (Array.isArray(payload) ? payload : payload.items || []).map(normalizeWhatsAppConversation)
+      .filter((item): item is ChatConversa => Boolean(item));
+    if (!Array.isArray(payload) && payload.nextOffset !== null &&
+      (!Number.isSafeInteger(payload.nextOffset) || payload.nextOffset <= offset)) throw new Error("Cursor de conversas inválido.");
+    return Array.isArray(payload) ? { items, total: items.length, nextOffset: null, cursor: 0, hasMore: false }
+      : { ...payload, items, hasMore: false };
+  },
+
+  async allConversationSummaries(): Promise<ChatConversa[]> {
+    const items = new Map<string, ChatConversa>();
+    let offset: number | null = 0;
+    for (let page = 0; page < 500 && offset !== null; page++) {
+      const response = await client.conversationPage(offset);
+      response.items.forEach(item => items.set(item.id, item));
+      if (response.nextOffset !== null && response.nextOffset <= offset) throw new Error("Cursor de conversas inválido.");
+      offset = response.nextOffset;
+    }
+    if (offset !== null) throw new Error("Catálogo de conversas excedeu o limite de páginas.");
+    return [...items.values()];
+  },
+
   async details(conversationId: string) {
-    const payload = await apiRequest<unknown>(`/api/chat/conversas/${encodeURIComponent(conversationId)}/detalhes`, {
+    const payload = await request<unknown>(`/api/chat/conversas/${encodeURIComponent(conversationId)}/detalhes`, {
       timeoutMs: 30_000,
     });
     const normalized = normalizeWhatsAppConversation(payload);
@@ -466,27 +501,29 @@ export const whatsappApi = {
     return normalized;
   },
 
-  async history(conversationId: string, before?: number | null, limit = 50) {
+  async history(conversationId: string, before?: number | null, limit = 50, beforeId?: string | null) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (before) params.set("before", String(before));
-    const payload = await apiRequest<{ items?: unknown[]; cursor?: number | null; hasMore?: boolean }>(
+    if (before && beforeId) params.set("beforeId", beforeId);
+    const payload = await request<{ items?: unknown[]; cursor?: number | null; cursorId?: string | null; hasMore?: boolean }>(
       `/api/chat/conversas/${encodeURIComponent(conversationId)}/mensagens?${params.toString()}`,
       { timeoutMs: 30_000 },
     );
     return {
       items: (payload.items || []).map(normalizeWhatsAppMessage).filter((item): item is MsgConteudo => Boolean(item)),
       cursor: payload.cursor ?? null,
+      cursorId: payload.cursorId ?? null,
       hasMore: Boolean(payload.hasMore),
     };
   },
 
   async contacts() {
-    const payload = await apiRequest<unknown[]>("/api/chat/contatos-disponiveis", { timeoutMs: 8_000 });
+    const payload = await request<unknown[]>("/api/chat/contatos-disponiveis", { timeoutMs: 8_000 });
     return payload.map(normalizeWhatsAppContact).filter((item): item is Contact => Boolean(item));
   },
 
   async syncStatus(signal?: AbortSignal) {
-    return apiRequest<WhatsAppSyncProgress>("/api/chat/sincronizacao", {
+    return request<WhatsAppSyncProgress>("/api/chat/sincronizacao", {
       cache: "no-store",
       timeoutMs: 8_000,
       signal,
@@ -494,7 +531,7 @@ export const whatsappApi = {
   },
 
   async startSync() {
-    return apiRequest<WhatsAppSyncProgress>("/api/chat/sincronizacao", {
+    return request<WhatsAppSyncProgress>("/api/chat/sincronizacao", {
       method: "POST",
       body: JSON.stringify({}),
       timeoutMs: 10_000,
@@ -502,7 +539,7 @@ export const whatsappApi = {
   },
 
   async statuses(signal?: AbortSignal) {
-    return apiRequest<WhatsAppStatusFeed>("/api/chat/status-whatsapp", {
+    return request<WhatsAppStatusFeed>("/api/chat/status-whatsapp", {
       cache: "no-store",
       timeoutMs: 8_000,
       signal,
@@ -510,7 +547,7 @@ export const whatsappApi = {
   },
 
   async markStatusViewed(statusId: string) {
-    return apiRequest<{ status: string }>(`/api/chat/status-whatsapp/${encodeURIComponent(statusId)}/visualizar`, {
+    return request<{ status: string }>(`/api/chat/status-whatsapp/${encodeURIComponent(statusId)}/visualizar`, {
       method: "POST",
       body: JSON.stringify({}),
       timeoutMs: 30_000,
@@ -518,7 +555,7 @@ export const whatsappApi = {
   },
 
   async profile(signal?: AbortSignal) {
-    return apiRequest<WhatsAppProfile | { profile: WhatsAppProfile }>("/api/chat/perfil-whatsapp", {
+    return request<WhatsAppProfile | { profile: WhatsAppProfile }>("/api/chat/perfil-whatsapp", {
       cache: "no-store",
       timeoutMs: 6_000,
       signal,
@@ -526,7 +563,7 @@ export const whatsappApi = {
   },
 
   async channels(signal?: AbortSignal) {
-    return apiRequest<WhatsAppChannelFeed>("/api/chat/canais", {
+    return request<WhatsAppChannelFeed>("/api/chat/canais", {
       cache: "no-store",
       timeoutMs: 8_000,
       signal,
@@ -534,7 +571,7 @@ export const whatsappApi = {
   },
 
   async groups(signal?: AbortSignal) {
-    return apiRequest<{ items: unknown[] } | unknown[]>("/api/chat/grupos", {
+    return request<{ items: unknown[] } | unknown[]>("/api/chat/grupos", {
       cache: "no-store",
       timeoutMs: 8_000,
       signal,
@@ -542,7 +579,7 @@ export const whatsappApi = {
   },
 
   async groupDetails(groupId: string) {
-    return apiRequest<ChatConversa | { group: unknown }>(`/api/chat/grupos/${encodeURIComponent(groupId)}`, {
+    return request<ChatConversa | { group: unknown }>(`/api/chat/grupos/${encodeURIComponent(groupId)}`, {
       cache: "no-store",
       timeoutMs: 35_000,
     });
@@ -550,13 +587,13 @@ export const whatsappApi = {
 
   async markConversation(conversationId: string, action: "lida" | "fixada" | "favorita" | "silenciada" | "arquivada", value: boolean) {
     if (action === "favorita") {
-      return apiRequest<{ status: string }>("/api/chat/favoritar", {
+      return request<{ status: string }>("/api/chat/favoritar", {
         method: "PATCH",
         body: JSON.stringify({ conversa_id: conversationId, valor: value }),
         timeoutMs: 25_000,
       });
     }
-    return apiRequest<{ status: string }>("/api/chat/modificar", {
+    return request<{ status: string }>("/api/chat/modificar", {
       method: "PATCH",
       body: JSON.stringify({ conversa_id: conversationId, acao: action, valor: value }),
       timeoutMs: 25_000,
@@ -564,7 +601,7 @@ export const whatsappApi = {
   },
 
   async sendText(conversationId: string, text: string, quotedId?: string) {
-    return apiRequest<{ status: string }>("/api/chat/enviar", {
+    return request<{ status: string }>("/api/chat/enviar", {
       method: "POST",
       body: JSON.stringify({
         conversa_id: conversationId,
@@ -586,7 +623,7 @@ export const whatsappApi = {
     quotedId?: string;
     viewOnce?: boolean;
   }) {
-    return apiRequest<{ status: string }>("/api/chat/enviar-arquivo", {
+    return request<{ status: string }>("/api/chat/enviar-arquivo", {
       method: "POST",
       body: JSON.stringify({
         conversa_id: payload.conversationId,
@@ -604,7 +641,7 @@ export const whatsappApi = {
   },
 
   async react(conversationId: string, messageId: string, emoji: string) {
-    return apiRequest<{ status: string; emoji: string }>("/api/chat/reagir", {
+    return request<{ status: string; emoji: string }>("/api/chat/reagir", {
       method: "POST",
       body: JSON.stringify({ conversa_id: conversationId, mensagem_id: messageId, emoji }),
       timeoutMs: 45_000,
@@ -612,7 +649,7 @@ export const whatsappApi = {
   },
 
   async deleteMessage(conversationId: string, messageId: string, forEveryone = false) {
-    return apiRequest<{ status: string }>("/api/chat/apagar-mensagem", {
+    return request<{ status: string }>("/api/chat/apagar-mensagem", {
       method: "POST",
       body: JSON.stringify({ conversa_id: conversationId, mensagem_id: messageId, para_todos: forEveryone }),
       timeoutMs: 45_000,
@@ -620,7 +657,7 @@ export const whatsappApi = {
   },
 
   async editMessage(conversationId: string, messageId: string, text: string) {
-    return apiRequest<{ status: string }>("/api/chat/editar-mensagem", {
+    return request<{ status: string }>("/api/chat/editar-mensagem", {
       method: "PATCH",
       body: JSON.stringify({ conversa_id: conversationId, mensagem_id: messageId, texto: text.trim() }),
       timeoutMs: 45_000,
@@ -628,25 +665,29 @@ export const whatsappApi = {
   },
 
   async deleteConversation(conversationId: string) {
-    return apiRequest<{ status: string }>(`/api/chat/conversas/${encodeURIComponent(conversationId)}`, {
+    return request<{ status: string }>(`/api/chat/conversas/${encodeURIComponent(conversationId)}`, {
       method: "DELETE",
       timeoutMs: 45_000,
     });
   },
 
-  async forwardMessages(destinationId: string, messageIds: string[]) {
-    return apiRequest<{ status: string }>("/api/chat/encaminhar", {
+  async forwardMessages(destinationId: string, messageIds: string[], sourceId?: string) {
+    return request<{ status: string }>("/api/chat/encaminhar", {
       method: "POST",
-      body: JSON.stringify({ destino_id: destinationId, mensagens_ids: messageIds }),
+      body: JSON.stringify({ destino_id: destinationId, mensagens_ids: messageIds, ...(sourceId && request !== apiRequest ? { origem_id: sourceId } : {}) }),
       timeoutMs: 60_000,
     });
   },
 
   async createGroup(name: string, participants: string[]) {
-    return apiRequest<{ status: string; group: unknown }>("/api/chat/grupos", {
+    return request<{ status: string; group: unknown }>("/api/chat/grupos", {
       method: "POST",
       body: JSON.stringify({ nome: name, participantes: participants }),
       timeoutMs: 60_000,
     });
   },
 };
+return client;
+}
+
+export const whatsappApi = createWhatsAppApi();

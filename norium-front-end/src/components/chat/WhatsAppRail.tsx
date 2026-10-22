@@ -1,4 +1,4 @@
-import { CircleDot, ContactRound, MessageCircle, RadioTower, UsersRound } from "lucide-react";
+import { CircleDot, ContactRound, MessageCircle, RadioTower, Settings, UsersRound } from "lucide-react";
 import { useState } from "react";
 import type { WhatsAppProfile } from "./whatsappApi";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
@@ -12,6 +12,7 @@ interface WhatsAppRailProps {
   online: boolean;
   profile?: WhatsAppProfile | null;
   onSelect: (section: WhatsAppSection) => void;
+  onSettings?: () => void;
 }
 
 function ProfileButton({ profile, active, online, onClick }: { profile?: WhatsAppProfile | null; active: boolean; online: boolean; onClick: () => void }) {
@@ -44,7 +45,7 @@ function ProfileButton({ profile, active, online, onClick }: { profile?: WhatsAp
   );
 }
 
-export default function WhatsAppRail({ section, unreadCount, statusUnreadCount = 0, online, profile, onSelect }: WhatsAppRailProps) {
+export default function WhatsAppRail({ section, unreadCount, statusUnreadCount = 0, online, profile, onSelect, onSettings }: WhatsAppRailProps) {
   const items: Array<{ id: Exclude<WhatsAppSection, "profile">; label: string; icon: typeof MessageCircle; badge?: number }> = [
     { id: "conversations", label: "Conversas", icon: MessageCircle, badge: unreadCount },
     { id: "status", label: "Status", icon: CircleDot, badge: statusUnreadCount },
@@ -79,7 +80,8 @@ export default function WhatsAppRail({ section, unreadCount, statusUnreadCount =
         })}
       </div>
 
-      <div className="mt-auto">
+      <div className="mt-auto flex flex-col items-center gap-4">
+        {onSettings && <button type="button" className="nx-conv-rail-btn" onClick={onSettings} aria-label="Configuracoes" title="Configurações"><Settings size={18} /></button>}
         <ProfileButton profile={profile} active={section === "profile"} online={online} onClick={() => onSelect("profile")} />
       </div>
     </nav>

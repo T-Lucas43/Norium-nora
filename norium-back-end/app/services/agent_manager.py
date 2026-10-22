@@ -68,7 +68,7 @@ class AgentManager:
         instrucao: Optional[str] = None,
         tom_atendente: Optional[str] = None,
     ) -> Dict[str, Any]:
-        history = await build_conversation_history(conversa_id, limit=30, user_id=user_id)
+        history = await build_conversation_history(conversa_id, limit=12, user_id=user_id)
         empty_context = is_empty_history(history)
 
         if empty_context:

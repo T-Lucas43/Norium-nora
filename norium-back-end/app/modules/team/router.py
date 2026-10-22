@@ -778,6 +778,8 @@ async def append_team_message_for_user(
     sender_avatar: str = "nora",
     metadata: dict[str, Any] | None = None,
     attachments: list[dict[str, Any]] | None = None,
+    recipient_ids: set[str] | None = None,
+    event_key: str | None = None,
 ) -> dict[str, Any]:
     team_id = await team_id_for_user_id(user_id)
     from app.services.task_activity import activity_projects, is_task_activity, project_visible
@@ -793,12 +795,21 @@ async def append_team_message_for_user(
                       if item.get("status") == "ativo"
                       and str(item.get("teamOwnerId") or item.get("id")) == team_id
                       and all(project_visible(reference, str(item.get("id") or "")) for reference in references)}
+    if recipient_ids is not None:
+        directory = (await read_user_store()).get("users", [])
+        eligible = {str(item["id"]) for item in directory if item.get("id") and item.get("status") == "ativo"
+                    and team_id_for(item) == team_id}
+        if not recipient_ids or len(recipient_ids) > 100 or not recipient_ids <= eligible:
+            raise HTTPException(403, "Destinatário interno indisponível.")
+        recipients = set(recipient_ids) if recipients is None else recipients & recipient_ids
+    if event_key is not None and (not event_key or len(event_key) > 180 or attachments):
+        raise HTTPException(422, "Identificação de aviso interno inválida.")
     stored_attachments = save_attachments([
         AttachmentPayload.model_validate(item)
         for item in (attachments or [])
     ], owner_id=team_id)
     message = {
-        "id": f"team_msg_{uuid.uuid4().hex}",
+        "id": f"team_msg_{uuid.uuid5(uuid.NAMESPACE_URL, team_id + ':' + event_key).hex if event_key is not None else uuid.uuid4().hex}",
         "threadId": "team",
         "scope": "team",
         "senderId": sender_id,
@@ -814,6 +825,10 @@ async def append_team_message_for_user(
         message["activityRecipientIds"] = sorted(recipients)
     async with team_chat_lock(team_id):
         store = await asyncio.to_thread(read_chat_store, team_id)
+        if event_key is not None:
+            previous = next((row for row in store.get("messages", []) if row.get("id") == message["id"]), None)
+            if previous is not None:
+                return previous
         store.setdefault("messages", []).append(message)
         await asyncio.to_thread(write_chat_store, team_id, store)
     if recipients is None:

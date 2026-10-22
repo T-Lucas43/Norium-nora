@@ -17,6 +17,7 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
+from weakref import WeakValueDictionary
 
 from fastapi import HTTPException
 
@@ -3812,6 +3813,9 @@ async def audit_proposal_created_from_pdf(user: dict[str, Any], result: dict[str
         )
 
 
+_pdf_audit_guards: WeakValueDictionary[tuple[int, str, str], asyncio.Lock] = WeakValueDictionary()
+
+
 async def ensure_pdf_creation_audit(user: dict[str, Any], result: dict[str, Any]) -> bool:
     """Garante a auditoria de criação do rascunho derivado de PDF, uma vez só.
 
@@ -3821,17 +3825,24 @@ async def ensure_pdf_creation_audit(user: dict[str, Any], result: dict[str, Any]
     recuperar a auditoria nunca autoriza nova criação nem duplica o registro.
     """
     from app.modules.operations.repository import AUDIT_DB, list_items
+    from app.core.tenant import get_user_db_path
 
     proposal = result["proposal"]
     entity_id = str(proposal.get("id") or "")
     user_id = require_user_id(user)
-    existing = await list_items(user_id, AUDIT_DB)
-    if any(
-        item.get("action") == "proposal_created_from_pdf"
-        and str(item.get("entityId") or "") == entity_id
-        for item in existing
-        if isinstance(item, dict)
-    ):
-        return False
-    await audit_proposal_created_from_pdf(user, result)
-    return True
+    # The supported runtime has one Uvicorn worker. Keep the persisted check,
+    # audit and notification in one critical section for confirm/cancel/retry.
+    # Weak values release unused guards, and the path includes the workspace.
+    key = (id(asyncio.get_running_loop()), str(get_user_db_path(user_id, AUDIT_DB)), entity_id)
+    guard = _pdf_audit_guards.setdefault(key, asyncio.Lock())
+    async with guard:
+        existing = await list_items(user_id, AUDIT_DB)
+        if any(
+            item.get("action") == "proposal_created_from_pdf"
+            and str(item.get("entityId") or "") == entity_id
+            for item in existing
+            if isinstance(item, dict)
+        ):
+            return False
+        await audit_proposal_created_from_pdf(user, result)
+        return True

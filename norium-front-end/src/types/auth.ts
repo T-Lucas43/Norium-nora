@@ -20,7 +20,9 @@ export type PermissionKey =
   | "integracao_gmail"
   | "integracao_whatsapp"
   | "integracao_agenda"
-  | "integracao_financeiro";
+  | "integracao_financeiro"
+  | "whatsapp.atender"
+  | "whatsapp.ver_todas";
 
 export type UserRole = "owner" | "member";
 export type SystemAdminRole = "owner" | "assistant";
@@ -101,11 +103,14 @@ export const permissionLabels: Record<PermissionKey, string> = {
   integracao_whatsapp: "Integracao WhatsApp",
   integracao_agenda: "Integracao Agenda",
   integracao_financeiro: "Integracao financeiro",
+  "whatsapp.atender": "Atender WhatsApp da equipe",
+  "whatsapp.ver_todas": "Ver e reatribuir todos os atendimentos",
 };
 
 export const permissionGroups: Array<{ title: string; keys: PermissionKey[] }> = [
   { title: "Telas", keys: ["dashboard", "central", "emails", "agenda", "chat", "tarefas", "gastos", "automacoes", "relatorios", "propostas", "navegador", "conhecimento", "marketplace", "modelos", "perfil"] },
   { title: "IA e equipe", keys: ["nora", "equipe", "admin"] },
+  { title: "Atendimento WhatsApp", keys: ["whatsapp.atender", "whatsapp.ver_todas"] },
   { title: "Integracoes", keys: ["integracao_gmail", "integracao_whatsapp", "integracao_agenda", "integracao_financeiro"] },
 ];
 
@@ -132,6 +137,8 @@ export const defaultMemberPermissions: PermissionMap = {
   integracao_whatsapp: false,
   integracao_agenda: false,
   integracao_financeiro: false,
+  "whatsapp.atender": false,
+  "whatsapp.ver_todas": false,
 };
 
 export const ownerPermissions: PermissionMap = {
@@ -157,6 +164,8 @@ export const ownerPermissions: PermissionMap = {
   integracao_whatsapp: true,
   integracao_agenda: true,
   integracao_financeiro: true,
+  "whatsapp.atender": true,
+  "whatsapp.ver_todas": true,
 };
 
 export function normalizePermissions(value?: Partial<PermissionMap> | null, fallback: PermissionMap = defaultMemberPermissions): PermissionMap {

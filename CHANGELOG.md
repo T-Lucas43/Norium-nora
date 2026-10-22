@@ -1,5 +1,21 @@
 # Changelog
 
+## [Não publicado] — WhatsApp, 21/10/2026
+
+- feat(whatsapp): etiquetas com estados mistos, busca e criação no cadastro comum; seleção de até 200 contatos com lote atômico, atribuição/resolução versionadas e metadados locais de arquivo/leitura.
+- feat(whatsapp): filtros por etiqueta, responsável, estado, período, grupo e não lidas antes da paginação; visões pessoais/compartilhadas no armazenamento de negócios existente.
+- fix(whatsapp): ferramentas sem recorte, diálogos responsivos com rolagem e falha isolada de consultas opcionais, preservando a tela de conversas.
+- feat(whatsapp): caixa de equipe opcional por workspace e vínculo, permissões de atendimento, responsável/estado, rodízio online desligado por padrão e ações autenticadas sobre a instância compartilhada.
+- feat(whatsapp): notas internas com menções privadas, histórico de atendimento, fotos/presença dos responsáveis e atualização pelo socket existente; notas nunca passam pelo adaptador de envio.
+- fix(whatsapp): exportação e anonimização de contribuições, retenção incremental de notas/eventos sem remover a autoridade do atendimento e invalidação da caixa após reatribuição.
+- fix(whatsapp): histórico acima de 250 mensagens pelo PostgreSQL privado da Evolution, com cursor estável e referências antigas para mídia e ações; visibilidade local, reações e retenção isoladas por conta, workspace e vínculo.
+- fix(whatsapp): paginação do histórico Evolution com cursor persistente, deduplicação e guarda contra troca de instância; histórico recebido não dispara novas ações.
+- feat(whatsapp): lista paginada e virtualizada, busca no histórico sincronizado e etiquetas visíveis em lote por conta, workspace e vínculo.
+- feat(whatsapp): invalidações no WebSocket existente, agrupamento de eventos e reserva de leitura de 120 segundos com a aba visível.
+- style(whatsapp): layout claro/escuro dos PDFs, navegação móvel, menus preservados e painel com preferência por usuário e cache curto.
+- feat(whatsapp): busca com destaque e navegação, galeria autenticada com teclado e miniaturas limitadas sem baixar o original.
+- fix(whatsapp): tradução de mensagem sob demanda pela Nora com minimização, permissão e medição em tokens; erros do provedor não aparecem como tradução.
+
 ## [Não publicado] — expansão, 19/10/2026
 
 - feat(nora): diagnóstico de configuração autenticado para administradores em Consumo da Nora, sem exibir credenciais ou ativar provedores.

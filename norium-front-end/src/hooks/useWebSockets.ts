@@ -31,6 +31,10 @@ type SocketMessage = {
   type?: string;
   jobId?: string;
   workspace?: string;
+  ownerId?: string;
+  inboxId?: string;
+  area?: string;
+  revision?: number;
   event?: OmnichannelEvent;
   notification?: Partial<SystemNotification>;
   title?: string;
@@ -354,6 +358,7 @@ export function useWebSockets(
 
   const handleTeamSocketEvent = useCallback((payload: TeamSocketEvent) => {
     if (currentUserIdRef.current !== userId) return;
+    if (["TEAM_PRESENCE_CONTEXT", "PRESENCE", "CONNECTED"].includes(payload.type || "")) window.dispatchEvent(new Event("norium:team-presence-changed"));
     if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) notifyTeamMessage(payload.message);
     if (payload.type === "CALL_END" && payload.callId) {
       endedTeamCallIdsRef.current.add(payload.callId);
@@ -504,6 +509,9 @@ export function useWebSockets(
       if (lastConnectionStateRef.current === state) return;
       const hadOpenedBefore = hasOpenedRef.current;
       lastConnectionStateRef.current = state;
+      window.dispatchEvent(new CustomEvent("norium:omnichannel-connection", {
+        detail: { ownerId: currentUserIdRef.current, state },
+      }));
 
       if (state === "online") {
         setConnected(true);
@@ -609,6 +617,12 @@ export function useWebSockets(
         if (currentUserIdRef.current !== userId) return;
         try {
           const payload = JSON.parse(String(message.data)) as SocketMessage;
+
+          if (payload.type === "WHATSAPP_CONVERSATION_UPDATED") {
+            if (payload.ownerId !== userId) return;
+            window.dispatchEvent(new CustomEvent("norium:whatsapp-event", { detail: { ownerId: payload.ownerId, inboxId: payload.inboxId, area: payload.area, revision: payload.revision } }));
+            return;
+          }
 
           if (payload.type === "NEW_EVENT" && payload.event) {
             if (!eventBelongsToUser(payload.event, userId)) return;

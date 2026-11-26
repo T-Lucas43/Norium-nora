@@ -57,3 +57,20 @@ export const noraChatApi = {
     );
   },
 };
+
+export function inboxNoraChatApi(inboxId?: string): typeof noraChatApi {
+  if (!inboxId) return noraChatApi;
+  const prepare = async (conversationId: string, action: string, instruction = "") => {
+    const data = await apiRequest<{ response?: string }>(
+      `/api/chat/caixas/${encodeURIComponent(inboxId)}/conversas/${encodeURIComponent(conversationId)}/nora`,
+      { method: "POST", timeoutMs: 60_000, body: JSON.stringify({ action, instruction }) },
+    );
+    return requiredText(data.response, "A Nora não retornou um texto para revisar.");
+  };
+  return {
+    suggestReply: (id, instruction) => prepare(id, "reply", instruction),
+    summarizeConversation: id => prepare(id, "summary"),
+    runCustomAction: (id, instruction) => prepare(id, "custom", instruction),
+    improveDraft: (id, draft, instruction) => prepare(id, "custom", `Revise o texto conforme a instrução. Retorne somente a versão final, sem enviar.\nInstrução: ${instruction.trim()}\nTexto: ${draft.trim()}`),
+  };
+}

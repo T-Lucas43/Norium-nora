@@ -18,8 +18,8 @@ vi.mock("./SidebarEsquerda", () => ({
   ),
 }));
 vi.mock("./AreaCentralChat", () => ({
-  default: ({ conversaAtiva }: { conversaAtiva?: { contato: string } }) => (
-    <div data-testid="active-chat">{conversaAtiva?.contato || "Nenhuma conversa"}</div>
+  default: ({ conversaAtiva, onAbrirDadosPerfil }: { conversaAtiva?: { contato: string }; onAbrirDadosPerfil: () => void }) => (
+    <div><div data-testid="active-chat">{conversaAtiva?.contato || "Nenhuma conversa"}</div><button type="button" onClick={onAbrirDadosPerfil} aria-label="Dados">Dados</button></div>
   ),
 }));
 vi.mock("./PainelDireito", () => ({ default: () => null }));
@@ -60,6 +60,9 @@ describe("novo chat pela lista de contatos", () => {
     await user.click(screen.getByRole("button", { name: /Joao da Silva/ }));
 
     expect(await screen.findByTestId("active-chat")).toHaveTextContent("Joao da Silva");
+    expect(api.history).toHaveBeenCalledWith("5511999999999@c.us", undefined);
+    expect(api.details).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Dados" }));
     expect(api.details).toHaveBeenCalledWith("5511999999999@c.us");
   });
 });

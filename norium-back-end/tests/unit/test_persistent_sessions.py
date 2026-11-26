@@ -221,7 +221,11 @@ class SessionHttpTests(TemporarySessionFixture, unittest.TestCase):
         return response
 
     def test_persistent_cookie_and_short_access(self):
-        response = self.login()
+        # Session creation and cookie emission must observe the same second.
+        now = int(time.time())
+        with patch.object(sessions, "time") as clock, patch.object(session_http, "time", clock):
+            clock.time.return_value = now
+            response = self.login()
         cookies = response.headers.get_list("set-cookie")
         for value in cookies:
             self.assertIn("HttpOnly", value)

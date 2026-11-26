@@ -8,6 +8,7 @@ export interface MsgConteudo {
   texto?: string;
   tipo: "texto" | "audio" | "documento" | "midia" | "sticker";
   arquivoUrl?: string;
+  miniaturaUrl?: string;
   arquivoMime?: string;
   duracaoAudio?: string;
   nomeArquivo?: string;
@@ -46,6 +47,7 @@ export interface ParticipanteGrupo {
 
 export interface PerfilMetadados {
   numeroCompleto: string;
+  identityAliases?: string[];
   notify?: string;
   username?: string;
   bioRecado?: string;
@@ -64,6 +66,8 @@ export interface PerfilMetadados {
 
 export interface ChatConversa {
   id: string;
+  assignee?: { assigneeKind: string; assigneeUserId: string | null; status: "open" | "waiting_customer" | "resolved"; version: number; name?: string };
+  attendanceRef?: string;
   contato: string;
   canal: ChatChannel;
   channel?: ChatChannel;

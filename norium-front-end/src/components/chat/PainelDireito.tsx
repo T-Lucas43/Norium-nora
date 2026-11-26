@@ -5,6 +5,8 @@ import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 import type { ParticipanteGrupo } from "./types";
 import { conversationDisplayName, formatWhatsAppPhone, isTechnicalWhatsAppLabel } from "./contactPicker";
+import { ContactLabels } from "./ContactLabels";
+import MediaGallery from "./MediaGallery";
 
 interface PainelDireitoProps {
   modo: "nora" | "perfil" | "config-propria";
@@ -13,6 +15,7 @@ interface PainelDireitoProps {
   onContinuarConversa?: () => void;
   onStartMemberConversation?: (member: ParticipanteGrupo) => void;
   onAskNora?: (prompt?: string) => void;
+  onForward?: (ids: string[]) => void;
 }
 
 function initials(name: string) {
@@ -25,14 +28,14 @@ function initials(name: string) {
 }
 
 function ProfileAvatar({ conversa }: { conversa: ChatConversa }) {
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState("");
   const photoUrl = useAuthenticatedMedia(conversa.metadados?.photoUrl || conversa.photoUrl);
   const displayName = conversationDisplayName(conversa);
 
   return (
     <div className="h-20 w-20 rounded-full bg-[var(--surface)] border border-[var(--border)] overflow-hidden flex items-center justify-center font-bold text-lg text-[var(--text-secondary)]">
-      {photoUrl && !failed ? (
-        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      {photoUrl && photoUrl !== failed ? (
+        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailed(photoUrl)} />
       ) : conversa.esGrupo ? (
         <Users size={24} />
       ) : !isTechnicalWhatsAppLabel(displayName) ? (
@@ -67,8 +70,9 @@ function memberDisplayName(member: ParticipanteGrupo) {
     : formatWhatsAppPhone(member.phone || member.id) || "Participante do WhatsApp";
 }
 
-export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinuarConversa, onStartMemberConversation, onAskNora }: PainelDireitoProps) {
-  const midiasGaleria = conversaAtiva?.mensagens.filter((mensagem) => mensagem.tipo === "midia") || [];
+export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinuarConversa, onStartMemberConversation, onAskNora, onForward }: PainelDireitoProps) {
+  const [galleryId, setGalleryId] = useState<string | null>(null);
+  const midiasGaleria = conversaAtiva?.mensagens.filter((mensagem) => mensagem.tipo === "midia" && !mensagem.viewOnce) || [];
   const participantes = conversaAtiva?.metadados?.participantes || [];
   const createdValue = conversaAtiva?.metadados?.criadoEm;
   const createdDate = createdValue
@@ -79,6 +83,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
 
   return (
     <aside className="norium-chat-details flex h-full min-h-0 w-[380px] shrink-0 select-none flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--text)]">
+      {galleryId && conversaAtiva && <MediaGallery conversation={conversaAtiva} messageId={galleryId} onSelect={setGalleryId} onClose={() => setGalleryId(null)} onForward={ids => onForward?.(ids)} />}
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--border)]">
         <h4 className="text-[15px] font-semibold">
           {modo === "perfil" && (conversaAtiva?.esGrupo ? "Dados do grupo" : "Dados do contato")}
@@ -97,6 +102,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
           <div className="flex flex-col items-center py-5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-center">
             <ProfileAvatar conversa={conversaAtiva} />
             <h3 className="mt-3 font-bold text-sm px-2 truncate w-full">{displayName}</h3>
+            <ContactLabels contactId={conversaAtiva.id} editable limit={8} />
             <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 px-2">
               <span className="nx-badge is-green">WhatsApp</span>
               {conversaAtiva.metadados?.verifiedName && <span className="inline-flex h-6 items-center gap-1 rounded-full border border-[var(--primary)]/30 px-2 text-xs font-bold text-[var(--primary)]"><BadgeCheck size={12} /> Verificado</span>}
@@ -125,8 +131,8 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
             {midiasGaleria.length > 0 ? (
               <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto">
                 {midiasGaleria.map((midia) => (
-                  <Button key={midia.id} aria-label="Visualizar midia" className="h-12 overflow-hidden">
-                    <PrivateMediaThumbnail source={midia.arquivoUrl} />
+                  <Button key={midia.id} aria-label="Visualizar midia" onClick={() => setGalleryId(midia.id)} className="h-12 overflow-hidden">
+                    <PrivateMediaThumbnail source={midia.miniaturaUrl} />
                   </Button>
                 ))}
               </div>

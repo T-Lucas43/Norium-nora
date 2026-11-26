@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import type { AuthSession } from "../../types/auth";
 import { apiRequest } from "../../core/api/client";
 
-export type PresenceResource = { type: "task" | "client" | "project" | "conversation" | "meeting"; id: string };
+export type PresenceResource = { type: "task" | "client" | "project" | "conversation" | "meeting" | "whatsapp"; id: string };
 export default function TeamPresenceReporter({ session, activeTab }: { session: AuthSession; activeTab: string }) {
   const resource = useRef<PresenceResource | null>(null);
   const clientId = useRef(crypto.randomUUID());
@@ -16,7 +16,7 @@ export default function TeamPresenceReporter({ session, activeTab }: { session: 
       if (!active || !sessionRef.current.user.teamChatEnabled) return;
       const visible = document.visibilityState !== "hidden" && document.hasFocus();
       const current = visible ? resource.current : null;
-      try { await apiRequest("/api/team-chat/presence/context", { method: "PUT", body: JSON.stringify({ clientId: clientId.current, state: activeCall.current || (!visible ? "away" : current?.type === "client" ? "service" : current?.type === "meeting" ? "meeting" : "online"), resource: current }) }); }
+      try { await apiRequest("/api/team-chat/presence/context", { method: "PUT", body: JSON.stringify({ clientId: clientId.current, state: activeCall.current || (!visible ? "away" : ["client", "whatsapp"].includes(current?.type || "") ? "service" : current?.type === "meeting" ? "meeting" : "online"), resource: current }) }); }
       catch { /* Presence never blocks the work screen or retries in a tight loop. */ }
     }
     const onContext = (event: Event) => { resource.current = (event as CustomEvent<PresenceResource | null>).detail; void report(); };

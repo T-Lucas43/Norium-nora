@@ -12,6 +12,8 @@ import mimetypes
 import os
 import re
 import secrets
+import time
+from datetime import datetime, timezone
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
@@ -20,7 +22,7 @@ import httpx
 from app.services.wapi_client import WapiClient, WapiConfig, WapiError
 
 EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "PRESENCE_UPDATE", "SEND_MESSAGE",
-          "CONTACTS_UPSERT", "CONTACTS_UPDATE", "CHATS_UPSERT", "CHATS_UPDATE", "GROUPS_UPSERT", "GROUP_UPDATE"]
+          "CONTACTS_UPSERT", "CONTACTS_UPDATE", "CHATS_SET", "CHATS_UPSERT", "CHATS_UPDATE", "MESSAGES_SET", "GROUPS_UPSERT", "GROUP_UPDATE"]
 _INSTANCE = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 
 
@@ -139,7 +141,7 @@ class EvolutionClient(WapiClient):
         result = await self._call("POST", "/instance/create", token=self.config.master_api_key, timeout=40,
                                  body={"instanceName": name, "token": token, "integration": "WHATSAPP-BAILEYS",
                                        "qrcode": False, "readMessages": False, "readStatus": False, "alwaysOnline": False,
-                                       "syncFullHistory": False, "rejectCall": False, "groupsIgnore": False,
+                                       "syncFullHistory": True, "rejectCall": False, "groupsIgnore": False,
                                        "webhook": self._hook(webhook_url())})
         remote = result.get("instance", {}) if isinstance(result, dict) else {}
         if remote.get("instanceName") != name or not remote.get("instanceId"):
@@ -153,6 +155,41 @@ class EvolutionClient(WapiClient):
             raise WapiError("Listagem Evolution inválida; criação suspensa.", code="invalid_response")
         return [{"instanceId": row["name"], "instanceName": row["name"], "token": row.get("token", "")}
                 for row in result if isinstance(row, dict) and _INSTANCE.fullmatch(str(row.get("name") or ""))]
+
+    async def fetch_history_page(self, instance_id: str, token: str, phone: str,
+                                 *, page: int = 1, limit: int = 100, until: int | None = None) -> dict[str, Any]:
+        """Read one bounded page from this instance's already available history."""
+        if type(page) is not int or not 1 <= page <= 10000 or type(limit) is not int or not 1 <= limit <= 100:
+            raise WapiError("Página de histórico inválida.", code="invalid_request")
+        remote = jid(phone)
+        anchor = int(time.time()) if until is None else until
+        if type(anchor) is not int or not 1 <= anchor <= 253402300799:
+            raise WapiError("Data do histórico inválida.", code="invalid_request")
+        timestamp = datetime.fromtimestamp(anchor, timezone.utc).isoformat()
+        result = await self._call("POST", f"/chat/findMessages/{self._name(instance_id)}", token=token,
+                                  body={"where": {"key": {"remoteJid": remote, "remoteJidAlt": remote},
+                                                  "messageTimestamp": {"gte": "1970-01-01T00:00:00Z", "lte": timestamp}},
+                                        "page": page, "offset": limit},
+                                  read_only=True)
+        messages = result.get("messages") if isinstance(result, dict) else None
+        if not isinstance(messages, dict) or not isinstance(messages.get("records"), list):
+            raise WapiError("Histórico Evolution inválido.", code="invalid_response")
+        records = messages["records"]
+        if len(records) > limit:
+            raise WapiError("Histórico Evolution excedeu a página solicitada.", code="invalid_response")
+        normalized = []
+        for row in records:
+            if not isinstance(row, dict):
+                continue
+            key = row.get("key") if isinstance(row.get("key"), dict) else {}
+            if remote not in {key.get("remoteJid"), key.get("remoteJidAlt")} or not key.get("id"):
+                continue
+            normalized.append(_message_record(row))
+        pages = messages.get("pages", 1)
+        if type(pages) is not int or pages < 0:
+            raise WapiError("Paginação Evolution inválida.", code="invalid_response")
+        return {"id": remote, "messages": normalized, "page": page,
+                "hasMore": page < pages, "nextPage": page + 1 if page < pages else None, "anchor": anchor}
 
     async def set_webhook(self, instance_id: str, token: str, event: str, url: str) -> dict[str, Any]:
         return await self._call("POST", f"/webhook/set/{self._name(instance_id)}", token=token, body={"webhook": self._hook(url)})
@@ -266,6 +303,8 @@ class EvolutionClient(WapiClient):
                 normalized = {**row, "id": identity, "name": row.get("subject") or row.get("savedName") or row.get("name") or row.get("pushName"),
                               "profilePictureUrl": row.get("profilePicUrl"), "isGroup": str(identity).endswith("@g.us"),
                               "unreadCount": row.get("unreadMessages", row.get("unreadCount", 0))}
+                if normalized["isGroup"]:
+                    normalized["name"] = row.get("subject") or (row.get("name") if row.get("name") != row.get("pushName") else None)
                 if isinstance(normalized.get("lastMessage"), dict):
                     last = normalized["lastMessage"]
                     timestamp = last.get("timestamp") or last.get("messageTimestamp")
@@ -273,17 +312,15 @@ class EvolutionClient(WapiClient):
                     normalized["lastMessageTime"] = timestamp
                     normalized["lastMessage"] = _message_record(last)
                     key = last.get("key") if isinstance(last.get("key"), dict) else {}
-                    if key.get("remoteJid") == identity and isinstance(key.get("remoteJidAlt"), str):
-                        normalized["remoteJidAlt"] = key["remoteJidAlt"]
+                    if identity in (key.get("remoteJid"), key.get("remoteJidAlt")):
+                        alternate = key.get("remoteJidAlt") if key.get("remoteJid") == identity else key.get("remoteJid")
+                        if isinstance(alternate, str):
+                            normalized["remoteJidAlt"] = alternate
                 items.append(normalized)
             return {"data": items, "totalPages": 1}
         if path == "/chats/chat":
             remote = jid(str(query.get("phoneNumber") or ""))
-            result = await call("chat/findMessages", {"where": {"key": {"remoteJid": remote}}, "page": 1, "offset": 100}, read=True)
-            messages = result.get("messages", {}) if isinstance(result, dict) else {}
-            records = [_message_record(row)
-                       for row in messages.get("records", []) if isinstance(row, dict)]
-            return {"id": remote, "messages": records, "hasMore": messages.get("pages", 1) > 1}
+            return await self.fetch_history_page(name, token or "", remote)
         if path == "/contacts/phone-exists":
             result = await call("chat/whatsappNumbers", {"numbers": [str(query.get("phoneNumber") or "")]}, read=True)
             return result[0] if isinstance(result, list) and result else {"exists": False}
@@ -416,7 +453,10 @@ def normalize_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     if not _INSTANCE.fullmatch(instance):
         return {"event": "unknown"}
     event = str(payload.get("event") or "").lower().replace("_", ".")
-    if event in {"contacts.upsert", "contacts.update", "chats.upsert", "chats.update", "groups.upsert", "groups.update", "group.update"}:
+    if event == "messages.set":
+        # History sync is an invalidation, never a burst of new-message actions.
+        return {"instanceId": instance, "event": "history_ready"}
+    if event in {"contacts.upsert", "contacts.update", "chats.set", "chats.upsert", "chats.update", "groups.upsert", "groups.update", "group.update"}:
         raw = payload.get("data")
         rows = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else []
         if len(rows) > 50000:

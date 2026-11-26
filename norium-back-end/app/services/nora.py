@@ -168,8 +168,10 @@ class NoraIAService:
             )
         return payload_messages
 
-    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False, user_id: str | None = None, purpose: str = "routine", usage_source: str | None = None) -> str:
+    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False, user_id: str | None = None, purpose: str = "routine", usage_source: str | None = None, strict_errors: bool = False) -> str:
         if not self.api_key:
+            if strict_errors:
+                raise HTTPException(503, "A Nora está sem provedor de IA configurado.")
             if research:
                 raise NoraResearchUnavailable("configuration")
             return "A Nora está temporariamente sem acesso ao provedor de IA. Configure OPENAI_API_KEY ou GROQ_API_KEY no backend."
@@ -253,10 +255,14 @@ class NoraIAService:
                     break
             if research:
                 raise NoraResearchUnavailable("configuration" if last_status in {401, 403} else "rate_limit" if limited else "provider")
+            if strict_errors:
+                raise HTTPException(503, "O provedor não conseguiu concluir esta solicitação.")
             return self._provider_error(last_status) if last_status != 200 else "Não consegui gerar uma resposta completa agora. Tente novamente em instantes."
         except (NoraIncompleteResponse, NoraResearchUnavailable, HTTPException):
             raise
         except Exception:
+            if strict_errors:
+                raise HTTPException(502, "A Nora não conseguiu concluir esta solicitação.") from None
             if research:
                 raise NoraResearchUnavailable("provider") from None
             return "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."

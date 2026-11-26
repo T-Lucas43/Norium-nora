@@ -160,6 +160,7 @@ export function mergeMessages(current: MsgConteudo[] = [], incoming: MsgConteudo
       ...message,
       texto: message.texto || previous.texto,
       arquivoUrl: message.arquivoUrl || previous.arquivoUrl,
+      miniaturaUrl: message.miniaturaUrl || previous.miniaturaUrl,
       remetenteNome: message.remetenteNome || previous.remetenteNome,
       status: richerMessageStatus(previous.status, message.status),
       reacoes: Array.isArray(message.reacoes) ? message.reacoes : previous.reacoes,
@@ -167,7 +168,7 @@ export function mergeMessages(current: MsgConteudo[] = [], incoming: MsgConteudo
       midiaMeta: hasRecordContent(message.midiaMeta) ? message.midiaMeta : previous.midiaMeta,
     } : message);
   }
-  return [...merged.values()].sort((left, right) => Number(left.timestamp || 0) - Number(right.timestamp || 0));
+  return [...merged.values()].sort((left, right) => Number(left.timestamp || 0) - Number(right.timestamp || 0) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
 }
 
 function contactKeys(contact: Contact) {
@@ -348,11 +349,25 @@ export function enrichConversationsWithContacts(conversations: ChatConversa[], c
 }
 
 export function mergeConversationCatalog(current: ChatConversa[], incoming: ChatConversa[], contacts: Contact[] = []) {
+  // The backend attests aliases from provider records. Never join by name/text.
+  const canonical = new Map<string, string>();
+  incoming.forEach(row => [row.id, ...(row.metadados?.identityAliases || [])].forEach(alias =>
+    whatsappIdentifierKeys(alias).forEach(key => canonical.set(key, row.id))));
+  const identity = (row: ChatConversa) => whatsappIdentifierKeys(row.id).map(key => canonical.get(key)).find(Boolean) || row.id;
+  const compact = (rows: ChatConversa[]) => {
+    const result = new Map<string, ChatConversa>();
+    rows.forEach(row => {
+      const id = identity(row), previous = result.get(id);
+      const latest = previous && Number(previous.timestampUltimaMsg || 0) > Number(row.timestampUltimaMsg || 0) ? previous : row;
+      result.set(id, { ...latest, id, mensagens: mergeMessages(previous?.mensagens, row.mensagens) });
+    });
+    return [...result.values()];
+  };
   const isStatusConversation = (conversation: ChatConversa) => (
     [conversation.id, conversation.metadados?.numeroCompleto].some(isWhatsAppStatusIdentifier)
   );
-  const safeCurrent = current.filter((conversation) => !isStatusConversation(conversation));
-  const safeIncoming = incoming.filter((conversation) => !isStatusConversation(conversation));
+  const safeCurrent = compact(current.filter((conversation) => !isStatusConversation(conversation)));
+  const safeIncoming = compact(incoming.filter((conversation) => !isStatusConversation(conversation)));
   const currentById = new Map(safeCurrent.map((conversation) => [conversation.id, conversation]));
   const merged = safeIncoming.map((conversation) => {
     const previous = currentById.get(conversation.id);

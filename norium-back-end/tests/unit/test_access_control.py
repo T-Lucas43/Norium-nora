@@ -137,7 +137,7 @@ class AccessControlTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value="Resposta"),
         ):
             await manager.draft_message("conversation-1", user_id="tenant-b")
-        history.assert_awaited_once_with("conversation-1", limit=30, user_id="tenant-b")
+        history.assert_awaited_once_with("conversation-1", limit=12, user_id="tenant-b")
 
     async def test_last_system_admin_cannot_remove_own_admin_role(self) -> None:
         admin = account("admin", plan="enterprise", system_admin=True)

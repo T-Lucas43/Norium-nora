@@ -14,6 +14,7 @@ import re
 import secrets
 import shutil
 import socket
+import sys
 import subprocess
 import tempfile
 import weakref
@@ -85,7 +86,7 @@ from app.services.conversation_store import (
     append_outgoing_message,
     delete_conversation,
     delete_message,
-    load_conversations,
+    load_conversations as _load_conversations,
     modify_conversation,
     new_conversation,
     normalize_conversation,
@@ -210,7 +211,7 @@ WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS = max(
     5,
     int(os.getenv("WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS", "15")),
 )
-WHATSAPP_HISTORY_SCHEMA_VERSION = 3
+WHATSAPP_HISTORY_SCHEMA_VERSION = 4
 WHATSAPP_PROFILE_PHOTO_TTL_SECONDS = max(
     3600,
     min(47 * 60 * 60, int(os.getenv("WHATSAPP_PROFILE_PHOTO_TTL_SECONDS", str(36 * 60 * 60)))),
@@ -497,6 +498,25 @@ async def load_whatsapp_catalog_cache(user_id: str) -> Dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+async def load_conversations(user_id: str | None = None) -> Dict[str, Any]:
+    database = await _load_conversations(user_id)
+    if not is_evolution():
+        return database
+    from app.services.whatsapp_identity import coalesce
+    cache = await load_whatsapp_catalog_cache(user_id)
+    records = [*(cache.get("contacts") or []), *(cache.get("chats") or []), *(cache.get("evolutionGroups") or [])]
+    result = coalesce(database, records)
+    names, _, _ = build_contact_indexes(records)
+    for identifier, row in result.items():
+        if is_group_chat(identifier, row):
+            name = _lookup_contact_index(names, identifier)
+            if name:
+                row["contato"] = name
+            elif row.get("contato") == row.get("ultimoRemetenteNome"):
+                row["contato"] = "Grupo do WhatsApp"
+    return result
+
+
 async def save_whatsapp_catalog_cache(user_id: str, payload: Dict[str, Any]) -> None:
     await asyncio.to_thread(write_user_db, user_id, store_name("whatsapp_catalog_cache"), payload)
 
@@ -511,6 +531,8 @@ async def mark_whatsapp_conversation_updated(user_id: str, conversation_id: str)
     # Limita o mapa a conversas recentes para não crescer indefinidamente.
     newest = sorted(updates.items(), key=lambda item: int(item[1] or 0), reverse=True)[:500]
     await save_whatsapp_catalog_cache(user_id, {**cache, "conversationUpdates": dict(newest)})
+    from app.modules.chat.realtime import publish_change
+    await publish_change(user_id, revision=updated_at)
     return updated_at
 
 
@@ -877,6 +899,9 @@ def _contact_saved_name(contact: Dict[str, Any], reference_id: str = "") -> str 
 
 def _contact_display_name(contact: Dict[str, Any], reference_id: str = "") -> str | None:
     """Extrai nomes de contatos/chats nos shapes conhecidos sem aceitar JID."""
+    if is_group_chat(reference_id or _contact_primary_id(contact), contact):
+        keys = ("subject",) if contact.get("pushName") or contact.get("pushname") else ("subject", "name")
+        return _contact_name_from_keys(contact, keys, reference_id)
     return _contact_name_from_keys(
         contact,
         (
@@ -915,6 +940,8 @@ def _build_saved_contact_name_index(
 
     for contact in contact_records:
         jid = _contact_primary_id(contact)
+        if jid.endswith("@g.us"):
+            continue
         explicit_name = _contact_explicit_saved_name(contact, jid)
         saved_name = explicit_name or _contact_saved_name(contact, jid)
         # O catálogo de contatos é mais confiável que o fallback de chats.
@@ -922,6 +949,8 @@ def _build_saved_contact_name_index(
 
     for record in fallback_contact_records:
         jid = _contact_primary_id(record)
+        if jid.endswith("@g.us"):
+            continue
         explicit_name = _contact_explicit_saved_name(record, jid)
         trusted_name = (
             _contact_saved_name(record, jid)
@@ -981,6 +1010,8 @@ def _contact_aliases(contact: Dict[str, Any]) -> set[str]:
         digits = re.sub(r"\D", "", local)
         if digits:
             aliases.update({digits, f"{digits}@c.us", f"{digits}@s.whatsapp.net"})
+    from app.services.whatsapp_identity import record_aliases
+    aliases.update(record_aliases(contact))
     return aliases
 
 
@@ -1053,18 +1084,18 @@ async def _evolution_metadata_snapshot(user_id: str, cache: Dict[str, Any]) -> D
         fresh = time.time() - float(cache.get("evolutionMetadataSyncedAt") or 0) < 900
     except (ValueError, TypeError):
         fresh = False
-    if cache.get("evolutionMetadataVersion") == 1 and fresh:
+    if cache.get("evolutionMetadataVersion") == 1 and cache.get("evolutionWebhookVersion") == 2 and fresh:
         return {"groups": cache.get("evolutionGroups") or [], "updates": {}, "warnings": []}
     creds = wapi_creds(user_id)
     if not creds:
         return {}
     warnings = []
     updates = {}
-    if cache.get("evolutionWebhookVersion") != 1:
+    if cache.get("evolutionWebhookVersion") != 2:
         try:
             from app.services.evolution_client import webhook_url
             await wapi_client.set_webhook(creds[0], creds[1], "received", webhook_url())
-            updates["evolutionWebhookVersion"] = 1
+            updates["evolutionWebhookVersion"] = 2
         except WapiError:
             warnings.append("atualização dos metadados em tempo real indisponível")
 
@@ -2408,6 +2439,15 @@ async def _whatsapp_dispatch_webhook(
     kind: str,
 ) -> Dict[str, Any]:
     data = dict(payload)
+    if is_evolution() and data.get("event") == "history_ready":
+        async with whatsapp_conversation_mutation_lock(owner_user_id):
+            if not _webhook_binding_is_current(owner_user_id, data):
+                return {"status": "ignored", "event": "stale_binding"}
+            cache = await load_whatsapp_catalog_cache(owner_user_id)
+            await save_whatsapp_catalog_cache(owner_user_id, {**cache, "historyAvailableAt": time.time()})
+        from app.modules.chat.realtime import publish_change
+        await publish_change(owner_user_id, "history")
+        return {"status": "success", "event": "history_ready"}
     if is_evolution() and data.get("event") == "catalog":
         return await _apply_evolution_catalog_event(owner_user_id, data)
     if WHATSAPP_WEBHOOK_DEBUG:
@@ -2504,6 +2544,8 @@ async def _apply_evolution_catalog_event(user_id: str, data: Dict[str, Any]) -> 
         cache["conversationUpdates"] = dict(sorted(updates.items(), key=lambda item: int(item[1] or 0), reverse=True)[:500])
         await save_conversations(db, user_id)
         await save_whatsapp_catalog_cache(user_id, cache)
+    from app.modules.chat.realtime import publish_change
+    await publish_change(user_id, "catalog")
     return {"status": "success", "event": "catalog"}
 
 
@@ -2549,12 +2591,22 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
     is_from_me = msg["fromMe"]
 
     db = await load_conversations(user_id)
+    if is_evolution():
+        from app.services.whatsapp_identity import coalesce
+        key = data.get("key") if isinstance(data.get("key"), dict) else {}
+        db = coalesce(db, [{"id": phone, "remoteJidAlt": key.get("remoteJidAlt")}])
+        phone = db.canonical(phone)
+        msg["chatId"] = phone
     # Numa conversa nova aberta por uma msg fromMe (você enviou primeiro, inclusive
     # pelo celular), o "sender" é você — não use isso como nome do contato.
     contato_inicial = phone if is_from_me else (msg["chatName"] or phone)
     conversa = db.get(phone) or new_conversation(
         phone, contato=contato_inicial, channel="whatsapp", is_group=msg["isGroup"]
     )
+    if is_evolution():
+        aliases = set(conversa.get("metadados", {}).get("identityAliases") or [])
+        aliases.update(alias for alias, canonical in db.aliases.items() if canonical == phone)
+        conversa.setdefault("metadados", {})["identityAliases"] = sorted(aliases)[:32]
     mensagens = conversa.setdefault("mensagens", [])
     if any(str(item.get("id") or "") == message_id for item in mensagens):
         return {"status": "duplicate"}
@@ -2628,6 +2680,9 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
     db[phone] = normalize_conversation(phone, conversa)
     await save_conversations(db, user_id)
     await mark_whatsapp_conversation_updated(user_id, phone)
+    if not is_from_me:
+        from app.modules.whatsapp_team.bridge import incoming as update_team_attendance
+        await update_team_attendance(sys.modules[__name__], user_id, phone, message_id, timestamp)
     event_name = (
         sender_name
         if msg["isGroup"] and not is_from_me
@@ -2850,8 +2905,12 @@ async def _wapi_handle_status_broadcast(user_id: str, data: Dict[str, Any]) -> D
             return {"status": "ignored", "event": "stale_binding"}
         result = await _store_status_payloads_unlocked(user_id, payloads)
     if result["added"]:
+        from app.modules.chat.realtime import publish_change
+        await publish_change(user_id, "status")
         return {"status": "success", "event": "status_broadcast"}
     if result["updated"]:
+        from app.modules.chat.realtime import publish_change
+        await publish_change(user_id, "status")
         return {"status": "success", "event": "status_broadcast"}
     return {"status": "duplicate", "event": "status_broadcast"}
 
@@ -2958,7 +3017,10 @@ async def _wapi_handle_connection_event(
     async with whatsapp_conversation_mutation_lock(user_id):
         if not _webhook_binding_is_current(user_id, data):
             return {"status": "ignored", "event": "stale_binding"}
-        return _wapi_handle_connection(user_id, kind)
+        result = _wapi_handle_connection(user_id, kind)
+    from app.modules.chat.realtime import publish_change
+    await publish_change(user_id, "connection")
+    return result
 
 
 @router.get("/api/chat/conversas")
@@ -2967,6 +3029,10 @@ async def obter_conversas(
     since: int | None = Query(default=None, ge=0),
     limit: int = Query(default=100, ge=1, le=250),
     refresh: bool = Query(default=False),
+    paged: bool = Query(default=False),
+    offset: int = Query(default=0, ge=0, le=50000),
+    search: str = Query(default="", max_length=200),
+    filtros: str = Query(default="", max_length=5000),
     user: dict[str, Any] = Depends(current_user),
 ):
     resolved_user_id = tenant_id(user)
@@ -2982,6 +3048,13 @@ async def obter_conversas(
         resolved_user_id,
         {"conversations": db, "catalog": catalog_cache},
     )
+    if paged is True and since is None:
+        from app.modules.chat.conversation_projection import list_page
+        from app.modules.chat.list_filters import options as filter_options
+        filters, allowed_ids = await filter_options(user, filtros)
+        if wapi_connect.cached_status(resolved_user_id).get("status") == "conectado" and (refresh is True or contact_sync_retry_due(catalog_cache)):
+            schedule_contact_sync(resolved_user_id, force=refresh is True)
+        return list_page(sys.modules[__name__], db, catalog_cache, offset=offset, limit=limit, search=search, filters=filters, allowed_ids=allowed_ids)
     conversation_list_db = {
         conversation_id: conversation
         for conversation_id, conversation in db.items()
@@ -3109,7 +3182,7 @@ def remember_whatsapp_history_error(
 
 
 
-def whatsapp_history_cache_is_fresh(conversation: Dict[str, Any] | None) -> bool:
+def whatsapp_history_cache_is_fresh(conversation: Dict[str, Any] | None, available_at: float = 0) -> bool:
     metadata = (
         conversation.get("metadados")
         if isinstance(conversation, dict) and isinstance(conversation.get("metadados"), dict)
@@ -3121,7 +3194,7 @@ def whatsapp_history_cache_is_fresh(conversation: Dict[str, Any] | None) -> bool
         synced_at = float(metadata.get("historicoSincronizadoEm") or 0)
     except (TypeError, ValueError):
         return False
-    return synced_at > 0 and time.time() - synced_at < WHATSAPP_HISTORY_CACHE_TTL_SECONDS
+    return synced_at > available_at and time.time() - synced_at < WHATSAPP_HISTORY_CACHE_TTL_SECONDS
 
 
 def whatsapp_history_page(
@@ -3129,6 +3202,7 @@ def whatsapp_history_page(
     *,
     before: int | None,
     limit: int,
+    before_id: str | None = None,
 ) -> Dict[str, Any]:
     messages = sorted(
         (
@@ -3136,22 +3210,29 @@ def whatsapp_history_page(
             for message in ((conversation or {}).get("mensagens") or [])
             if isinstance(message, dict)
         ),
-        key=lambda message: int(message.get("timestamp") or 0),
+        key=lambda message: (int(message.get("timestamp") or 0), str(message.get("id") or "")),
     )
     if before is not None:
-        messages = [
-            message
-            for message in messages
-            if int(message.get("timestamp") or 0) < int(before)
-        ]
+        if before_id is None:
+            messages = [message for message in messages if int(message.get("timestamp") or 0) < int(before)]
+        else:
+            messages = [message for message in messages
+                        if (int(message.get("timestamp") or 0), str(message.get("id") or "")) < (int(before), before_id)]
     page = messages[-limit:]
+    metadata = (conversation or {}).get("metadados") or {}
+    provider_more = is_evolution() and metadata.get("historicoTemMais") is True
     return {
-        "items": page,
+        "items": [{**message, "midiaMeta": None,
+                   "miniaturaUrl": public_api_url(f"/api/chat/conversas/{quote(str((conversation or {}).get('id') or ''), safe='')}/mensagens/{quote(str(message.get('id') or ''), safe='')}/miniatura")
+                   if (conversation or {}).get("id") and message.get("tipo") == "midia" and not message.get("visualizacaoUnica")
+                   and isinstance(message.get("midiaMeta"), dict) and message["midiaMeta"].get("thumbnail") else None}
+                  for message in page],
         "cursor": min(
             (int(message.get("timestamp") or 0) for message in page),
-            default=None,
+            default=before if provider_more else None,
         ),
-        "hasMore": len(messages) > len(page),
+        "hasMore": len(messages) > len(page) or provider_more,
+        "cursorId": str(page[0].get("id") or "") if page else before_id,
     }
 
 
@@ -3257,25 +3338,49 @@ async def obter_historico_conversa(
     conversa_id: str,
     before: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
+    beforeId: str | None = Query(default=None, max_length=180),
     user: dict[str, Any] = Depends(current_user),
 ):
     assert_channel_permission(user, "whatsapp")
+    beforeId = beforeId if isinstance(beforeId, str) else None
     resolved_user_id = tenant_id(user)
     db = await load_conversations(resolved_user_id)
     conversation = db.get(conversa_id)
+    from app.modules.chat import message_state
+    local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
+    if isinstance(conversation, dict):
+        conversation["mensagens"] = message_state.apply(local_state, conversa_id, conversation.get("mensagens", []), conversation.get("metadados", {}).get("identityAliases", []))
+    history_available_at = 0
+    if is_evolution():
+        history_catalog = await load_whatsapp_catalog_cache(resolved_user_id)
+        history_available_at = float(history_catalog.get("historyAvailableAt") or 0)
     saved_contact_names: Dict[str, str] = {}
     if is_group_chat(conversa_id, conversation):
         catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
         saved_contact_names = _saved_contact_name_index_from_cache(catalog_cache)
         if isinstance(conversation, dict):
             hydrate_group_message_names(conversation, saved_contact_names)
+            local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
+            conversation["mensagens"] = message_state.apply(local_state, conversa_id, conversation.get("mensagens", []), conversation.get("metadados", {}).get("identityAliases", []))
 
     # Páginas antigas sempre vêm do snapshot já persistido. A W-API não
     # oferece cursor de mensagens; repetir uma chamada remota para cada página
     # não acrescentaria dados e quebraria a paginação determinística.
     if before is not None:
-        return whatsapp_history_page(conversation, before=before, limit=limit)
-    if whatsapp_history_cache_is_fresh(conversation):
+        if is_evolution():
+            from app.modules.chat.private_history import page as private_history_page
+            private_page = await private_history_page(sys.modules[__name__], resolved_user_id, conversa_id, conversation,
+                                                      before=before, before_id=beforeId, limit=limit)
+            if private_page is not None:
+                return private_page
+            from app.modules.chat.history import backfill_older
+            try:
+                return await backfill_older(sys.modules[__name__], resolved_user_id, conversa_id,
+                                            before=before, before_id=beforeId, limit=limit)
+            except WapiError as exc:
+                raise _messaging_http_error(exc, "Não foi possível carregar mensagens anteriores. Tente novamente.") from None
+        return whatsapp_history_page(conversation, before=before, before_id=beforeId, limit=limit)
+    if whatsapp_history_cache_is_fresh(conversation, history_available_at):
         return whatsapp_history_page(conversation, before=None, limit=limit)
 
     async with whatsapp_history_sync_lock(resolved_user_id, conversa_id):
@@ -3285,7 +3390,7 @@ async def obter_historico_conversa(
         conversation = db.get(conversa_id)
         if isinstance(conversation, dict):
             hydrate_group_message_names(conversation, saved_contact_names)
-        if whatsapp_history_cache_is_fresh(conversation):
+        if whatsapp_history_cache_is_fresh(conversation, history_available_at):
             return whatsapp_history_page(conversation, before=None, limit=limit)
 
         creds = wapi_creds(resolved_user_id)
@@ -3352,6 +3457,8 @@ async def obter_historico_conversa(
                 if not _contact_primary_id(provider_chat):
                     provider_chat = {**provider_chat, "id": conversa_id}
                 sync_catalog_messages(latest, provider_chat)
+                local_state = await asyncio.to_thread(message_state.snapshot, sys.modules[__name__], resolved_user_id)
+                latest["mensagens"] = message_state.apply(local_state, conversa_id, latest.get("mensagens", []), latest.get("metadados", {}).get("identityAliases", []))
                 hydrate_group_message_names(latest, saved_contact_names)
                 metadata = latest.setdefault("metadados", {})
                 metadata["historicoSincronizadoEm"] = time.time()
@@ -3367,6 +3474,13 @@ async def obter_historico_conversa(
                 metadata["historicoTemMais"] = whatsapp_history_payload_has_more(
                     provider_payload
                 )
+                if is_evolution():
+                    from app.modules.chat.history import binding_signature
+                    signature = binding_signature(creds[0], binding_created_at)
+                    if metadata.get("historicoVinculo") != signature:
+                        metadata["historicoProximaPagina"] = 2
+                        metadata["historicoAte"] = provider_payload.get("anchor") if isinstance(provider_payload, dict) else None
+                    metadata["historicoVinculo"] = signature
                 latest_db[conversa_id] = normalize_conversation(conversa_id, latest)
                 await save_conversations(latest_db, resolved_user_id)
                 conversation = latest_db[conversa_id]
@@ -3485,14 +3599,15 @@ async def obter_detalhes_conversa(
             latest_db[conversa_id] = normalize_conversation(conversa_id, latest)
             await save_conversations(latest_db, resolved_user_id)
             remember_remote_media_references(resolved_user_id, latest_db[conversa_id])
-            return latest_db[conversa_id]
+            return {**latest_db[conversa_id], "mensagens": []}
 
     normalized = normalize_conversation(conversa_id, conversation)
     if catalog_enriched:
         db[conversa_id] = normalized
         await save_conversations(db, resolved_user_id)
     remember_remote_media_references(resolved_user_id, normalized)
-    return normalized
+    # Profile projection never bypasses the bounded history endpoint.
+    return {**normalized, "mensagens": []}
 
 
 async def _whatsapp_stream_media_legacy(
@@ -3509,12 +3624,18 @@ async def _whatsapp_stream_media_legacy(
         )
 
     resolved_conversation_id: str | None = None
+    historical_message: Dict[str, Any] | None = None
     if not resolved_conversation_id:
         db = await load_conversations(resolved_user_id)
         for candidate_id, conversation in db.items():
             if any(str(item.get("id") or "") == message_id for item in conversation.get("mensagens") or []):
                 resolved_conversation_id = candidate_id
                 break
+    if not resolved_conversation_id:
+        from app.modules.chat.private_history import reference as historical_reference
+        historical = await historical_reference(sys.modules[__name__], resolved_user_id, message_id)
+        if historical:
+            resolved_conversation_id, historical_message = historical
     if not resolved_conversation_id:
         catalog = await load_whatsapp_catalog_cache(resolved_user_id)
         for channel in catalog.get("channels") or []:
@@ -3535,7 +3656,7 @@ async def _whatsapp_stream_media_legacy(
     # A W-API baixa midia por metadados (mediaKey/directPath/type/mimetype) que
     # chegam no webhook de recebimento e ficam salvos em ``midiaMeta`` da mensagem.
     creds = wapi_creds(resolved_user_id)
-    media_meta: Dict[str, Any] | None = None
+    media_meta: Dict[str, Any] | None = (historical_message or {}).get("midiaMeta")
     if resolved_conversation_id:
         db = await load_conversations(resolved_user_id)
         conversation = db.get(resolved_conversation_id) or {}
@@ -3675,6 +3796,36 @@ async def _whatsapp_stream_media_legacy(
         mime_type=mime_type,
         cache_control="private, max-age=86400",
     )
+
+
+@router.get("/api/chat/conversas/{conversa_id}/mensagens/{message_id}/miniatura")
+async def obter_miniatura_whatsapp(conversa_id: str, message_id: str, user: dict = Depends(current_user)):
+    assert_channel_permission(user, "whatsapp")
+    from app.modules.chat.thumbnails import thumbnail_bytes
+    database = await load_conversations(tenant_id(user))
+    conversation = database.get(conversa_id) or {}
+    message = next((item for item in conversation.get("mensagens", []) if item.get("id") == message_id), None)
+    if message is None:
+        from app.modules.chat.private_history import reference as historical_reference
+        historical = await historical_reference(sys.modules[__name__], tenant_id(user), message_id, conversa_id)
+        message = historical[1] if historical else None
+    if not message:
+        raise HTTPException(404, "Miniatura indisponível.")
+    content = await asyncio.to_thread(thumbnail_bytes, message)
+    return Response(content, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})
+
+
+class MessageTranslationPayload(StrictModel):
+    language: Literal["pt-BR", "en", "es", "fr", "de", "it"] = "pt-BR"
+
+
+@router.post("/api/chat/conversas/{conversa_id}/mensagens/{message_id}/traducao")
+async def traduzir_mensagem_whatsapp(conversa_id: str, message_id: str, payload: MessageTranslationPayload,
+                                     user: dict = Depends(current_user)):
+    assert_channel_permission(user, "whatsapp")
+    from app.modules.chat.translation import translate_message
+    from app.modules.nora.router import nora_service
+    return await translate_message(sys.modules[__name__], nora_service, user, conversa_id, message_id, payload.language)
 
 
 @router.get("/api/chat/midia/{message_id}")
@@ -4228,9 +4379,18 @@ async def encaminhar_mensagens(payload: EncaminharMensagensPayload, user: dict[s
             None,
         )
         if source is None:
+            from app.modules.chat.private_history import reference as historical_reference
+            source = await historical_reference(sys.modules[__name__], resolved_user_id, message_id)
+        if source is None:
             raise HTTPException(status_code=404, detail=f"Mensagem {message_id} nao encontrada.")
         sources.append(source)
 
+    return await _forward_authorized_sources(payload, user, sources)
+
+
+async def _forward_authorized_sources(payload, user, sources):
+    """Shared delivery path; callers must authorize the exact sources first."""
+    resolved_user_id = tenant_id(user)
     forwarded_ids: list[str] = []
     for source_conversation_id, source in sources:
         source_type = str(source.get("tipo") or "texto")
@@ -4481,6 +4641,11 @@ async def quoted_message_preview(
             }
     # Respostas a Status são enviadas ao contato, mas o item citado fica no
     # feed separado e não no histórico dessa conversa.
+    from app.modules.chat.private_history import reference as historical_reference
+    historical = await historical_reference(sys.modules[__name__], user_id, message_id, conversation_id)
+    if historical:
+        target = historical[1]
+        return {"id": message_id, "content": target.get("texto") or "", "senderName": target.get("remetenteNome")}
     feed = await load_whatsapp_status_feed(user_id)
     status_item = next(
         (
@@ -4715,6 +4880,8 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
             exc,
             "A API do WhatsApp recusou o envio.",
         ) from exc
+    from app.modules.whatsapp_team.bridge import outgoing as update_team_attendance
+    await update_team_attendance(sys.modules[__name__], user, payload.conversa_id)
     return {"status": result.status, "canal": result.channel}
 
 @router.post("/api/chat/enviar-arquivo")
@@ -4740,6 +4907,8 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
             exc,
             "A API do WhatsApp recusou o envio do arquivo.",
         ) from exc
+    from app.modules.whatsapp_team.bridge import outgoing as update_team_attendance
+    await update_team_attendance(sys.modules[__name__], user, payload.conversa_id)
     return {
         "status": result.status,
         "canal": result.channel,
@@ -4753,6 +4922,8 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
 async def reagir_mensagem(payload: ReagirMensagemPayload, user: dict[str, Any] = Depends(current_user)):
     assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
+    from app.modules.chat.private_history import reference as historical_reference
+    historical = await historical_reference(sys.modules[__name__], resolved_user_id, payload.mensagem_id, payload.conversa_id)
     try:
         await wapi_messaging.react(resolved_user_id, payload.conversa_id, payload.mensagem_id, payload.emoji)
     except (MessagingUnavailable, WapiError) as exc:
@@ -4760,6 +4931,7 @@ async def reagir_mensagem(payload: ReagirMensagemPayload, user: dict[str, Any] =
 
     db = await load_conversations(resolved_user_id)
     conversation = db.get(payload.conversa_id)
+    reaction_target = historical[1] if historical else None
     if isinstance(conversation, dict):
         for message in conversation.get("mensagens") or []:
             if str(message.get("id") or "") != payload.mensagem_id:
@@ -4769,8 +4941,15 @@ async def reagir_mensagem(payload: ReagirMensagemPayload, user: dict[str, Any] =
             if payload.emoji:
                 reactions.append({"emoji": payload.emoji, "count": 1, "fromMe": True, "senders": []})
             message["reacoes"] = reactions
+            reaction_target = message
             await save_conversations(db, resolved_user_id)
             break
+    if reaction_target is not None:
+        reactions = [row for row in reaction_target.get("reacoes", []) if isinstance(row, dict) and not row.get("fromMe")]
+        if payload.emoji:
+            reactions.append({"emoji": payload.emoji, "count": 1, "fromMe": True, "senders": []})
+        from app.modules.chat import message_state
+        await asyncio.to_thread(message_state.update, sys.modules[__name__], resolved_user_id, payload.conversa_id, payload.mensagem_id, {"reacoes": reactions})
     return {"status": "reagido", "emoji": payload.emoji}
 
 
@@ -4788,6 +4967,10 @@ async def editar_mensagem(payload: EditarMensagemPayload, user: dict[str, Any] =
         ),
         None,
     )
+    if target is None:
+        from app.modules.chat.private_history import reference as historical_reference
+        historical = await historical_reference(sys.modules[__name__], resolved_user_id, payload.mensagem_id, payload.conversa_id)
+        target = historical[1] if historical else None
     if target is None:
         raise HTTPException(status_code=404, detail="Mensagem ou conversa nao encontrada.")
     if target.get("remetente") != "usuario":
@@ -4830,12 +5013,18 @@ async def editar_mensagem(payload: EditarMensagemPayload, user: dict[str, Any] =
 async def apagar_mensagem(payload: ApagarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
     assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
+    from app.modules.chat.private_history import reference as historical_reference
+    historical = await historical_reference(sys.modules[__name__], resolved_user_id, payload.mensagem_id, payload.conversa_id)
     try:
         await wapi_messaging.delete(resolved_user_id, payload.conversa_id, payload.mensagem_id, payload.para_todos)
     except (MessagingUnavailable, WapiError) as exc:
         raise _messaging_http_error(exc, "O WhatsApp recusou a exclusao da mensagem.") from exc
     async with whatsapp_conversation_mutation_lock(resolved_user_id):
         sucesso = await delete_message(payload.conversa_id, payload.mensagem_id, resolved_user_id)
+        if sucesso or historical is not None:
+            from app.modules.chat import message_state
+            await asyncio.to_thread(message_state.update, sys.modules[__name__], resolved_user_id, payload.conversa_id, payload.mensagem_id, {"hidden": True})
+            sucesso = True
     if sucesso:
         return {"status": "sucesso"}
     raise HTTPException(status_code=404, detail="Mensagem ou conversa nao encontrada.")
@@ -5349,7 +5538,10 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
         explicit_name = _contact_explicit_saved_name(contato, jid)
         membership = _contact_membership_flag(contato)
         saved_name = _contact_saved_name(contato, jid)
-        if explicit_name:
+        if jid.endswith("@g.us"):
+            nome = _contact_display_name(contato, jid)
+            name_priority = 4 if contato.get("subject") else 1
+        elif explicit_name:
             nome = explicit_name
             name_priority = 3
         elif membership is True and saved_name:

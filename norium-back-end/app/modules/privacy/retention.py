@@ -58,10 +58,21 @@ def maintain_retention(now: datetime | None = None) -> dict[str, int]:
     else:
         paths = list(root.glob("user_*/**/*.json"))
     nora_cutoff, wa_cutoff = _cutoff("NORA", current), _cutoff("WHATSAPP", current)
+    if wa_cutoff:
+        from app.modules.whatsapp_team.retention import maintain
+        counts["retainedMessagesRemoved"] += maintain(wa_cutoff.timestamp())
     for path in paths[:10000]:
         if not pg and path.is_symlink():
             continue
-        if path.name == "nora_conversations_db.json" and nora_cutoff:
+        if path.name.startswith("whatsapp_message_state_") and wa_cutoff:
+            from app.modules.business.store import mutate_path
+            def trim_message_state(payload):
+                rows = payload.get("items", [])
+                retained = [row for row in rows if not isinstance(row, dict) or not (at := _at(row.get("updatedAt"))) or at >= wa_cutoff]
+                payload["items"] = retained
+                return len(rows) - len(retained)
+            counts["retainedMessagesRemoved"] += mutate_path(path, trim_message_state)
+        elif path.name == "nora_conversations_db.json" and nora_cutoff:
             payload = read_json_file(path, {})
             rows = payload.get("conversations", []) if isinstance(payload, dict) else []
             removed = [row for row in rows if isinstance(row, dict) and (at := _at(row.get("updatedAt"))) and at < nora_cutoff]

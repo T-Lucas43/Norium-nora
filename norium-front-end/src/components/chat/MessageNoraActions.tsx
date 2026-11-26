@@ -3,7 +3,8 @@ import { Check, Clipboard, ListChecks, Loader2, Sparkles, WandSparkles, X } from
 
 import Button from "../shared/Button";
 import type { MsgConteudo } from "./types";
-import { noraChatApi } from "./noraChatApi";
+import { noraChatApi, inboxNoraChatApi } from "./noraChatApi";
+import { useWhatsAppScope } from "./WhatsAppScope";
 import { noraDraftForInsertion } from "./noraDraft";
 import { messageTaskApi, type MessageTaskProject } from "./messageTaskApi";
 
@@ -30,6 +31,8 @@ function suggestedTitle(message: MsgConteudo) {
 }
 
 export default function MessageNoraActions({ conversationId, request, onClose, onUseReply, onFeedback }: MessageNoraActionsProps) {
+  const { inboxId } = useWhatsAppScope();
+  const api = useMemo(() => inboxId ? inboxNoraChatApi(inboxId) : noraChatApi, [inboxId]);
   const [draft, setDraft] = useState("");
   const [improvement, setImprovement] = useState("");
   const [loading, setLoading] = useState(false);
@@ -60,7 +63,7 @@ export default function MessageNoraActions({ conversationId, request, onClose, o
         if (request.mode === "task") {
           const [availableProjects, description] = await Promise.all([
             messageTaskApi.listProjects(),
-            noraChatApi.runCustomAction(
+            api.runCustomAction(
               conversationId,
               `Transforme somente a mensagem abaixo em uma descrição objetiva de tarefa. Preserve fatos, não invente dados e não execute ainda.\n\nMensagem: ${content}`,
             ),
@@ -74,7 +77,7 @@ export default function MessageNoraActions({ conversationId, request, onClose, o
         const instruction = request.mode === "reply"
           ? `Sugira uma resposta direta e adequada somente para a mensagem abaixo. Retorne apenas o texto da resposta e não envie.\n\nMensagem: ${content}`
           : `Resuma somente a mensagem abaixo, preservando fatos, pedidos e prazos. Não execute ações.\n\nMensagem: ${content}`;
-        const result = await noraChatApi.runCustomAction(conversationId, instruction);
+        const result = await api.runCustomAction(conversationId, instruction);
         if (requestId === requestIdRef.current) setDraft(result);
       } catch (loadError) {
         if (requestId === requestIdRef.current) setError(loadError instanceof Error ? loadError.message : "A Nora não conseguiu analisar a mensagem.");
@@ -84,7 +87,7 @@ export default function MessageNoraActions({ conversationId, request, onClose, o
     };
     void load();
     return () => { requestIdRef.current += 1; };
-  }, [conversationId, request]);
+  }, [conversationId, request, api]);
 
   if (!request) return null;
 
@@ -94,7 +97,7 @@ export default function MessageNoraActions({ conversationId, request, onClose, o
     setLoading(true);
     setError(null);
     try {
-      setDraft(await noraChatApi.improveDraft(conversationId, draft, instruction));
+      setDraft(await api.improveDraft(conversationId, draft, instruction));
       setImprovement("");
     } catch (improveError) {
       setError(improveError instanceof Error ? improveError.message : "Não foi possível melhorar o texto.");

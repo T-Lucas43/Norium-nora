@@ -94,6 +94,8 @@ PERMISSION_KEYS = (
     "integracao_whatsapp",
     "integracao_agenda",
     "integracao_financeiro",
+    "whatsapp.atender",
+    "whatsapp.ver_todas",
 )
 
 DEFAULT_MEMBER_PERMISSIONS = {
@@ -119,6 +121,8 @@ DEFAULT_MEMBER_PERMISSIONS = {
     "integracao_whatsapp": False,
     "integracao_agenda": False,
     "integracao_financeiro": False,
+    "whatsapp.atender": False,
+    "whatsapp.ver_todas": False,
 }
 
 OWNER_PERMISSIONS = {key: True for key in PERMISSION_KEYS}
@@ -135,6 +139,8 @@ INDIVIDUAL_PERMISSIONS = {
     **OWNER_PERMISSIONS,
     "equipe": False,
     "admin": False,
+    "whatsapp.atender": False,
+    "whatsapp.ver_todas": False,
 }
 
 EQUIPE_PERMISSIONS = {

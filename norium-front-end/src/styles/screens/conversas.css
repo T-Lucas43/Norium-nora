@@ -12,7 +12,9 @@
   --text: var(--nx-text) !important;
   --text-primary: var(--nx-text) !important;
   --text-secondary: var(--nx-text-2) !important;
-  --nx-bubble: #dbeafe;
+  --nx-bubble: #d9fdd3;
+  --nx-whatsapp-wallpaper: #efeae2;
+  --nx-whatsapp-dot: rgba(110, 94, 73, 0.07);
   color: var(--nx-text);
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
@@ -20,7 +22,9 @@
 
 .dark .nx-conv,
 :root[data-theme="dark"] .nx-conv {
-  --nx-bubble: #1e3a6e;
+  --nx-bubble: #173b2c;
+  --nx-whatsapp-wallpaper: #0b0f13;
+  --nx-whatsapp-dot: rgba(255, 255, 255, 0.035);
 }
 
 /* Pesos 400-600, cantos 8-12px e sombras leves, como no layout. */
@@ -63,7 +67,7 @@
   height: 18px;
   place-items: center;
   border-radius: 999px;
-  background: var(--nx-primary);
+  background: #25d366;
   padding: 0 6px;
   color: #fff;
   font-size: 11px;
@@ -221,7 +225,7 @@
   padding: 0 20px;
 }
 
-.nx-conv .norium-chat-wallpaper { background-color: var(--nx-bg) !important; }
+.nx-conv .norium-chat-wallpaper { background-color: var(--nx-whatsapp-wallpaper) !important; }
 
 .nx-conv .norium-message-bubble {
   max-width: min(62%, 620px) !important;
@@ -383,3 +387,167 @@
   .nx-conv .norium-chat-composer .nx-conv-tools button { width: auto !important; min-width: 30px !important; height: 30px !important; }
   .nx-conv .norium-chat-composer input.nx-conv-composer-input { height: 38px !important; padding-inline: 0 !important; }
 }
+
+/* Proposta WhatsApp 21/10: 60 | 330 | conversa | cliente 320. */
+.norium-chat.nx-conv > .norium-chat-sidebar { width: 330px; min-width: 330px; flex: 0 0 330px; }
+.norium-chat.nx-conv > .norium-chat-details { width: 320px; min-width: 320px; padding: 0; }
+.norium-chat.nx-conv > .norium-chat-details > div:first-child { height: 72px; padding: 0 18px; }
+.norium-chat.nx-conv .norium-chat-details-scroll { padding: 16px; }
+.norium-chat.nx-conv .norium-chat-thread { min-width: 0; container-type: inline-size; }
+.nx-whatsapp-list-title { display: flex; min-width: 0; align-items: center; gap: 7px; }
+.nx-whatsapp-connection { flex: none; border-radius: 20px; padding: 3px 7px; background: var(--nx-danger-soft); color: var(--nx-danger); font-size: 10px; }
+.nx-whatsapp-connection::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: currentColor; }
+.nx-whatsapp-connection.is-connected { background: color-mix(in srgb, #25d366 12%, transparent); color: #128c49; }
+.dark .nx-whatsapp-connection.is-connected { color: #25d366; }
+.nx-whatsapp-labels { display: flex; min-height: 18px; min-width: 0; align-items: center; flex-wrap: wrap; gap: 4px; }
+.nx-whatsapp-tag { display: inline-flex; max-width: 140px; align-items: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 20px; padding: 2px 7px; color: color-mix(in srgb, var(--contact-tag-color) 83%, #111); background: color-mix(in srgb, var(--contact-tag-color) 16%, transparent); font-size: 10.5px; font-weight: 500; line-height: 15px; }
+.dark .nx-whatsapp-tag { color: color-mix(in srgb, var(--contact-tag-color) 65%, white); background: color-mix(in srgb, var(--contact-tag-color) 20%, transparent); }
+.nx-whatsapp-tag-overflow { color: var(--nx-text-3); font-size: 10px; }
+.nx-whatsapp-add-tag { display: grid; height: 23px; width: 23px; place-items: center; border-radius: 50%; color: var(--nx-text-3); }
+.nx-whatsapp-add-tag:hover { background: var(--nx-hover); color: var(--nx-text); }
+.nx-whatsapp-header-tags { flex: none; padding: 2px 18px 5px; border-bottom: 1px solid var(--nx-border); background: var(--nx-surface); }
+.nx-conv .nx-conv-row { height: 92px; min-height: 92px; padding: 10px 14px; border-bottom: 1px solid var(--nx-border); }
+.nx-conv-row > .nx-conv-av { height: 42px; width: 42px; flex-shrink: 0; border-radius: 50%; }
+.nx-conv-row .nx-conv-count { background: #25d366; color: #fff; }
+.nx-conv-row:focus-visible { outline: 2px solid var(--nx-primary); outline-offset: -3px; }
+.nx-conv .business-conversation-header { padding: 14px 14px 10px; }
+.nx-conv .business-conversation-header > .nx-conv-seg { background: transparent; padding: 0; gap: 3px; }
+.nx-conv .business-conversation-header .business-conversation-labels .business-note { font-size: 11px; }
+.nx-whatsapp-thread-header { height: 72px; padding: 0 18px; }
+.nx-whatsapp-contact-title { display: flex; min-width: 0; align-items: center; gap: 10px; text-align: left; }
+.nx-whatsapp-contact-title > span { display: grid; min-width: 0; gap: 3px; }
+.nx-whatsapp-contact-title strong, .nx-whatsapp-contact-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-whatsapp-contact-title strong { font-size: 14px; font-weight: 600; }
+.nx-whatsapp-contact-title small { color: var(--nx-text-3); font-size: 11.5px; }
+.nx-whatsapp-header-actions { display: flex; flex: none; align-items: center; gap: 4px; margin-left: auto; }
+.nx-whatsapp-header-menu { position: relative; }
+.nx-whatsapp-header-menu > summary { list-style: none; }
+.nx-whatsapp-header-menu > summary::-webkit-details-marker { display: none; }
+.nx-whatsapp-header-menu > .nx-conv-menu { position: absolute; top: 36px; right: 0; z-index: 60; width: 230px; padding: 5px; }
+.nx-whatsapp-header-menu .nx-conv-menu button { display: flex; width: 100%; align-items: center; gap: 8px; padding: 9px; border-radius: 5px; text-align: left; font-size: 12px; }
+.nx-whatsapp-header-menu .nx-whatsapp-overflow-search, .nx-whatsapp-back { display: none; }
+.norium-chat.nx-conv .norium-chat-composer { padding: 0 !important; border-top: 1px solid var(--nx-border); background: var(--nx-surface); }
+.nx-whatsapp-composer-mode { display: flex; min-height: 42px; align-items: center; gap: 8px; padding: 6px 16px 0; }
+.nx-whatsapp-reply-mode { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--nx-border); border-radius: 6px; padding: 4px 8px; color: var(--nx-text); font-size: 11px; }
+.nx-whatsapp-composer-mode > small { margin-left: auto; color: var(--nx-text-3); font-size: 10px; }
+.norium-chat.nx-conv .nx-conv-composer-box { border: 0; border-radius: 0; background: transparent; padding: 9px 14px 14px; }
+.nx-whatsapp-input-row { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.norium-chat.nx-conv .nx-whatsapp-input-row .nx-conv-composer-input { flex: 1; width: 0; min-width: 0; height: 42px !important; padding: 0 12px !important; border: 1px solid var(--nx-border-strong); border-radius: 14px; background: var(--nx-surface); font-size: 12px; }
+.nx-whatsapp-input-row .nx-conv-composer-input:focus { border-color: var(--nx-primary); outline: 2px solid var(--nx-primary-soft); }
+.norium-chat.nx-conv .nx-conv-send { width: 42px; height: 42px; border-radius: 50%; background: #25d366; color: #fff; }
+.norium-chat.nx-conv .nx-conv-send.is-recording { background: var(--nx-danger); }
+.nx-whatsapp-attachments { position: relative; flex: none; }
+.nx-whatsapp-attachments > summary { list-style: none; }
+.nx-whatsapp-attachments > summary::-webkit-details-marker { display: none; }
+.nx-whatsapp-attachments > .nx-conv-menu { position: absolute; bottom: 42px; left: 0; z-index: 80; display: flex; width: 240px; max-width: calc(100vw - 70px); flex-direction: column; padding: 5px; }
+.nx-whatsapp-attachments > .nx-conv-menu > button { display: flex; width: 100%; align-items: center; gap: 8px; padding: 10px; border-radius: 5px; font-size: 12px; text-align: left; }
+.norium-chat.nx-conv .norium-chat-message-scroll { padding: 20px 24px; }
+.nx-conv-day { display: table; margin: 12px auto; padding: 4px 11px; border: 1px solid var(--nx-border); border-radius: 8px; background: var(--nx-surface); }
+@container (max-width: 590px) {
+  .nx-whatsapp-header-inline, .nx-whatsapp-channel { display: none; }
+  .nx-whatsapp-header-menu .nx-whatsapp-overflow-search { display: flex; }
+}
+@media (min-width: 768px) and (max-width: 1279px) {
+  .norium-chat.nx-conv > .norium-chat-details { position: absolute; inset: 0 0 0 auto; z-index: 55; width: 320px; box-shadow: -12px 0 35px #0002; }
+}
+@media (max-width: 767px) {
+  .norium-chat.nx-conv > .norium-whatsapp-rail { width: 44px; padding: 12px 3px; }
+  .norium-chat.nx-conv .nx-conv-rail-btn { width: 36px; height: 38px; }
+  .norium-chat.nx-conv > aside.norium-chat-sidebar { position: absolute !important; inset: 0 0 0 44px !important; display: none; width: calc(100% - 44px) !important; min-width: 0; max-width: none !important; height: 100%; transform: none !important; z-index: 40; }
+  .norium-chat.nx-conv.mobile-sidebar-open > aside.norium-chat-sidebar { display: flex; }
+  .norium-chat.nx-conv.mobile-sidebar-open > .norium-chat-thread { visibility: hidden; }
+  .norium-chat.nx-conv > aside.norium-chat-details { position: absolute !important; inset: 0 !important; z-index: 70; width: 100% !important; min-width: 0; height: 100%; transform: none !important; border: 0; }
+  .nx-whatsapp-back { display: grid; flex: none; }
+  .nx-whatsapp-thread-header { height: 64px; padding: 0 8px; gap: 5px; }
+  .nx-whatsapp-contact-title { gap: 6px; }
+  .nx-whatsapp-contact-title strong { font-size: 13px; }
+  .nx-whatsapp-contact-title small { max-width: 150px; font-size: 10px; }
+  .nx-whatsapp-header-tags { padding-inline: 10px; }
+  .norium-chat.nx-conv .norium-chat-message-scroll { padding: 12px 10px; }
+  .norium-chat.nx-conv .norium-message-bubble { max-width: 92% !important; }
+  .norium-chat.nx-conv .norium-chat-composer { padding-bottom: max(10px, env(safe-area-inset-bottom)) !important; }
+  .nx-whatsapp-composer-mode { padding-inline: 10px; gap: 4px; }
+  .nx-whatsapp-composer-mode > small { display: none; }
+  .norium-chat.nx-conv .nx-conv-composer-box { padding: 8px; }
+  .nx-whatsapp-input-row { gap: 2px; }
+}
+
+/* Search keeps context visible and moves between loaded matches. */
+.nx-whatsapp-message-search { display:flex; align-items:center; gap:4px; padding:10px 16px; flex:none; border-bottom:1px solid var(--nx-border); background:var(--nx-surface); }
+.nx-whatsapp-search-count { font-size:11px; color:var(--nx-text-2); white-space:nowrap; padding:0 4px; }
+.nx-conv mark { background:#fde68a; color:#1c1917; border-radius:2px; }
+.nx-conv [data-search-active] .nx-conv-bubble { outline:2px solid var(--nx-primary); outline-offset:3px; }
+@media(max-width:767px) { .nx-whatsapp-message-search { padding:8px; gap:2px; } .nx-whatsapp-message-search .nx-conv-iconbtn { width:28px; min-width:28px; } }
+.nx-whatsapp-media-preview { display:grid; position:relative; min-width:160px; min-height:100px; max-width:100%; border-radius:8px; overflow:hidden; background:var(--nx-hover); cursor:zoom-in; }
+.nx-whatsapp-media-preview img { max-height:260px; max-width:100%; object-fit:contain; }
+.nx-whatsapp-media-preview > span { display:flex; gap:8px; align-items:center; justify-content:center; padding:24px; font-size:12px; }
+.nx-whatsapp-media-expand { position:absolute; right:8px; top:8px; }
+.nx-whatsapp-video-play { position:absolute; top:calc(50% - 13px); left:calc(50% - 13px); }
+.nx-whatsapp-gallery { position:fixed; inset:0; z-index:250; display:flex; flex-direction:column; background:#090b10f5; color:#f8fafc; padding:16px; }
+.nx-whatsapp-gallery header { display:flex; align-items:center; gap:8px; min-width:0; }
+.nx-whatsapp-gallery header strong { font-size:14px; } .nx-whatsapp-gallery header p { font-size:12px; color:#b3bac8; }
+.nx-whatsapp-gallery button,.nx-whatsapp-gallery a { display:inline-flex; align-items:center; justify-content:center; flex:none; min-width:40px; min-height:40px; border-radius:8px; color:inherit; }
+.nx-whatsapp-gallery button:hover,.nx-whatsapp-gallery a:hover { background:#ffffff14; } .nx-whatsapp-gallery button:disabled,.nx-whatsapp-gallery [aria-disabled=true] { opacity:.3; pointer-events:none; }
+.nx-whatsapp-gallery-stage { display:flex; align-items:center; gap:8px; min-height:0; flex:1; }
+.nx-whatsapp-gallery-content { display:flex; align-items:center; justify-content:center; height:100%; min-height:0; min-width:0; flex:1; }
+.nx-whatsapp-gallery-content img,.nx-whatsapp-gallery-content video { max-width:100%; max-height:100%; object-fit:contain; }
+.nx-whatsapp-gallery-caption { text-align:center; font-size:12px; max-height:3em; overflow:auto; padding:8px; }
+.nx-whatsapp-gallery nav { display:flex; gap:8px; justify-content:flex-start; overflow-x:auto; min-height:64px; padding:8px; margin:auto; max-width:100%; }
+.nx-whatsapp-gallery .nx-whatsapp-gallery-thumb { width:56px; height:48px; border:1px solid #ffffff22; background:#ffffff08; overflow:hidden; }
+.nx-whatsapp-gallery-thumb img { width:100%; height:100%; object-fit:cover; }
+.nx-whatsapp-gallery-thumb[aria-current=true] { border:2px solid #25d366; }
+@media(max-width:767px) { .nx-whatsapp-gallery { padding:8px; } .nx-whatsapp-gallery-stage { gap:0; } .nx-whatsapp-gallery-stage > button { min-width:28px; width:28px; } }
+.nx-whatsapp-list-filters { display:flex; align-items:flex-start; gap:8px; min-width:0; }
+.nx-whatsapp-filter-select { flex:1; min-width:0; width:100%; height:30px; border:1px solid var(--nx-border); background:var(--nx-surface-2); border-radius:8px; padding:0 8px; color:var(--nx-text); font-size:12px; }
+.nx-whatsapp-list-tools { position:relative; flex:none; }
+.nx-whatsapp-list-tools > summary { height:30px; font-size:11px; white-space:nowrap; }
+.nx-whatsapp-list-tools-menu { position:absolute; top:36px; right:0; width:276px; padding:12px; display:flex; flex-direction:column; align-items:flex-start; gap:10px; background:var(--nx-surface); border:1px solid var(--nx-border); border-radius:10px; box-shadow:0 12px 24px #0003; z-index:60; }
+.nx-whatsapp-list-tools-menu .business-conversation-labels { margin:0; }
+.nx-whatsapp-list-filters:has(.nx-whatsapp-list-tools[open]) { flex-wrap:wrap; }
+.nx-whatsapp-list-tools[open] { flex-basis:100%; }
+.nx-whatsapp-list-tools[open] .nx-whatsapp-list-tools-menu { position:static; width:100%; margin-top:8px; box-shadow:none; }
+.nx-conv .business-conversation-header:has(.nx-whatsapp-list-tools[open]) { max-height:70%; }
+.nx-conv .business-conversation-header { padding:16px 14px 12px; }
+.nx-conv-row:has(.nx-conv-count) .min-w-0 > .mt-0\.5 > span { font-weight:600; }
+/* Override legacy mobile rail rules: all six destinations remain reachable. */
+@media(max-width:767px) {
+  .norium-chat.nx-conv { padding-bottom:calc(58px + env(safe-area-inset-bottom)) !important; }
+  .norium-chat.nx-conv > .norium-whatsapp-rail { position:absolute !important; inset:auto 0 0 !important; display:flex !important; flex-direction:row !important; justify-content:space-between; width:100% !important; height:calc(58px + env(safe-area-inset-bottom)) !important; padding:6px 4px max(6px, env(safe-area-inset-bottom)) !important; background:var(--nx-surface) !important; border-top:1px solid var(--nx-border); }
+  .norium-chat.nx-conv > .norium-whatsapp-rail > div:first-child { display:flex !important; flex-direction:row !important; width:calc(100% - 86px) !important; justify-content:space-around; gap:0 !important; }
+  .norium-chat.nx-conv > .norium-whatsapp-rail > div:last-child { display:flex !important; flex-direction:row !important; width:84px !important; gap:2px !important; margin:0 !important; }
+  .norium-chat.nx-conv > .norium-whatsapp-rail button { width:38px !important; height:40px !important; }
+  .norium-chat.nx-conv > aside.norium-chat-sidebar { inset:0 0 calc(58px + env(safe-area-inset-bottom)) !important; width:100% !important; height:auto !important; border:0 !important; }
+  .norium-chat.nx-conv > aside.norium-chat-details { bottom:calc(58px + env(safe-area-inset-bottom)) !important; height:auto !important; }
+  .norium-chat.nx-conv.mobile-sidebar-open > .mobile-sidebar-toggle { display:none !important; }
+  .norium-chat.nx-conv .module-sidebar-mobile-header { display:none; }
+}
+@media(min-width:768px) and (max-width:900px) {
+  .norium-chat.nx-conv { padding-bottom:0 !important; }
+  .norium-chat.nx-conv > .norium-whatsapp-rail { position:static !important; inset:auto !important; width:60px !important; height:100% !important; flex-direction:column !important; padding:16px 8px !important; background:var(--nx-surface) !important; }
+  .norium-chat.nx-conv > .norium-whatsapp-rail > div:first-child { display:flex !important; flex-direction:column !important; width:100% !important; }
+  .norium-chat.nx-conv > .norium-whatsapp-rail > div:last-child { width:auto !important; margin-top:auto !important; flex-direction:column !important; }
+}
+.norium-chat.nx-conv .business-conversation-header h2 { display:block !important; }
+@media(min-width:768px) {
+  .norium-chat.nx-conv > aside.norium-chat-sidebar { position:static !important; inset:auto !important; display:flex !important; width:330px !important; min-width:330px !important; max-width:330px !important; height:100% !important; transform:none !important; border-radius:0 !important; }
+  .norium-chat.nx-conv > .mobile-sidebar-toggle,.norium-chat.nx-conv > .mobile-sidebar-backdrop { display:none !important; }
+}
+@container(max-width:590px) { .nx-conv .nx-whatsapp-channel { display:none; } }
+@media(max-width:767px) {
+  .norium-chat.nx-conv.has-active-conversation > .mobile-sidebar-toggle { display:none !important; }
+  .norium-chat.nx-conv .nx-whatsapp-channel { display:none !important; }
+  .norium-chat.nx-conv .nx-whatsapp-composer-mode [aria-label="Abrir ações da Nora"] { width:auto !important; min-width:0 !important; height:26px !important; white-space:nowrap; }
+  .norium-chat.nx-conv .nx-whatsapp-composer-mode [aria-label="Abrir ações da Nora"] > span { white-space:nowrap; }
+}
+.norium-chat.nx-conv { --primary:var(--nx-primary) !important; }
+@media(min-width:768px) and (max-width:1279px) {
+  .norium-chat.nx-conv > aside.norium-chat-details { width:320px !important; min-width:320px !important; max-width:320px !important; }
+}
+.nx-whatsapp-translation-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 14px; border-bottom:1px solid var(--nx-border); background:var(--nx-surface); font-size:12px; }
+.nx-whatsapp-translation-toolbar label { display:flex; align-items:center; gap:8px; }
+.nx-whatsapp-translation-toolbar select { border:1px solid var(--nx-border); border-radius:5px; padding:4px; background:var(--nx-surface); }
+.nx-whatsapp-translation-toolbar small { color:var(--nx-text-3); font-size:10px; }
+.nx-whatsapp-message-translation { margin-top:8px; padding-top:7px; border-top:1px dashed var(--nx-border); font-size:12px; }
+.nx-whatsapp-message-translation small { display:block; font-size:10px; opacity:.65; margin:4px 0; }
+.nx-whatsapp-message-translation button { display:inline-flex; gap:4px; align-items:center; font-size:11px; opacity:.85; }
+.nx-whatsapp-message-translation p { white-space:pre-wrap; overflow-wrap:anywhere; }

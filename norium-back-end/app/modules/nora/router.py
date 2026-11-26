@@ -1971,7 +1971,7 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
         "explique esse vazio com o humor da Nora e nao invente nomes, fatos, combinados ou contexto."
     )
 
-    resposta_ia = await nora_service.perguntar_nora([{"role": "user", "content": prompt_contexto}])
+    resposta_ia = await nora_service.perguntar_nora([{"role": "user", "content": prompt_contexto}], user_id=resolved_user_id)
 
     return {"response": resposta_ia, "whatsapp_enviado": False}
 
@@ -1998,7 +1998,7 @@ async def resumir_conversa(conversa_id: str = Query(..., description="ID da conv
             ),
         }
     ]
-    resumo = await nora_service.perguntar_nora(prompt_resumo)
+    resumo = await nora_service.perguntar_nora(prompt_resumo, user_id=tenant_id(user))
     return {"resumo": resumo, "empty_context": False}
 
 

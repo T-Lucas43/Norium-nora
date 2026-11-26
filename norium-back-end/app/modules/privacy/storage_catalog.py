@@ -32,6 +32,10 @@ ROW_SCOPES = {
     "norium_outbound_receipts": "user_id", "nora_knowledge_embeddings": "tenant|user_id",
     "norium_business_jobs": "user_id",
     "norium_public_links": "user_id",
+    "norium_whatsapp_team_inboxes": "tenant_id",
+    "norium_whatsapp_team_assignments": "tenant_id",
+    "norium_whatsapp_team_events": "tenant_id",
+    "norium_whatsapp_team_notes": "tenant_id",
 }
 NON_PERSONAL_TABLES = {"rates", "metadata", "nora_schema", "nora_internal_nonces", "sqlite_sequence", "wapi_binding_metadata", "evolution_binding_metadata"}
 SPECIAL_COVERAGE = {"scheduling_holds", "nora_tombstones", "norium_auth_accounts", "norium_auth_sessions", "norium_auth_events", "norium_auth_credentials"}
